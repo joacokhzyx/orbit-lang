@@ -1,0 +1,21 @@
+// A call into an IMPORTED file is the same shape as a call into a later
+// declaration of the same file, and the pass had no answer for it: the
+// signature table was filled from the one program text the frontend was handed,
+// so `later` above is a name nothing had typed, its load reported E2001, and
+// `tirCanonical` prints nothing while an error-severity diagnostic exists.
+//
+// The frontend reads the file's `import` lines and registers the declarations
+// they name before lowering any body. It does not lower the imported bodies:
+// this text is the TIR of the file named on the command line, and the imported
+// function appears in it only as the name the source writes.
+//
+// The golden is the same eight lines as tests/frontend/expected/forward_call.tir
+// minus `function 1`, which is the assertion that the boundary widened for the
+// name and not for the whole program.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "import \"imported_pair.orb\"  fn useIt(n: int) -> int { return later(n) }"
+    val importedSource = "fn later(n: int) -> int { return n + 1 }"
+    print(compileFrontendSource("fixture", source))
+}

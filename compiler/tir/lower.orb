@@ -903,8 +903,37 @@ fn lowerFunction(module: TirModule, declaration: FunctionDeclNode) {
     lowerStatement(module, function, entry, bindings, declaration.body, -1, -1)
 }
 
+// The declarations the imported files carry, read before any body of this file
+// is lowered. Signatures and models are the two tables a body asks, and both
+// collectors only add, so running them over another program's declarations
+// widens the answers without lowering a single foreign body: the text this pass
+// prints stays the text of the file named on the command line.
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, BlockNode, BreakNode, ConfigDeclNode, ConstDeclNode, ContinueNode, DecoratorNode, EmptyNode, ExpressionStmtNode, FieldDeclNode, FieldInitNode, ForNode, FunctionDeclNode, GenericParamNode, IfNode, ImportStmtNode, IndexAccessNode, InterpNode, ListLiteralNode, LiteralNode, MatchCaseNode, MatchNode, MemberAccessNode, MigrationDeclNode, ModelDeclNode, ObjectLiteralNode, ProgramNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypeAnnotationNode, TypedLiteralNode, UnaryOpNode, UseStmtNode, VarDeclNode, WhileNode
+fn registerImportedDeclarations(module: TirModule, programs: list < ASTNode >) {
+    var i = 0
+    while i < programs.len() {
+        val node: ASTNode = programs.get(i)
+        match node {
+            ASTNode.Program(program) => {
+                collectSignatures(module, program)
+                collectModels(module, program)
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+}
+
 fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
+    return lowerProgramWithImportsToTir(moduleName, root, [])
+}
+
+// `imported` is the parsed program of each file this one imports, at any depth.
+// A name declared there is a name this file can call; a body written there is
+// not this file's text.
+fn lowerProgramWithImportsToTir(moduleName: string, root: ASTNode, imported: list < ASTNode >) -> TirModule {
     val module = initTirModule(moduleName)
+    registerImportedDeclarations(module, imported)
     match root {
         ASTNode.Program(program) => {
             collectSignatures(module, program)

@@ -729,17 +729,17 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 17,388 | **16.5%** |
+| instructions the front end types `unknown` | 17,410 | **16.5%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 7,663 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 7,673 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 963), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 4,560) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,202). Their sum, 17,388, is the whole unknown count. The five
+(member read, 4,565) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 4,209). Their sum, 17,410, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:417`, `:430`, `:438`, `:451` and `:489`, and
 each sits on the branch that emits the instruction.
 
@@ -748,29 +748,30 @@ guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:72`) answers a
 call from the function the file itself declares, so the `call` class fell from
 6,756 to 4,259; a `val` bound to such a call carries that type into every later
 load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
-writes as a `bind` instead of giving up on. What the table still cannot answer is a call into another file: the lowering
-sees one module's declarations. `len`, the runtime builtins and a short list of
-names written into this file cover those, and 4,202 calls stay untyped.
-The same boundary shows on the load side: the frontend refuses `builder.orb`
-with an unknown identifier for `initIRModule`, which `compiler/ir/ir.orb:290`
-declares. Sorting the loads by name is a census line now: the probe prints one
-`NAME` per distinct E2001 message and the driver sorts each identifier by where
-a definition of it lives. Measured 2026-11-04 over the same corpus, 3,203 of the
-7,663 read a name the file itself declares, and the five largest of those are
-`f`, `instr`, `t`, `n` and `cbTop`. 2,431 read a name from a file this one
-imports, 1,754 a name declared elsewhere in the corpus, and 275 a name no corpus
-file declares, led by `NULL` with 82. The four buckets sum to the E2001 count,
-which is the check the sort carries. 3,212 of the 7,663 are echoes: the reading
-function binds that name, so the value bound into it is what has no type. The
-other 4,451 read a name that function never binds, and that group has one
-mechanism:
-`orbit frontend` never resolves imports, because `compiler/tir/entry.orb:6`
-imports the parser, the lowering and the formatter and no resolver, while
-`orbit build` runs `compiler/front/resolver.orb` first
-(`compiler/host/pipeline.orb:7`). The same file therefore types its own calls in
-one command and not in the other. Teaching the frontend path to read imported
-declarations is the largest single lever left in this section: 2,431 loads and
-the 4,202 untyped calls sit behind it.
+writes as a `bind` instead of giving up on. A call into another file answers
+too, since 2026-11-04: `compiler/tir/entry.orb` reads the file's `import` lines,
+parses each imported program and registers its signatures and models before any
+body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
+`load int later` and `call int` instead of reporting E2001 and suppressing the
+file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
+the file named on the command line. 4,209 calls still stay untyped, and they
+name what has no declaration to read.
+
+Sorting the loads by name is a census line: the probe prints one `NAME` per
+distinct E2001 message and the driver sorts each identifier by where a definition
+of it lives. Measured 2026-11-04, 3,208 of the 7,673 read a name the file itself
+declares, and the five largest of those are `f`, `instr`, `t`, `n` and `cbTop`.
+2,436 read a name from a file this one imports, 1,754 a name declared elsewhere
+in the corpus, and 275 a name no corpus file declares, led by `NULL` with 82.
+The four buckets sum to the E2001 count, which is the check the sort carries.
+
+The other split says which of them is work. 3,217 are echoes: the reading
+function binds that name, so it is the value bound into it that has no type. The
+other 4,456 read a name that function never binds, and the largest of them is
+`TokType` with 582. An enum is a `TypeDeclNode`, and `collectSignatures`
+(`compiler/tir/lower.orb:89`) declares that node as one it does not arm, so the
+name of a type is not in either table. That is the next class to open, and the
+runtime externs sit in the same list.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
@@ -792,7 +793,7 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 669 times on this corpus, down from 9,233. It is not in the
+<node>" fired 671 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
@@ -851,7 +852,7 @@ its written type. On 2026-11-03 two more field types became answers: one declare
 for a list literal, and a field whose type names another model this file
 declares answers that written name, so `o.i.n` reads both hops. 1,050
 instructions left the unknown count with the first step, and the rate moved from
-19.3% to 18.3% (193 per mille to 183). 4,560 reads are still untyped: a model
+19.3% to 18.3% (193 per mille to 183). 4,565 reads are still untyped: a model
 declared in another file, a union, and one element of a list -- the element kind
 is not claimed, because this pass keeps no table for it.
 `tests/frontend/field_read.orb`, `tests/frontend/nested_field_read.orb` and
@@ -906,12 +907,13 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
-What is left of the class list is `Match` 301, the chained `MemberAccess` 211,
+What is left of the class list is `Match` 303, the chained `MemberAccess` 211,
 `Try` 93 and `If` 30. After them, a `for` over a value with no element type 20,
 `IndexAccess` 8 reads and 2 writes, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read: 17,388 unknown over 105,644 instructions on
-2026-11-03, against 20,005 over 103,333 on 2026-11-02 and 25,489 over 86,942 at
+the rate is what to read: 17,410 unknown over 105,754 instructions on
+2026-11-04, against 17,388 over 105,644 on 2026-11-03, 20,005 over 103,333 on
+2026-11-02 and 25,489 over 86,942 at
 the start of that day.
 The ratchet reads the rate. Worst file by share of unknown instructions:
 `compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
@@ -941,15 +943,15 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 27/27
+## The frontend gate is 28/28
 
-`scripts/frontend_gate.py` runs 27 fixtures and all 27 pass (two of
+`scripts/frontend_gate.py` runs 28 fixtures and all 28 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 22 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 23 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the

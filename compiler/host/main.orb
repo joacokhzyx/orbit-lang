@@ -75,9 +75,9 @@ fn runFrontend() {
         return
     }
 
-    val output = compileFrontendSource(inputPath, source)
+    val output = compileFrontendSourceAt(inputPath, source, inputPath)
     if output == "" {
-        orbit_os_write_stderr_selfhost("orbit frontend: " + frontendRefusal(inputPath, source) + "\n")
+        orbit_os_write_stderr_selfhost("orbit frontend: " + frontendRefusalAt(inputPath, source, inputPath) + "\n")
         orbit_os_exit_selfhost(1)
         return
     }

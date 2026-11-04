@@ -64,6 +64,13 @@ EXPECTED = os.path.join(FRONTEND, "expected")
 # compileFrontendSource. Only the escapes Orbit's own string syntax has.
 SOURCE_LITERAL = re.compile(r'val\s+source\s*=\s*"((?:[^"\\]|\\.)*)"')
 MODULE_LITERAL = re.compile(r'compileFrontendSource\(\s*"((?:[^"\\]|\\.)*)"\s*,')
+# An emit fixture may bring one sibling file: its `val importedSource = "..."`
+# carries the text, and the first `import "..."` of the embedded source names
+# where to write it. The frontend reads imports from disk, so a fixture that
+# claims something about a call across the boundary has to put the imported
+# file where the compiler will find it.
+IMPORTED_SOURCE_LITERAL = re.compile(r'val\s+importedSource\s*=\s*"((?:[^"\\]|\\.)*)"')
+IMPORT_STMT = re.compile(r'^\s*import\s+"([^"]+)"', re.M)
 
 # Fixtures with no golden, because the contract they pin is the ABSENCE of
 # output. Named here rather than in a header comment so the gate owns the whole
@@ -162,6 +169,18 @@ def run_emit(compiler, work, name, source, golden_path):
     inner = os.path.join(work, os.path.splitext(name)[0] + ".orb")
     with open(inner, "w", encoding="utf-8", newline="\n") as f:
         f.write(unescape(body) + "\n")
+    imported = IMPORTED_SOURCE_LITERAL.search(source)
+    if imported is not None:
+        stmt = IMPORT_STMT.search(unescape(body))
+        if stmt is None:
+            return False, ("the fixture carries importedSource but its source "
+                           "imports no file to write it to")
+        dest = os.path.join(work, *stmt.group(1).split("/"))
+        parent = os.path.dirname(dest)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(dest, "w", encoding="utf-8", newline="\n") as f:
+            f.write(unescape(imported.group(1)) + "\n")
     produced = os.path.join(work, os.path.splitext(name)[0] + ".tir")
     p = subprocess.run([compiler, "frontend", inner, "-o", produced],
                        capture_output=True, text=True, errors="replace")
