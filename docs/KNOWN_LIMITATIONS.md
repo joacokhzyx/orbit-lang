@@ -760,8 +760,17 @@ a definition of it lives. Measured 2026-11-04 over the same corpus, 3,203 of the
 `f`, `instr`, `t`, `n` and `cbTop`. 2,431 read a name from a file this one
 imports, 1,754 a name declared elsewhere in the corpus, and 275 a name no corpus
 file declares, led by `NULL` with 82. The four buckets sum to the E2001 count,
-which is the check the sort carries. The variable table is the largest class
-left, not the module boundary.
+which is the check the sort carries. 3,212 of the 7,663 are echoes: the reading
+function binds that name, so the value bound into it is what has no type. The
+other 4,451 read a name that function never binds, and that group has one
+mechanism:
+`orbit frontend` never resolves imports, because `compiler/tir/entry.orb:6`
+imports the parser, the lowering and the formatter and no resolver, while
+`orbit build` runs `compiler/front/resolver.orb` first
+(`compiler/host/pipeline.orb:7`). The same file therefore types its own calls in
+one command and not in the other. Teaching the frontend path to read imported
+declarations is the largest single lever left in this section: 2,431 loads and
+the 4,202 untyped calls sit behind it.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
