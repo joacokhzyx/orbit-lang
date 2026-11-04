@@ -552,13 +552,36 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 }
                 return tirEmit(function, blockId, "call", "void", printOperands)
             }
-            val callee = lowerExpression(module, function, blockId, bindings, call.callee)
-            var operands = tirValue(callee)
+            // `xs.indexOf(2)` is a call with a receiver: the method name is not a
+            // value read off the list, so lowering the callee as a `member`
+            // instruction invented an instruction that no table can type. The
+            // census counted 1,445 of those unknown member reads on top of the
+            // calls that follow them. The name travels on the call instead, the
+            // way `print` above already carries it, with the receiver as its first
+            // operand.
+            var callOperands = ""
+            var callCalleeIsMethod = false
+            match call.callee {
+                ASTNode.MemberAccess(memberCallee) => {
+                    if declaredTypeName(module, memberCallee.object) == "" {
+                        val receiverValue = lowerExpression(module, function, blockId, bindings, memberCallee.object)
+                        if receiverValue >= 0 {
+                            callCalleeIsMethod = true
+                            callOperands = memberCallee.field + " " + tirValue(receiverValue)
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if callCalleeIsMethod == false {
+                val callee = lowerExpression(module, function, blockId, bindings, call.callee)
+                callOperands = tirValue(callee)
+            }
             var i = 0
             while i < call.args.len() {
                 val argument: ASTNode = call.args.get(i)
                 val value = lowerExpression(module, function, blockId, bindings, argument)
-                operands = operands + " " + tirValue(value)
+                callOperands = callOperands + " " + tirValue(value)
                 i = i + 1
             }
             val returnType = typeOfExpression(module, bindings, node)
@@ -569,7 +592,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             if returnType == "unknown" {
                 tirError(module, "E2005", "cannot type the result of this call", 0, 0)
             }
-            return tirEmit(function, blockId, "call", returnType, operands)
+            return tirEmit(function, blockId, "call", returnType, callOperands)
         }
         // `[1, 2]` is a value, and the pass had no rule for it: the elements
         // were never lowered and the whole expression was a give-up, 412 of them
