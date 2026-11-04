@@ -14,6 +14,8 @@
 //     FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
 //     OP <opcode> <count>        -- only opcodes whose result is `unknown`
 //     CODE <diagnostic code> <count>
+//     NAME <count> <message>     -- one E2001 message, whose last word is the
+//                                   identifier the file loads untyped
 //
 // The two imports below are load-bearing and neither is obvious.
 //
@@ -124,6 +126,12 @@ fn censusOf(path: string) {
     // type work needs; no other code is tallied this way.
     var giveupMessages = []
     var giveupCounts = []
+    // E2001 is the load of a name the front end cannot type, and its message
+    // ends with that name, so a distinct message is one identifier. The count
+    // per identifier is what says whether the 7,663 of them are the boundary of
+    // one module's declarations or something else; the driver sorts them.
+    var nameMessages = []
+    var nameCounts = []
     var d = 0
     while d < module.diagnostics.len() {
         val diagnostic: TirDiagnostic = module.diagnostics.get(d)
@@ -135,6 +143,14 @@ fn censusOf(path: string) {
                 giveupCounts = bump(giveupCounts, g)
                 giveupCounts.push(1)
             } else { giveupCounts = bump(giveupCounts, g) }
+        }
+        if diagnostic.code == "E2001" {
+            val nm = findOpcodes(nameMessages, diagnostic.message)
+            if nm < 0 {
+                nameMessages.push(diagnostic.message)
+                nameCounts = bump(nameCounts, nm)
+                nameCounts.push(1)
+            } else { nameCounts = bump(nameCounts, nm) }
         }
         val at = findOpcodes(diagCodes, diagnostic.code)
         if at < 0 {
@@ -166,6 +182,11 @@ fn censusOf(path: string) {
     while g2 < giveupMessages.len() {
         print("GIVEUP " + orbit_int_to_string_selfhost(giveupCounts.get(g2)) + " " + giveupMessages.get(g2))
         g2 = g2 + 1
+    }
+    var n2 = 0
+    while n2 < nameMessages.len() {
+        print("NAME " + orbit_int_to_string_selfhost(nameCounts.get(n2)) + " " + nameMessages.get(n2))
+        n2 = n2 + 1
     }
 }
 

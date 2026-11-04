@@ -43,6 +43,7 @@ an operational failure rather than a measurement.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -91,6 +92,65 @@ def group_of(path):
     return r.split("/")[0]
 
 
+DECL_RE = re.compile(r"^\s*(?:extern\s+)?(?:fn|enum|union|model|type|val|const)"
+                     r"\s+([A-Za-z_]\w*)", re.M)
+IMPORT_RE = re.compile(r'^\s*import\s+"([^"]+)"', re.M)
+
+
+def name_origins(rows, dirs):
+    """Sort the E2001 identifiers by where a definition of the name lives.
+
+    The four answers decide what the front end would have to learn to type the
+    load: a name this file declares, a name in a file it imports, a name
+    somewhere else in the corpus, or a name nothing declares. DECL_RE takes the
+    keywords a corpus file introduces a name with at the top level -- `fn`,
+    `extern fn` with no body, `enum`, `union`, `model`, the `type X = A | B`
+    alias, and a top-level `val`/`const`, which the compiler emits as a global
+    `#define` -- because a classifier that only matches `^fn` moves the 37
+    runtime externs of compiler/host/extern.orb and every enum, union and alias
+    name into "nothing declares it" and reports a boundary that does not exist.
+    Both regexes carry re.M on purpose: a whole-file findall without it matches
+    only at offset zero and the classification reads zero, which looks like a
+    small answer instead of a broken instrument.
+    """
+    decls = {}
+    imports = {}
+    for p in discover(dirs):
+        try:
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        key = rel(p)
+        decls[key] = set(DECL_RE.findall(text))
+        imports[key] = [rel(os.path.normpath(os.path.join(os.path.dirname(p), m)))
+                        for m in IMPORT_RE.findall(text)]
+    everywhere = set()
+    for names in decls.values():
+        everywhere |= names
+
+    buckets = Counter()
+    top = {}
+    for r in rows:
+        path = r["path"]
+        own = decls.get(path, set())
+        direct = set()
+        for e in imports.get(path, []):
+            direct |= decls.get(e, set())
+        for name, n in r.get("name", Counter()).items():
+            if name in own:
+                bucket = "declared in this file"
+            elif name in direct:
+                bucket = "declared in a file this one imports"
+            elif name in everywhere:
+                bucket = "declared elsewhere in the corpus"
+            else:
+                bucket = "declared by no corpus file"
+            buckets[bucket] += n
+            top.setdefault(bucket, Counter())[name] += n
+    return buckets, top
+
+
 def build_probe(compiler, cc, work):
     exe = os.path.join(work, "census" + (".exe" if os.name == "nt" else ""))
     env = dict(os.environ)
@@ -128,7 +188,7 @@ def parse(text):
             continue
         if parts[0] == "FILE":
             cur = {"path": " ".join(parts[1:]), "op": Counter(), "code": Counter(),
-                   "giveup": Counter()}
+                   "giveup": Counter(), "name": Counter()}
             rows.append(cur)
         elif parts[0] == "FN" and cur is not None:
             # FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
@@ -152,6 +212,13 @@ def parse(text):
                 pass
         elif parts[0] == "CODE" and cur is not None:
             cur["code"][parts[1]] += int(parts[2])
+        elif parts[0] == "NAME" and cur is not None:
+            # NAME <count> unknown identifier <name>: the last word is the
+            # identifier the file loads without a type for it.
+            try:
+                cur["name"][parts[-1]] += int(parts[1])
+            except (ValueError, IndexError):
+                pass
         elif parts[0] == "UNREADABLE" and cur is not None:
             cur["unreadable"] = True
     return rows
@@ -341,6 +408,19 @@ def main():
     if len(by_giveup) > len(give_rows):
         print("  ... %d more classes (--top raises the cap)"
               % (len(by_giveup) - len(give_rows)))
+    print("")
+    origin_buckets, origin_top = name_origins(rows, dirs)
+    sorted_loads = sum(origin_buckets.values())
+    e2001 = by_code.get("E2001", 0)
+    print("What the %d unknown loads read, by where the name is declared "
+          "(the E2001 count is %d):" % (sorted_loads, e2001))
+    for bucket, n in origin_buckets.most_common():
+        names = ", ".join("%s %d" % (k, v) for k, v in origin_top[bucket].most_common(5))
+        print("  %-32s %7d  %s" % (bucket, n, names))
+    if sorted_loads != e2001:
+        print("  NOTE: %d identifiers sorted against %d E2001 diagnostics -- the"
+              " probe line and the code count are not one thing this run."
+              % (sorted_loads, e2001))
     print("")
     print("Front-end diagnostics by code (a file that errors is not a typed file):")
     table(by_code, max(totals["diag"], 1), args.top, "code")
