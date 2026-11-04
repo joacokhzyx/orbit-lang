@@ -1,5 +1,6 @@
 import "../front/ast.orb"
 import "../front/parser.orb"
+import "../host/extern.orb"
 import "../host/pipeline.orb"
 import "./palette.orb"
 

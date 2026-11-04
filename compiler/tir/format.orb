@@ -3,6 +3,8 @@
 // This is frontend-owned: consumers may read the canonical text output but
 // must not depend on the representation of these models in memory.
 
+import "../host/extern.orb"
+
 model TirDiagnostic {
     severity: string
     code: string

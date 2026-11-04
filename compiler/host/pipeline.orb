@@ -4,6 +4,7 @@
 // not hidden coupling.
 import "../front/lexer.orb"
 import "../front/parser.orb"
+import "./extern.orb"
 import "../front/resolver.orb"
 import "../front/sema.orb"
 import "../ir/builder.orb"

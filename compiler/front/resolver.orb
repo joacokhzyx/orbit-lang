@@ -3,6 +3,7 @@
 
 import "./ast.orb"
 import "./parser.orb"
+import "../host/extern.orb"
 
 model ModuleResolver {
     visited: list < string >

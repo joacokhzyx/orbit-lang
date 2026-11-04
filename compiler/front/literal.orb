@@ -9,9 +9,12 @@
 // given. So a program that used the parser without the builder -- which is
 // exactly what `orbit frontend` is -- could not be built at all (F-0004).
 //
-// A leaf module both callers can reach is the fix. This one imports nothing,
-// so builder.orb and parser.orb can both depend on it and the graph stays a
-// DAG.
+// A leaf module both callers can reach is the fix. This one imports
+// `compiler/host/extern.orb` and nothing else -- a list of declarations with no
+// body, which itself imports nothing -- so builder.orb and parser.orb can both
+// depend on it and the graph stays a DAG.
+
+import "../host/extern.orb"
 
 fn parseIntSelfhost(s: string) -> int {
     var result = 0

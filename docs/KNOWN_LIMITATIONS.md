@@ -27,7 +27,7 @@ instance answers `doctor: 141 finding(s) (0 error(s), 141 warning(s)) in 28 file
 under "compiler"`, exit 1. On an 8192 MB Windows host the lowest ceiling that
 completes is 432 MB, and 416 MB aborts.
 
-`doctorCodePart` (`compiler/tools/doctor.orb:4049`) is what changed. It quoted the
+`doctorCodePart` (`compiler/tools/doctor.orb:4050`) is what changed. It quoted the
 string runs of a line through a chunk buffer. A buffer's first block is
 `ORBIT_CBUF_INIT_CAP`, 65536 (`runtime/collections.h:189`), and the arena holds it
 until the process ends. So every line carrying a quote cost 64 KB, whatever the run
@@ -721,7 +721,7 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 7.5% of instructions are `unknown`, and every one of them says so
+## 6.1% of instructions are `unknown`, and every one of them says so
 
 `scripts/unknown_census.py`, run on 2026-11-03 over 212 files and 105,554
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
@@ -729,17 +729,17 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 7,923 | **7.5%** |
+| instructions the front end types `unknown` | 6,438 | **6.1%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 2,907 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 533), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 2,012 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 394), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 2,446) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 2,037). Their sum, 7,923, is the whole unknown count. The five
+(call result, 1,586). Their sum, 6,438, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:476`, `:489`, `:497`, `:521` and `:559`, and
 each sits on the branch that emits the instruction.
 
@@ -754,7 +754,7 @@ parses each imported program and registers its signatures and models before any
 body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
 `load int later` and `call int` instead of reporting E2001 and suppressing the
 file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
-the file named on the command line. 2,037 calls still stay untyped: a runtime
+the file named on the command line. 1,586 calls still stay untyped: a runtime
 builtin in a file that does not import `compiler/host/extern.orb`, or a name no
 corpus file declares.
 
@@ -764,15 +764,14 @@ of it lives. The probe itself was the last thing holding the old numbers: until
 2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
 text it is handed, so it measured a program the command line never compiles. It
 calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
-2,907 unknown loads: 2,005 read a name the file itself declares, led by `instr`
-98, `t` 90, `f` 89 and `n` 76. 473 read a name declared elsewhere in the corpus,
-led by `orbit_string_len` 198 and `orbit_string_slice` 157. 218 read a name from
-a file this one imports, led by `ASTNode` 79, `Token` 54 and `LiteralNode` 21 --
-all variants that carry a payload. 211 read a name no corpus file declares, led
-by `NULL` with 82. The four buckets sum to the E2001 count, which is the check
-the sort carries.
+2,012 unknown loads: 1,627 read a name the file itself declares, led by `instr`
+98, `t` 90, `f` 89 and `tDecl` 40. 218 read a name from a file this one imports,
+led by `ASTNode` 79, `Token` 54 and `LiteralNode` 21 -- all variants that carry a
+payload. 158 read a name no corpus file declares, led by `NULL` with 82. Nine read
+a name declared somewhere the file does not import. The four buckets sum to the
+E2001 count, which is the check the sort carries.
 
-The other split says which of them is work. 1,944 are echoes: the reading
+The other split says which of them is work. 1,500 are echoes: the reading
 function binds that name, so it is the value bound into it that has no type. The
 other 963 read a name that function never binds. `TokType` was the largest of
 them with 582 and it is answered now. The variants of a declared `enum`, and the
@@ -921,7 +920,7 @@ What is left of the class list is `Match` 305, `Try` 93, the chained
 `MemberAccess` 37 and `If` 30. After them, a `for` over a value with no element
 type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-04 the census reads 7,923 unknown over
+the rate is what to read. On 2026-11-04 the census reads 6,438 unknown over
 105,469 instructions. Earlier the same day, the same tree with the enum answer
 missing read 9,620 over 106,122, and measured without the imports 17,410 over
 105,754. The older records stand: 17,388 over 105,644 on
@@ -936,7 +935,7 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-7.5% is the number the type work has to be scoped against, and a
+6.1% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Run on 2026-11-02, after the
 baseline moved down to the measured numbers:
 
