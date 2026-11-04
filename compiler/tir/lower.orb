@@ -39,6 +39,14 @@ fn tirBinaryType(op: string, leftType: string, rightType: string) -> string {
         if leftType == "int" && rightType == "int" { return "int" }
         return "unknown"
     }
+    // A `+` with a string on either side is a concatenation and answers
+    // `string`, whatever the other operand carries. `compiler/ir/builder.orb`
+    // states this for the build path -- the emitter lowers it to
+    // `orbit_string_concat` -- and the case was missing here, which is how 84
+    // `+` instructions of the corpus stayed `unknown`.
+    if op == "+" {
+        if leftType == "string" || rightType == "string" { return "string" }
+    }
     if leftType == rightType { return leftType }
     return "unknown"
 }

@@ -13,6 +13,10 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **A `+` with a string on either side is a concatenation.** The pass knew the comparisons, the bitwise operators and the case where both operands carry the same type; it did not know the one the build path spells out at `compiler/ir/builder.orb:5420` -- the emitter lowers it to `orbit_string_concat` whatever the other operand is. So `"count=" + n` answered `unknown`, and with it 84 `+` instructions of the corpus. Over the corpus the census reads 511 unknown over 102,961 instructions -- **0.5%**, 5 per mille, down from 6. E2002 binary operands fall 107 to 54 and E2001 loads 252 to 248. The five per-code counts still sum to the total and the silent count is 0. `tests/frontend/string_concat.orb` and its golden were written before the rule and matched on the first run. What is left of the class is `+` between an operand the pass cannot read and something else: no rule answers it, and inventing one would be the lie the count exists to show.
+
+Language front end:
+
 - **A library function writes its result payload.** `base64Decode` and `hexDecode` answered a bare `result`, so nothing could say what a later `try` yields: 19 of the corpus's `try` give-ups were that. They now answer `result < string >`, which `df40323` made possible to write. Eight of the 19 stopped being give-ups and 11 became the class behind them, `a handler that falls through needs a merge value`. Over the corpus the census reads 568 unknown over 102,944 instructions -- 0.6%, and the ratchet metric stays 6 per mille because the corpus grew with the spelling. The silent count is 0 and the five per-code counts still sum to the total. `parseIntChecked` and `parseFloatChecked` were spelled too and went back: `ok` admits only a string or an object, so `result < int >` cannot be written -- measured, not assumed. Two counts in `docs/KNOWN_LIMITATIONS.md` moved with this: 42 signatures and no payload, read with a pattern that could not see the formatter's `result < string >`, are 40 and 3 read correctly.
 
 Language front end:
