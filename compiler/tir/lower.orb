@@ -117,6 +117,22 @@ fn tirDeclaresModel(module: TirModule, name: string) -> bool {
     return false
 }
 
+// The name of a declared type when the node is a bare identifier that names one,
+// and "" otherwise. `TokType.EOF` starts with a name that is not a value: there
+// is nothing to load, and lowering it as a load asked for a binding of `TokType`,
+// got none, and reported E2001 for the whole file.
+fn declaredTypeName(module: TirModule, object: ASTNode) -> string {
+    match object {
+        ASTNode.Literal(literal) => {
+            if literal.valType == "identifier" {
+                if tirDeclaresModel(module, literal.text) { return literal.text }
+            }
+        }
+        _ => {}
+    }
+    return ""
+}
+
 // The models the file declares, read before any body, for the one reason
 // `collectSignatures` exists: a `model` written after the function whose body
 // reads one of its fields was not in the table while that body lowered, so the
@@ -128,6 +144,9 @@ fn collectModels(module: TirModule, program: ProgramNode) {
     while i < program.decls.len() {
         match program.decls.get(i) {
             ASTNode.ModelDecl(modelDecl) => { tirCollectModel(module, modelDecl) }
+            ASTNode.TypeDecl(typeDecl) => {
+                if typeDecl.kind == "enum" { tirCollectEnum(module, typeDecl) }
+            }
             _ => {}
         }
         i = i + 1
@@ -208,6 +227,27 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
     module.types.push(TirType(modelDecl.name, fields))
 }
 
+// An enum enters the same table, with its variants as the fields and its own
+// name as the declared type of each one. That is the text the source writes:
+// `TokType.EOF` has type `TokType`, and the build path gives the same shape to a
+// variant as an integer tag under the name `TAG_TokType_EOF`. Unions are not
+// collected: a variant of a union is a construction with a payload, not a
+// constant, and treating it as one would claim a value this pass cannot build.
+fn tirCollectEnum(module: TirModule, typeDecl: TypeDeclNode) {
+    val fields = []
+    var i = 0
+    while i < typeDecl.variants.len() {
+        match typeDecl.variants.get(i) {
+            ASTNode.Literal(variant) => {
+                fields.push(TirField(variant.text, typeDecl.name))
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    module.types.push(TirType(typeDecl.name, fields))
+}
+
 // orbit-walk: none -- asks what type an expression is
 fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
@@ -245,6 +285,11 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
             // and it is the one written beside the field's name. Before this,
             // every member read that was not `len` answered `unknown`, and the
             // census counted 5,389 of them as E2004.
+            val typeName = declaredTypeName(module, member.object)
+            if typeName != "" {
+                val variantType = declaredFieldType(module, typeName, member.field)
+                if variantType != "" { return variantType }
+            }
             val ownerType = typeOfExpression(module, bindings, member.object)
             if ownerType != "unknown" {
                 val fromModel = declaredFieldType(module, ownerType, member.field)
@@ -443,6 +488,17 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             return tirEmit(function, blockId, "unary." + unary.op, resultType, tirValue(operand))
         }
         ASTNode.MemberAccess(member) => {
+            // `TokType.EOF` names a variant of a declared type. It is not a read
+            // through a value, so there is no object to lower and no `member`
+            // instruction to emit: one constant carries the type and the variant,
+            // both spelled as the source spells them.
+            val qualifiedName = declaredTypeName(module, member.object)
+            if qualifiedName != "" {
+                val variantType = declaredFieldType(module, qualifiedName, member.field)
+                if variantType != "" {
+                    return tirEmit(function, blockId, "const", variantType, qualifiedName + "." + member.field)
+                }
+            }
             val objVal = lowerExpression(module, function, blockId, bindings, member.object)
             val resType = typeOfExpression(module, bindings, node)
             // A member read is the second-largest source of `unknown` in the

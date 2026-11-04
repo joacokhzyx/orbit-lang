@@ -721,7 +721,7 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 9.1% of instructions are `unknown`, and every one of them says so
+## 7.8% of instructions are `unknown`, and every one of them says so
 
 `scripts/unknown_census.py`, run on 2026-11-03 over 212 files and 105,554
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
@@ -729,18 +729,18 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 9,620 | **9.1%** |
+| instructions the front end types `unknown` | 8,261 | **7.8%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 3,745 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 3,053 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 532), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 3,313) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 2,030). Their sum, 9,620, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:417`, `:430`, `:438`, `:451` and `:489`, and
+(member read, 2,644) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 2,032). Their sum, 8,261, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:465`, `:478`, `:486`, `:511` and `:549`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -754,7 +754,7 @@ parses each imported program and registers its signatures and models before any
 body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
 `load int later` and `call int` instead of reporting E2001 and suppressing the
 file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
-the file named on the command line. 2,030 calls still stay untyped: a runtime
+the file named on the command line. 2,032 calls still stay untyped: a runtime
 builtin in a file that does not import `compiler/host/extern.orb`, or a name no
 corpus file declares.
 
@@ -764,20 +764,22 @@ of it lives. The probe itself was the last thing holding the old numbers: until
 2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
 text it is handed, so it measured a program the command line never compiles. It
 calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
-3,745 unknown loads: 2,129 read a name the file itself declares, led by `instr`
-98, `t` 94, `f` 89 and `n` 76. 909 read a name from a file this one imports, led
-by `TokType` 582, `IROpcode` 95 and `ASTNode` 94. 480 read a name declared
-elsewhere in the corpus, led by `orbit_string_len` 198 and `orbit_string_slice`
-157. 227 read a name no corpus file declares, led by `NULL` with 82. The four
-buckets sum to the E2001 count, which is the check the sort carries.
+3,053 unknown loads: 2,032 read a name the file itself declares, led by `instr`
+98, `t` 90, `f` 89 and `n` 76. 478 read a name declared elsewhere in the corpus,
+led by `orbit_string_len` 198 and `orbit_string_slice` 157. 328 read a name from
+a file this one imports, led by `IROpcode` 95, `ASTNode` 94 and `Token` 54 -- all
+three unions, which is the class left there. 215 read a name no corpus file
+declares, led by `NULL` with 82. The four buckets sum to the E2001 count, which
+is the check the sort carries.
 
-The other split says which of them is work. 2,006 are echoes: the reading
+The other split says which of them is work. 1,951 are echoes: the reading
 function binds that name, so it is the value bound into it that has no type. The
-other 1,739 read a name that function never binds, and the largest of them is
-`TokType` with 582. An enum is a `TypeDeclNode`, and `collectSignatures`
-(`compiler/tir/lower.orb:89`) declares that node as one it does not arm, so the
-name of a type is not in either table. That is the next class to open, and the
-runtime externs sit in the same list.
+other 1,102 read a name that function never binds. `TokType` was the largest of
+them with 582 and it is answered now: an enum's variants enter the type table and
+`TokType.EOF` emits `const TokType TokType.EOF`, which `tests/frontend/enum_variant_read.orb`
+pins. A union variant is not answered: it is a construction with a payload, not a
+constant, and the remaining imported names are unions. The runtime externs stay
+in the same list as the 478.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
@@ -803,7 +805,7 @@ Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend)
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:323`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:368`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class"). Fourteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
@@ -858,7 +860,7 @@ its written type. On 2026-11-03 two more field types became answers: one declare
 for a list literal, and a field whose type names another model this file
 declares answers that written name, so `o.i.n` reads both hops. 1,050
 instructions left the unknown count with the first step, and the rate moved from
-19.3% to 18.3% (193 per mille to 183). 3,313 reads are still untyped: a model
+19.3% to 18.3% (193 per mille to 183). 2,644 reads are still untyped: a model
 declared in another file, a union, and one element of a list -- the element kind
 is not claimed, because this pass keeps no table for it.
 `tests/frontend/field_read.orb`, `tests/frontend/nested_field_read.orb` and
@@ -913,13 +915,14 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
-What is left of the class list is `Match` 303, `Try` 93, the chained
+What is left of the class list is `Match` 305, `Try` 93, the chained
 `MemberAccess` 37 and `If` 30. After them, a `for` over a value with no element
 type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-04 the census reads 9,620 unknown over
-106,122 instructions, against 17,410 over 105,754 on the same tree measured
-without its imports. The older records stand: 17,388 over 105,644 on
+the rate is what to read. On 2026-11-04 the census reads 8,261 unknown over
+105,512 instructions. Earlier the same day, the same tree with the enum answer
+missing read 9,620 over 106,122, and measured without the imports 17,410 over
+105,754. The older records stand: 17,388 over 105,644 on
 2026-11-03, 20,005 over 103,333 on
 2026-11-02 and 25,489 over 86,942 at
 the start of that day.
@@ -931,7 +934,7 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-9.1% is the number the type work has to be scoped against, and a
+7.8% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Run on 2026-11-02, after the
 baseline moved down to the measured numbers:
 
@@ -951,15 +954,15 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 28/28
+## The frontend gate is 29/29
 
-`scripts/frontend_gate.py` runs 28 fixtures and all 28 pass (two of
+`scripts/frontend_gate.py` runs 29 fixtures and all 29 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 23 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 24 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
