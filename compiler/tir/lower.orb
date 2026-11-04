@@ -452,6 +452,15 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                         if ma.field == "get" || ma.field == "at" { return elementKind }
                         if ma.field == "slice" { return receiverText }
                     }
+                    // A list write returns nothing. `push` and `set` are emitted by
+                    // the build as a statement block -- `compiler/emit/c_backend.orb`
+                    // calls `orbit_list_push` inside `{ ... }` and gives the register
+                    // no value -- so the answer is the one the build already gives,
+                    // read off the method's name rather than the receiver's kind.
+                    // `list` and `list<T>` are both receivers that answer it.
+                    if receiverText == "list" || elementKind != "" {
+                        if ma.field == "push" || ma.field == "set" { return "void" }
+                    }
                     if ma.field == "slice" || ma.field == "at" { return "string" }
                 }
                 _ => {}

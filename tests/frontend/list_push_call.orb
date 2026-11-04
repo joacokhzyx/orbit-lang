@@ -1,0 +1,13 @@
+// `xs.push(7)` returns nothing. The build emits a list write as a statement
+// block that calls `orbit_list_push` and gives no register a value
+// (`compiler/emit/c_backend.orb`), so the answer is the one the build already
+// gives, read off the method's name and not off the receiver's element kind:
+// `push` and `set` answer `void` on `list` and on `list<T>` alike. Before this,
+// `.push` was 375 of the 1,134 untyped instructions and `.set` 21 more, the
+// largest single callee the `CALL` line counts.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn add(xs: list<int>) -> void { xs.push(7) }"
+    print(compileFrontendSource("fixture", source))
+}
