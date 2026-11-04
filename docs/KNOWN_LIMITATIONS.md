@@ -219,6 +219,45 @@ and the measurement that says how much of the front end is still untyped is
 [below](#194-of-instructions-are-unknown-and-every-one-of-them-says-so).
 
 
+## A `try` binding annotation is not checked
+
+`compiler/front/sema.orb:4799` answers `unknown` for a `try` expression. The
+compatibility rules then accept `unknown` for anything, at `compiler/front/sema.orb:1146`
+and `:2012`. The annotation written on the binding is never compared with what the
+call carries:
+
+```console
+$ cat tryprobe.orb
+fn decode(s: string) -> result {
+    return ok 200 s
+}
+
+fn main() -> int {
+    val n: int = try decode("x") catch { return 7 }
+    print(n)
+    return 0
+}
+$ orbit check tryprobe.orb
+  Checked tryprobe.orb: no errors.
+```
+
+`decode` carries a `string`, `n` is annotated `int`, and `print(n)` reads that
+pointer as an integer. The mechanism is already written down at
+`compiler/front/sema.orb:4690`, which blames it for `ok 200 system.uptime()`
+reaching the C backend with an int where a string pointer belongs. The fix there
+named a receiver type; this site has no receiver to name, because the payload is
+written nowhere -- 51 declarations in 31 files of `std/`, `tests/` and `compiler/`
+return a bare `-> result`. Measured 2026-11-04 by counting that spelling.
+
+The same missing spelling is why 51 `try` expressions give up in the frontend pass
+(19 in `tests/std/test_codec.orb`, 17 in `tests/std/test_json.orb`, 15 in
+`tests/std/test_string.orb`): the pass reads a type that is not written, and
+`unknown` is the honest answer there. Closing this limitation is a checker decision
+first -- type `try` from the callee's declared `result<T>`, which changes what
+`orbit check` refuses -- and the frontend count falls with it. The probe above is
+not a `tests/negative` case: that gate pins a program that fails to compile, and
+this one compiles.
+
 ## Writes work, but duplicates and missing tables fail
 
 `Model.create()` stores the row and returns `true`. It returns
