@@ -1840,6 +1840,27 @@ fn compatibleListElement(want: string, got: string) -> bool {
     return we == ge
 }
 
+// The payload a `result<T>` annotation carries, or "" when there is none: a bare
+// `result` never told the checker what a later `try` yields.
+fn compatTypeResultPayload(t: string) -> string {
+    if compatTypeBase(t) != "result" { return "" }
+    val lt = t.indexOf("<")
+    if lt < 0 { return "" }
+    if orbit_string_slice(t, t.len() - 1, t.len()) != ">" { return "" }
+    return orbit_string_slice(t, lt + 1, t.len() - 1)
+}
+
+// A `result` of one payload satisfies a signature that names another only when
+// one of the two wrote no payload, which is what `compatibleListElement` already
+// does for a list. The emitted C is one struct in both spellings, so the rule
+// keeps the annotation from becoming a second, incompatible type.
+fn compatibleResultPayload(want: string, got: string) -> bool {
+    val we = compatTypeResultPayload(want)
+    val ge = compatTypeResultPayload(got)
+    if we == "" || ge == "" { return true }
+    return we == ge
+}
+
 // A first-class function value spells `fn(p1;p2)->ret`: the parameters in
 // order joined with ";", which no other type spelling contains ("," would
 // collide with `map<string, int>` and "<" would be stripped as a generic
@@ -2069,6 +2090,9 @@ fn checkCompatibility(expected: string, actual: string) -> bool {
     if want == "response" { return true }
     if compatTypeBase(want) == "list" && compatTypeBase(got) == "list" {
         return compatibleListElement(want, got)
+    }
+    if compatTypeBase(want) == "result" && compatTypeBase(got) == "result" {
+        return compatibleResultPayload(want, got)
     }
     // An int where a float is declared widens, and the C backend performs the
     // conversion, so rejecting it would be a check with no bug behind it. The

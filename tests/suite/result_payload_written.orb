@@ -1,0 +1,15 @@
+// expect-exit 0
+// A `-> result<string>` signature whose value is built with `ok("ada")`. The
+// emitted C is one struct whether the payload is named or not, and the payload
+// in the signature is what a `try` reads.
+fn name() -> result < string > {
+    return ok("ada")
+}
+
+fn main() -> int {
+    val got: string = try name() catch { return 7 }
+    if got == "ada" {
+        return 0
+    }
+    return 9
+}

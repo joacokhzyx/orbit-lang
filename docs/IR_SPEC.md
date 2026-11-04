@@ -74,7 +74,7 @@ that case into a fatal error, never into a comment.
     them still means C `&&` / `||` over two evaluated operands (§1.2).
   - `nop` is produced by constant folding (`compiler/ir/cteval.orb:978,1023`).
   - Language-level DB access does NOT use `db_*`. It lowers through `call` to a
-    helper named by `modelBuiltin` (`compiler/ir/builder.orb:4698-4733`):
+    helper named by `modelBuiltin` (`compiler/ir/builder.orb:4708-4733`):
     `orbit_db_query_*`, `orbit_db_insert`, `orbit_db_update`,
     `orbit_db_delete`. The `db_*` opcodes have no producer anywhere in
     `compiler/**/*.orb` at this pin.
@@ -369,8 +369,8 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 - `IRModule` (`compiler/ir/ir.orb:265-282`): `functions`, `globals`, `models`, `types`,
   `migrations` (all lists), and `sourceName` (string, §1.5).
 - `IRGlobal` (`compiler/ir/ir.orb:284-288`): `name`, `value` (`IRValue`), `typeName`.
-  Observed constructors: `ir_string` value (`compiler/ir/builder.orb:2794,2837`)
-  or `ir_register` value (`compiler/ir/builder.orb:2842`). Top-level `var`/`const` is error
+  Observed constructors: `ir_string` value (`compiler/ir/builder.orb:2804,2837`)
+  or `ir_register` value (`compiler/ir/builder.orb:2852`). Top-level `var`/`const` is error
   E1007. `val NAME = <int|bool lit>` is a global `#define` emitted by
   `generateRoutePreamble`, not by `route_runtime` (AGENTS.md).
 - `IRModelDecl` (`compiler/ir/ir.orb:232-243`): `name`, `fields` (`IRModelField{name,
@@ -383,11 +383,11 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   (`compiler/ir/builder.orb:2482-2537`): `"enum"→"enumeration"`, `"union"→"union_type"`,
   any other `kind` passes through unchanged (`"alias"`, `"trait"` unrenamed);
   `variants` = literal texts; `richVariants` = payload spellings;
-  **`methods` is always `[]`** (`IRTypeDecl` construction at `compiler/ir/builder.orb:2535`).
+  **`methods` is always `[]`** (`IRTypeDecl` construction at `compiler/ir/builder.orb:2545`).
 - `IRVariantDecl`/`IRVariantField` (`compiler/ir/ir.orb:245-255`): declared but with no
   constructor site in `compiler/ir/builder.orb` (the one type mention is
   `compiler/ir/builder.orb:1483`). Population is `UNSPECIFIED` (U-03).
-- `migrations`: list of SQL strings (`compiler/ir/builder.orb:2471-2473`, emitted at
+- `migrations`: list of SQL strings (`compiler/ir/builder.orb:2481-2473`, emitted at
   `compiler/emit/c_backend.orb:2377-2398`). With migrations or DB use, the preamble
   initializes `orbit_db_init(".orbit/data/app.db")`
   (`compiler/emit/route_runtime.orb:647`) and closes with `orbit_db_close()`
@@ -637,7 +637,7 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 | E-08 | `jump` to an undeclared label number | Reject (V-14) | `refLabels` collection `2085-2089` |
 | E-09 | `isExtern: true` function with a non-empty `instructions` list | Accept but ignore the body (no prototype/definition emitted) | `functionProto` at `compiler/emit/c_backend.orb:166-167` |
 | E-10 | `routeMethod: ""` with non-empty `routePath` (and vice versa) | Reject (V-16); plain vs route is decided by `routeMethod` alone | `compiler/emit/c_backend.orb:170`, §2.3 |
-| E-11 | `IRTypeDecl.methods` non-empty | Reject (V-17); the builder always writes `[]` | `compiler/ir/builder.orb:2535` |
+| E-11 | `IRTypeDecl.methods` non-empty | Reject (V-17); the builder always writes `[]` | `compiler/ir/builder.orb:2545` |
 | E-12 | `db_get`/`db_set`/`db_all`/`db_where` opcode present | Reject (V-19, DB exclusion); no shim, no silent skip | §4, M1 differential |
 
 ### 5.4 Validation rules (20, numbered V-01–V-20)
@@ -675,8 +675,8 @@ The designated corpus is the language test tree. R6 emits it with
 `orbit-r6/tests/corpus/manifest.json`. Each source below maps to IR through the
 builder whose producers are pinned in §1.1.
 
-- **Suite: 125 runnable files + 1 support file.** `tests/suite/` holds 126
-  `.orb` files: 125 runnable programs plus `imports.support.orb` (imported by
+- **Suite: 126 runnable files + 1 support file.** `tests/suite/` holds 127
+  `.orb` files: 126 runnable programs plus `imports.support.orb` (imported by
   `imports.orb`, never compiled alone). The `.skip` file (`fn_call.orb.skip`)
   is not a corpus member.
 - **Standard library: 24 files.** `tests/std/` holds 24 `.orb` programs
@@ -693,7 +693,7 @@ builder whose producers are pinned in §1.1.
   and no symbol in the net runtime. No corpus file is removed: the single
   suite file touching DB access, `peephole_no_fold_side_effects.orb`
   (via `Item.all()`/`Item.where()`, which lower through `call` to
-  `orbit_db_query_all` and its siblings at `compiler/ir/builder.orb:4701-4732`), stays
+  `orbit_db_query_all` and its siblings at `compiler/ir/builder.orb:4711-4732`), stays
   as `call`-opcode coverage.
   No `tests/std/*.orb` file uses DB access.
 

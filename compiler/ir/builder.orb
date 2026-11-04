@@ -1836,6 +1836,16 @@ fn annotationBaseType(t: string) -> string {
 }
 
 // The payload of a `list<T>` annotation, or "": a bare `list` never said.
+// The type a `result` annotation carries into the IR. The emitted C is one
+// struct whether or not the payload is named -- `OrbitResult` holds a value
+// slot, a message and a code -- so the `<T>` stays where it can be read, which
+// is the annotation the frontend pass sees, and is dropped for the C type.
+// A `list<T>` local is already emitted this way by `annotationBaseType`.
+fn resultIrSpelling(t: string) -> string {
+    if annotationBaseType(t) == "result" { return "result" }
+    return t
+}
+
 fn annotationListElement(t: string) -> string {
     if t.slice(0, 4) != "list" { return "" }
     val lt = t.indexOf("<")
@@ -2552,7 +2562,7 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
             if retInstance != "" {
                 func.returnType = retInstance
             } else {
-                func.returnType = f.returnType
+                func.returnType = resultIrSpelling(f.returnType)
             }
             func.isExtern = f.isExtern
             func.isExport = f.isExport
@@ -2864,7 +2874,7 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     if bodyInstance != "" {
         func.returnType = bodyInstance
     } else {
-        func.returnType = f.returnType
+        func.returnType = resultIrSpelling(f.returnType)
     }
     val prevFunc = builder.currentFunction
     builder.currentFunction = func

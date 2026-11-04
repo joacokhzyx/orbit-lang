@@ -628,7 +628,7 @@ each with a qualified pattern and with a bare pattern under its own scrutinee,
 and exits 0. The checker reads a payload from the owner the program wrote --
 `variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:755`)
 -- and a bare pattern resolves through the scrutinee's type in `bareVariantOwner`
-(`compiler/ir/builder.orb:2405`). The constructor macro carries both names:
+(`compiler/ir/builder.orb:2415`). The constructor macro carries both names:
 `val mvMacro = cUserName(mvType.name + "_" + mvName)`
 (`compiler/emit/c_backend.orb:100`) where it read `cUserName(mvName)`. The two
 programs that would have collided link and run, which is what the name is for.
