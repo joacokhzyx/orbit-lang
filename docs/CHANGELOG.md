@@ -98,6 +98,8 @@ gate reads 9/9.
 
 Commands and gates:
 
+- **A skipped native gate now says why it cannot run here.** On Linux the three native gates told the reader to set `ORBIT_R6`; setting it turned three skips into three failures, because `orbit build --backend=native` refuses any host that is not Windows x86-64 (`hostIsWindows` in `compiler/host/pipeline.orb`). The gates skip on that rule now and name it, and the closing line of `dev.py` says the lane cannot run here instead of pointing at a variable. Measured on the 3904 MB host with `ORBIT_R6` set: 3 skipped, `all 0 gate(s) passed` and no `FAIL`; on Windows the same filter still runs `runtime_module_native` to 6/6.
+
 - **The native lane runs against this branch, and what it still cannot do is declared.** With `ORBIT_R6` set, `dev.py all` runs 30 gates and all 30 pass: `suite_native` 125/125 with 2 declared ratchets, `suite_std_native` 24/24, `runtime_module_native` 6/6. It had been 106/125 and 22/24, because the union instances this cycle minted are named `Option_int.Some` and `Shape.Unit`, and orbit-r6 resolved a constructor by its bare name only (its D-M1-136). `system_http_requests_ok` and `system_http_requests_error` were missing from the
 three lists that register a builtin: the IR extern declaration, the compile-time
 predicate and the C return-type inference. The IR therefore called an undeclared

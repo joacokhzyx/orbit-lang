@@ -9,7 +9,9 @@ tests/runtime_module/expected.txt.
 
   --backend c       the object comes from the C backend.
   --backend native  the object comes from R6 (`r6 build --object`); needs
-                    ORBIT_R6, else the run is SKIPPED with exit 77.
+                    ORBIT_R6, else the run is SKIPPED with exit 77. Any host
+                    that is not Windows x86-64 is SKIPPED for the same reason:
+                    the compiler refuses --backend=native there.
 
 The program is always built by the C backend: R6 does not link foreign
 objects. arena.orb (an RtArena parameter) is built on both lanes. A file with a `main` must be refused by `--runtime-module`, which
@@ -52,6 +54,14 @@ def main() -> int:
     tool = "runtime_module_native" if args.backend == "native" else "runtime_module"
     r6 = os.environ.get("ORBIT_R6", "")
     if args.backend == "native":
+        if os.name != "nt":
+            # `orbit build --runtime-module --backend=native` is refused off
+            # Windows x86-64 by the same guard the suites hit
+            # (`hostIsWindows` in compiler/host/pipeline.orb), so an ORBIT_R6
+            # here buys a failure, not a lane.
+            out.say(f"Skipped {tool}: the native backend targets Windows x86-64 "
+                    "only, so this host cannot run it. This is a skip, not a pass.")
+            return SKIP_RC
         if not r6:
             out.say(f"Skipped {tool}: ORBIT_R6 is not set. Point it at r6.exe "
                     "with ir-protocol 3 to run this lane.")

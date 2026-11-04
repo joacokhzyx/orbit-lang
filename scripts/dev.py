@@ -1315,8 +1315,15 @@ def main() -> int:
     say(paint(f"all {len(results) - len(SKIPPED)} gate(s) passed in "
               f"{wall:.0f}s wall (gate sum {total:.0f}s)", GREEN))
     if SKIPPED:
+        # On Windows a skipped native gate is missing configuration, and the
+        # fix is to supply it. Anywhere else it is the platform rule: the
+        # compiler refuses --backend=native off Windows x86-64, so no amount of
+        # ORBIT_R6 makes these gates runnable, and saying otherwise sends the
+        # reader to set a variable that turns three skips into three failures.
+        hint = ("Set ORBIT_R6 to an r6.exe to run them." if os.name == "nt"
+                else "The native lane targets Windows x86-64, so they cannot run here.")
         say(paint(f"  {len(SKIPPED)} gate(s) skipped, not passed: "
-                  + ", ".join(SKIPPED) + ". Set ORBIT_R6 to an r6.exe to run them.",
+                  + ", ".join(SKIPPED) + ". " + hint,
                   YELLOW))
     missing = [t for t in (1, 2, 3) if t not in tiers]
     if missing and args.target != "report":

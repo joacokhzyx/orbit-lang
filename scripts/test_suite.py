@@ -95,6 +95,14 @@ def main() -> int:
     tool = "suite_native" if native else "suite"
     r6 = os.environ.get("ORBIT_R6", "")
     if native:
+        if os.name != "nt":
+            # `orbit build --backend=native` refuses any host that is not Windows
+            # x86-64 (`hostIsWindows` in compiler/host/pipeline.orb), so pointing
+            # at an r6 here cannot produce a pass: it produced three failing gates
+            # until this line named the rule.
+            out.say(f"Skipped {tool}: the native backend targets Windows x86-64 "
+                    "only, so this host cannot run it. This is a skip, not a pass.")
+            return SKIP_RC
         if not r6:
             out.say(f"Skipped {tool}: ORBIT_R6 is not set. Point it at r6.exe "
                     "(and R6_RUNTIME_DIR at its runtime archives) to run the "
