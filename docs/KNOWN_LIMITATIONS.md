@@ -753,10 +753,15 @@ sees one module's declarations. `len`, the runtime builtins and a short list of
 names written into this file cover those, and 4,202 calls stay untyped.
 The same boundary shows on the load side: the frontend refuses `builder.orb`
 with an unknown identifier for `initIRModule`, which `compiler/ir/ir.orb:290`
-declares. The CLI shows one of them at a time: `orbit frontend
-compiler/ir/builder.orb` prints a single E2001 and exits 1, while the census
-counts 2,271 unknown instructions in that same file. Sorting those by the name
-each load reads is the measurement that says which class to open next.
+declares. Sorting the loads by name is a census line now: the probe prints one
+`NAME` per distinct E2001 message and the driver sorts each identifier by where
+a definition of it lives. Measured 2026-11-04 over the same corpus, 3,203 of the
+7,663 read a name the file itself declares, and the five largest of those are
+`f`, `instr`, `t`, `n` and `cbTop`. 2,431 read a name from a file this one
+imports, 1,754 a name declared elsewhere in the corpus, and 275 a name no corpus
+file declares, led by `NULL` with 82. The four buckets sum to the E2001 count,
+which is the check the sort carries. The variable table is the largest class
+left, not the module boundary.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
