@@ -88,7 +88,11 @@ fn censusOf(path: string) {
     }
     val parser = initParser(source)
     val root = parseProgram(parser)
-    val module: TirModule = lowerProgramToTir(path, root)
+    // The same path `orbit frontend` takes, imports and all. This call used to
+    // be `lowerProgramToTir`, which reads only the text it is handed, so the
+    // census measured a program the command line never compiles: a file that
+    // calls into an imported function counted as unknown here and typed there.
+    val module: TirModule = lowerProgramWithImportsToTir(path, root, importsOf(path))
     appendParserDiagnostics(module, parser.diagnostics)
 
     var functions = 0

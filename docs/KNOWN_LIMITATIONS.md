@@ -721,7 +721,7 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 16.5% of instructions are `unknown`, and every one of them says so
+## 9.1% of instructions are `unknown`, and every one of them says so
 
 `scripts/unknown_census.py`, run on 2026-11-03 over 212 files and 105,554
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
@@ -729,17 +729,17 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 17,410 | **16.5%** |
+| instructions the front end types `unknown` | 9,620 | **9.1%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 7,673 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 963), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 3,745 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 532), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 4,565) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,209). Their sum, 17,410, is the whole unknown count. The five
+(member read, 3,313) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 2,030). Their sum, 9,620, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:417`, `:430`, `:438`, `:451` and `:489`, and
 each sits on the branch that emits the instruction.
 
@@ -754,20 +754,26 @@ parses each imported program and registers its signatures and models before any
 body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
 `load int later` and `call int` instead of reporting E2001 and suppressing the
 file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
-the file named on the command line. 4,209 calls still stay untyped, and they
-name what has no declaration to read.
+the file named on the command line. 2,030 calls still stay untyped: a runtime
+builtin in a file that does not import `compiler/host/extern.orb`, or a name no
+corpus file declares.
 
 Sorting the loads by name is a census line: the probe prints one `NAME` per
 distinct E2001 message and the driver sorts each identifier by where a definition
-of it lives. Measured 2026-11-04, 3,208 of the 7,673 read a name the file itself
-declares, and the five largest of those are `f`, `instr`, `t`, `n` and `cbTop`.
-2,436 read a name from a file this one imports, 1,754 a name declared elsewhere
-in the corpus, and 275 a name no corpus file declares, led by `NULL` with 82.
-The four buckets sum to the E2001 count, which is the check the sort carries.
+of it lives. The probe itself was the last thing holding the old numbers: until
+2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
+text it is handed, so it measured a program the command line never compiles. It
+calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
+3,745 unknown loads: 2,129 read a name the file itself declares, led by `instr`
+98, `t` 94, `f` 89 and `n` 76. 909 read a name from a file this one imports, led
+by `TokType` 582, `IROpcode` 95 and `ASTNode` 94. 480 read a name declared
+elsewhere in the corpus, led by `orbit_string_len` 198 and `orbit_string_slice`
+157. 227 read a name no corpus file declares, led by `NULL` with 82. The four
+buckets sum to the E2001 count, which is the check the sort carries.
 
-The other split says which of them is work. 3,217 are echoes: the reading
+The other split says which of them is work. 2,006 are echoes: the reading
 function binds that name, so it is the value bound into it that has no type. The
-other 4,456 read a name that function never binds, and the largest of them is
+other 1,739 read a name that function never binds, and the largest of them is
 `TokType` with 582. An enum is a `TypeDeclNode`, and `collectSignatures`
 (`compiler/tir/lower.orb:89`) declares that node as one it does not arm, so the
 name of a type is not in either table. That is the next class to open, and the
@@ -852,7 +858,7 @@ its written type. On 2026-11-03 two more field types became answers: one declare
 for a list literal, and a field whose type names another model this file
 declares answers that written name, so `o.i.n` reads both hops. 1,050
 instructions left the unknown count with the first step, and the rate moved from
-19.3% to 18.3% (193 per mille to 183). 4,565 reads are still untyped: a model
+19.3% to 18.3% (193 per mille to 183). 3,313 reads are still untyped: a model
 declared in another file, a union, and one element of a list -- the element kind
 is not claimed, because this pass keeps no table for it.
 `tests/frontend/field_read.orb`, `tests/frontend/nested_field_read.orb` and
@@ -907,12 +913,14 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
-What is left of the class list is `Match` 303, the chained `MemberAccess` 211,
-`Try` 93 and `If` 30. After them, a `for` over a value with no element type 20,
-`IndexAccess` 8 reads and 2 writes, and a labelled `break` with no target 4.
+What is left of the class list is `Match` 303, `Try` 93, the chained
+`MemberAccess` 37 and `If` 30. After them, a `for` over a value with no element
+type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read: 17,410 unknown over 105,754 instructions on
-2026-11-04, against 17,388 over 105,644 on 2026-11-03, 20,005 over 103,333 on
+the rate is what to read. On 2026-11-04 the census reads 9,620 unknown over
+106,122 instructions, against 17,410 over 105,754 on the same tree measured
+without its imports. The older records stand: 17,388 over 105,644 on
+2026-11-03, 20,005 over 103,333 on
 2026-11-02 and 25,489 over 86,942 at
 the start of that day.
 The ratchet reads the rate. Worst file by share of unknown instructions:
@@ -923,7 +931,7 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-16.5% is the number the type work has to be scoped against, and a
+9.1% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Run on 2026-11-02, after the
 baseline moved down to the measured numbers:
 

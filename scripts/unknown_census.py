@@ -428,6 +428,17 @@ def main():
         print("  NOTE: %d identifiers sorted against %d E2001 diagnostics -- the"
               " probe line and the code count are not one thing this run."
               % (sorted_loads, e2001))
+    # The pairs, not just the names: a fix that adds a missing import or widens
+    # a table is chosen file by file, and the name alone does not say where.
+    pairs = []
+    for r in rows:
+        for name, n in r.get("name", Counter()).items():
+            pairs.append((n, r["path"], name))
+    pairs.sort(reverse=True)
+    print("")
+    print("The largest single unknown loads (file, name, count):")
+    for n, path, name in pairs[:args.top]:
+        print("  %-40s %-28s %5d" % (path[:40], name[:28], n))
     print("")
     load_split = Counter()
     for r in rows:
