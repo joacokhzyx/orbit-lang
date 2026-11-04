@@ -729,18 +729,18 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 17,410 | **16.5%** |
+| instructions the front end types `unknown` | 17,388 | **16.5%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 7,688 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 962), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 7,663 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 963), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 4,556) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,204). Their sum, 17,410, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:385`, `:398`, `:406`, `:419` and `:457`, and
+(member read, 4,560) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 4,202). Their sum, 17,388, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:417`, `:430`, `:438`, `:451` and `:489`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -776,7 +776,7 @@ Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend)
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:315`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:323`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class"). Fourteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
@@ -831,7 +831,7 @@ its written type. On 2026-11-03 two more field types became answers: one declare
 for a list literal, and a field whose type names another model this file
 declares answers that written name, so `o.i.n` reads both hops. 1,050
 instructions left the unknown count with the first step, and the rate moved from
-19.3% to 18.3% (193 per mille to 183). 4,556 reads are still untyped: a model
+19.3% to 18.3% (193 per mille to 183). 4,560 reads are still untyped: a model
 declared in another file, a union, and one element of a list -- the element kind
 is not claimed, because this pass keeps no table for it.
 `tests/frontend/field_read.orb`, `tests/frontend/nested_field_read.orb` and
@@ -886,11 +886,11 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
-What is left of the class list is `Match` 300, the chained `MemberAccess` 211,
-`Try` 93, `If` 30, a `for` over a value with no element type 20, `ObjectLiteral`
-12, `IndexAccess` 8 reads and 2 writes, and a labelled `break` with no target 4.
+What is left of the class list is `Match` 301, the chained `MemberAccess` 211,
+`Try` 93 and `If` 30. After them, a `for` over a value with no element type 20,
+`IndexAccess` 8 reads and 2 writes, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read: 17,410 unknown over 105,554 instructions on
+the rate is what to read: 17,388 unknown over 105,644 instructions on
 2026-11-03, against 20,005 over 103,333 on 2026-11-02 and 25,489 over 86,942 at
 the start of that day.
 The ratchet reads the rate. Worst file by share of unknown instructions:
@@ -921,15 +921,15 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 26/26
+## The frontend gate is 27/27
 
-`scripts/frontend_gate.py` runs 26 fixtures and all 26 pass (two of
+`scripts/frontend_gate.py` runs 27 fixtures and all 27 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 21 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 22 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the

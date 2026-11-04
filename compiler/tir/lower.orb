@@ -272,6 +272,14 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         ASTNode.TypedLiteral(typedNode) => {
             return typedNode.declaredType
         }
+        // The anonymous spelling of the same value. The build IR calls it
+        // `object` (`buildObjectLiteralAsModel`'s type answer in
+        // `compiler/ir/builder.orb`), and the instruction this pass emits says
+        // the same, so a binding to one loads back what it is rather than
+        // `unknown`.
+        ASTNode.ObjectLiteral(objectNode) => {
+            return "object"
+        }
         ASTNode.Call(call) => {
             match call.callee {
                 ASTNode.Literal(l) => {
@@ -363,7 +371,34 @@ fn astNodeKind(node: ASTNode) -> string {
     return "unknown node"
 }
 
-// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
+// The operand text of an object literal: the field count, then each field name
+// and the register holding its value, in the order the source wrote them. The
+// two construction arms share it because they report one thing -- the body of
+// `{ x: 1 }` -- and differ only in whether a type name was written beside it.
+// "" is the only text that cannot come from a real literal: a valid one always
+// starts with the count.
+fn tirFieldText(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, body: ObjectLiteralNode) -> string {
+    var fieldText = tirIntText(body.fields.len())
+    var fi = 0
+    while fi < body.fields.len() {
+        val fnode = body.fields.get(fi)
+        match fnode {
+            ASTNode.FieldInit(init) => {
+                val fieldValue = lowerExpression(module, function, blockId, bindings, init.value)
+                if fieldValue < 0 { return "" }
+                fieldText = fieldText + " " + init.name + " " + tirValue(fieldValue)
+            }
+            _ => {}
+        }
+        fi = fi + 1
+    }
+    return fieldText
+}
+
+// The field initials of an object or model literal are visited by `tirFieldText`, which
+// arms FieldInit; this function has no arm of its own for it, which is what the list
+// below records per walk.
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
@@ -506,26 +541,26 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         ASTNode.TypedLiteral(typed) => {
             match typed.value {
                 ASTNode.ObjectLiteral(body) => {
-                    var fieldText = tirIntText(body.fields.len())
-                    var fi = 0
-                    while fi < body.fields.len() {
-                        val fnode = body.fields.get(fi)
-                        match fnode {
-                            ASTNode.FieldInit(init) => {
-                                val fieldValue = lowerExpression(module, function, blockId, bindings, init.value)
-                                if fieldValue < 0 { return -1 }
-                                fieldText = fieldText + " " + init.name + " " + tirValue(fieldValue)
-                            }
-                            _ => {}
-                        }
-                        fi = fi + 1
-                    }
+                    val fieldText = tirFieldText(module, function, blockId, bindings, body)
+                    if fieldText == "" { return -1 }
                     return tirEmit(function, blockId, "construct", typed.declaredType, fieldText)
                 }
                 _ => {}
             }
             tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
             return -1
+        }
+        // `{ x: 1 }` is the same construction with no type name written beside
+        // it, so the name it reports is the one the build IR already gives it:
+        // `object`. The fields and their values are emitted exactly as the named
+        // form emits them, through the same helper, because it is one construct
+        // spelled two ways. What is not claimed here is which model it builds --
+        // the builder infers that from the position, and this pass reads no
+        // inference.
+        ASTNode.ObjectLiteral(body) => {
+            val fieldText = tirFieldText(module, function, blockId, bindings, body)
+            if fieldText == "" { return -1 }
+            return tirEmit(function, blockId, "construct", "object", fieldText)
         }
         // `try fetch(path) catch { return "none" }` tests a result and reads it in
         // two paths, and the pass had no rule for either: the census counts 93 of
