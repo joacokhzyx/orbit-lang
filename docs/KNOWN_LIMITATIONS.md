@@ -740,7 +740,7 @@ the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-fronte
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 44) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
 (call result, 621). Their sum, 1,134, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:565`, `:578`, `:586`, `:610` and `:699`, and
+sites are `compiler/tir/lower.orb:585`, `:598`, `:606`, `:630` and `:719`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -754,10 +754,15 @@ parses each imported program and registers its signatures and models before any
 body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
 `load int later` and `call int` instead of reporting E2001 and suppressing the
 file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
-the file named on the command line. 621 calls still stay untyped: a runtime
-builtin in a file that does not import `compiler/host/extern.orb`, a name no
-corpus file declares, or a method read off a receiver whose type this pass
-cannot answer.
+the file named on the command line. 621 calls still stay untyped, and the census
+now names what each one called. 566 of them are a method read off a receiver this
+pass cannot type: `.push` 375, `.get` 126, `.pop` 26 and `.set` 21. The other 55
+name something no corpus file declares, led by `err` 37 and `ok` 13. The split is
+one number per file and it adds up to the E2005 count, which is the check the
+table carries. E2005 said only "this call" until 2026-11-04, so the largest class
+of untyped instructions was the one class no one could sort: a method is not a
+missing declaration but a missing receiver type, and the two answers are not the
+same work.
 
 Sorting the loads by name is a census line: the probe prints one `NAME` per
 distinct E2001 message and the driver sorts each identifier by where a definition
@@ -808,7 +813,7 @@ Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend)
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:462`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:482`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class"). Fourteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
@@ -927,7 +932,7 @@ What is left of the class list is `Match` 306, `Try` 93 and `If` 30. After them,
 type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
 the rate is what to read. On 2026-11-04 the census reads 1,134 unknown over
-102,644 instructions. Earlier the same day it read 1,757 over 102,785, before a
+102,646 instructions. Earlier the same day it read 1,757 over 102,785, before a
 qualified construction of a declared type stopped being read as a value off
 nothing, and 2,156 over 103,008 before a field declared `list<T>` carried that
 text to the read. Earlier the same day it read 4,050 over 102,971, before a

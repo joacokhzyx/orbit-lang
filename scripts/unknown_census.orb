@@ -18,6 +18,8 @@
 //                                   identifier the file loads untyped
 //     MEMBER <count> <message>   -- one E2004 message, whose last word is the
 //                                   field the file reads untyped
+//     CALL <count> <message>     -- one E2005 message, whose last word is the
+//                                   callee the file cannot type
 //     LOAD <count> <kind>        -- unknown loads split by whether the same
 //                                   function binds that name
 //
@@ -185,6 +187,12 @@ fn censusOf(path: string) {
     // types or a handful of builtins the pass does not know.
     var memberMessages = []
     var memberCounts = []
+    // E2005 is the same trick on the call: the message ends with the callee, so
+    // a distinct message names one thing the file tried to call. This is the
+    // largest class of untyped instructions and it used to say only "this call",
+    // which no driver could sort.
+    var callMessages = []
+    var callCounts = []
     var d = 0
     while d < module.diagnostics.len() {
         val diagnostic: TirDiagnostic = module.diagnostics.get(d)
@@ -212,6 +220,14 @@ fn censusOf(path: string) {
                 memberCounts = bump(memberCounts, mm)
                 memberCounts.push(1)
             } else { memberCounts = bump(memberCounts, mm) }
+        }
+        if diagnostic.code == "E2005" {
+            val cm = findOpcodes(callMessages, diagnostic.message)
+            if cm < 0 {
+                callMessages.push(diagnostic.message)
+                callCounts = bump(callCounts, cm)
+                callCounts.push(1)
+            } else { callCounts = bump(callCounts, cm) }
         }
         val at = findOpcodes(diagCodes, diagnostic.code)
         if at < 0 {
@@ -255,6 +271,11 @@ fn censusOf(path: string) {
     while m2 < memberMessages.len() {
         print("MEMBER " + orbit_int_to_string_selfhost(memberCounts.get(m2)) + " " + memberMessages.get(m2))
         m2 = m2 + 1
+    }
+    var c2 = 0
+    while c2 < callMessages.len() {
+        print("CALL " + orbit_int_to_string_selfhost(callCounts.get(c2)) + " " + callMessages.get(c2))
+        c2 = c2 + 1
     }
 }
 

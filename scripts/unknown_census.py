@@ -97,6 +97,70 @@ DECL_RE = re.compile(r"^\s*(?:extern\s+)?(?:fn|enum|union|model|type|val|const)"
 IMPORT_RE = re.compile(r'^\s*import\s+"([^"]+)"', re.M)
 
 
+FN_RE = re.compile(r"^\s*fn\s+([A-Za-z_]\w*)", re.M)
+EXTERN_FN_RE = re.compile(r"^\s*extern\s+fn\s+([A-Za-z_]\w*)", re.M)
+
+
+def callee_origins(rows, dirs):
+    """Sort the E2005 callees by the table that would have to answer for them.
+
+    A callee spelled with a leading dot is a method read off a receiver this pass
+    cannot type, and no declaration fixes it: the receiver's type is the missing
+    table. A bare name is sorted by where a function of that name lives, and an
+    `extern fn` is kept apart from an `fn` because a builtin is imported rather
+    than declared in the file that calls it.
+    """
+    fns = {}
+    externs = {}
+    imports = {}
+    for path in discover(dirs):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        key = rel(path)
+        fns[key] = set(FN_RE.findall(text))
+        externs[key] = set(EXTERN_FN_RE.findall(text))
+        imports[key] = [rel(os.path.normpath(os.path.join(os.path.dirname(path), m)))
+                        for m in IMPORT_RE.findall(text)]
+    declared_anywhere = set()
+    for names in fns.values():
+        declared_anywhere |= names
+    builtin_anywhere = set()
+    for names in externs.values():
+        builtin_anywhere |= names
+
+    buckets = Counter()
+    pairs = []
+    for r in rows:
+        path = r["path"]
+        own = fns.get(path, set())
+        direct = set()
+        for e in imports.get(path, []):
+            direct |= fns.get(e, set())
+            direct |= externs.get(e, set())
+        for callee, n in r.get("call", Counter()).items():
+            if callee.startswith("."):
+                bucket = "a method on a receiver this pass cannot type"
+            elif callee == "(expression)":
+                bucket = "a callee that is not a name"
+            elif callee in own:
+                bucket = "a function this file declares"
+            elif callee in direct:
+                bucket = "a function or builtin in a file this one imports"
+            elif callee in declared_anywhere:
+                bucket = "a function in a file this one does not import"
+            elif callee in builtin_anywhere:
+                bucket = "a builtin in a file this one does not import"
+            else:
+                bucket = "a name no corpus file declares"
+            buckets[bucket] += n
+            pairs.append((n, path, callee))
+    pairs.sort(reverse=True)
+    return buckets, pairs
+
+
 def name_origins(rows, dirs):
     """Sort the E2001 identifiers by where a definition of the name lives.
 
@@ -189,7 +253,7 @@ def parse(text):
         if parts[0] == "FILE":
             cur = {"path": " ".join(parts[1:]), "op": Counter(), "code": Counter(),
                    "giveup": Counter(), "name": Counter(), "load": Counter(),
-                   "member": Counter()}
+                   "member": Counter(), "call": Counter()}
             rows.append(cur)
         elif parts[0] == "FN" and cur is not None:
             # FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
@@ -225,6 +289,13 @@ def parse(text):
             # is the field, and one field repeated over files is one rule to fix.
             try:
                 cur["member"][parts[-1]] += int(parts[1])
+            except (ValueError, IndexError):
+                pass
+        elif parts[0] == "CALL" and cur is not None:
+            # CALL <count> cannot type the result of this call <callee>: the last
+            # word is what the file tried to call.
+            try:
+                cur["call"][parts[-1]] += int(parts[1])
             except (ValueError, IndexError):
                 pass
         elif parts[0] == "LOAD" and cur is not None:
@@ -465,6 +536,26 @@ def main():
     print("  The largest single untyped member reads (file, field, count):")
     for n, path, field in field_pairs[:args.top]:
         print("  %-40s %-28s %5d" % (path[:40], field[:28], n))
+    print("")
+    by_callee = Counter()
+    for r in rows:
+        by_callee.update(r.get("call", Counter()))
+    buckets, sorted_pairs = callee_origins(rows, dirs)
+    print("What the untyped calls ask for, by what was called "
+          "(%d sorted, the E2005 count is %d):"
+          % (sum(by_callee.values()), by_code.get("E2005", 0)))
+    table(by_callee, max(sum(by_callee.values()), 1), args.top, "callee")
+    print("  The untyped calls sorted by what would have to answer "
+          "(%d in the buckets):" % sum(buckets.values()))
+    for bucket, n in buckets.most_common():
+        print("  %-52s %7d" % (bucket[:52], n))
+    if sum(buckets.values()) != by_code.get("E2005", 0):
+        print("  NOTE: %d sorted against %d E2005 -- the callee tally and the "
+              "diagnostic count are not one thing this run."
+              % (sum(buckets.values()), by_code.get("E2005", 0)))
+    print("  The largest single untyped calls (file, callee, count):")
+    for n, path, callee in sorted_pairs[:args.top]:
+        print("  %-40s %-28s %5d" % (path[:40], callee[:28], n))
     print("")
     load_split = Counter()
     for r in rows:

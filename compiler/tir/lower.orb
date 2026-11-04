@@ -320,6 +320,26 @@ fn listElementKind(typeText: string) -> string {
     return typeText.slice(5, typeText.length - 1)
 }
 
+// The callee of a call, spelled the way the source spells it, for the one
+// message that had no name in it. E2001 names the identifier and E2004 names the
+// field, and the census splits both by where the name is declared. E2005 said
+// only "this call", so the largest class of untyped instructions could not be
+// classified at all: 621 of them over the corpus, and no way to say how many
+// were a builtin, a method on an untyped receiver, or a name nothing declares.
+// orbit-walk: none -- names a node; it visits no children
+fn callCalleeText(callee: ASTNode) -> string {
+    match callee {
+        ASTNode.Literal(literal) => {
+            return literal.text
+        }
+        ASTNode.MemberAccess(member) => {
+            return "." + member.field
+        }
+        _ => {}
+    }
+    return "(expression)"
+}
+
 // orbit-walk: none -- asks what type an expression is
 fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
@@ -696,7 +716,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             // signature of, and it used to be indistinguishable from one it did
             // -- which is how an unchecked argument type reached codegen.
             if returnType == "unknown" {
-                tirError(module, "E2005", "cannot type the result of this call", 0, 0)
+                tirError(module, "E2005", "cannot type the result of this call " + callCalleeText(call.callee), 0, 0)
             }
             return tirEmit(function, blockId, "call", returnType, callOperands)
         }

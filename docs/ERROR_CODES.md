@@ -285,7 +285,12 @@ front end knows.
 ## E2005 — untypable call result (frontend)
 
 Fires in `compiler/tir/lower.orb` when a call's result type is
-`unknown` — a call whose signature the front end does not know. A call to a function the same file declares is typed from that declaration (`declaredReturnType`), so what fires here is a call into another file or an unknown callee. Same F-0018
+`unknown` — a call whose signature the front end does not know.
+
+The message ends with the callee as the source spells it: a name, or `.field`
+for a method. The census sorts 621 of them on 2026-11-04 and 566 answer to a
+method whose receiver has no type, which is a different fix from a missing
+declaration. A call to a function the same file declares is typed from that declaration (`declaredReturnType`), so what fires here is a call into another file or an unknown callee. Same F-0018
 origin as E2004, and the larger of the two (unchecked argument types
 reached codegen through it). Frontend lowering only. Fix hint: call a
 declared function with the declared arity.
