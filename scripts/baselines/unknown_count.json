@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 212,
-  "instructions": 102596,
+  "instructions": 102668,
   "context": {
-    "unknown_instructions": 614,
+    "unknown_instructions": 576,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -153,7 +153,7 @@
     "tests/suite/match.orb": 2,
     "tests/suite/match_binding_payload_type.orb": 0,
     "tests/suite/member_and_index_store.orb": 3,
-    "tests/suite/member_resolution.orb": 5,
+    "tests/suite/member_resolution.orb": 3,
     "tests/suite/migrations_down.orb": 0,
     "tests/suite/mini_parser.orb": 2,
     "tests/suite/model_alloc_loop.orb": 0,
@@ -204,8 +204,8 @@
     "tests/suite/strings_concat.orb": 0,
     "tests/suite/strings_eq.orb": 0,
     "tests/suite/strings_escape.orb": 0,
-    "tests/suite/system_request_classes.orb": 8,
-    "tests/suite/system_telemetry.orb": 28,
+    "tests/suite/system_request_classes.orb": 0,
+    "tests/suite/system_telemetry.orb": 0,
     "tests/suite/ternary.orb": 4,
     "tests/suite/type_spellings.orb": 2,
     "tests/suite/unary_neg.orb": 0,

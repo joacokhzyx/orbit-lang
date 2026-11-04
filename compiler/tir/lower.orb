@@ -340,6 +340,23 @@ fn callCalleeText(callee: ASTNode) -> string {
     return "(expression)"
 }
 
+// The type of a `system.<method>` read. `compiler/front/sema.orb` answers `int`
+// for these ten names and nothing for any other, and the list is kept here as
+// one function so a method the checker does not know keeps answering `unknown`.
+fn systemMethodType(member: string) -> string {
+    if member == "uptime" { return "int" }
+    if member == "pid" { return "int" }
+    if member == "active_workers" { return "int" }
+    if member == "http_requests_total" { return "int" }
+    if member == "http_requests_ok" { return "int" }
+    if member == "http_requests_error" { return "int" }
+    if member == "latency_avg_us" { return "int" }
+    if member == "latency_p50_us" { return "int" }
+    if member == "latency_p95_us" { return "int" }
+    if member == "latency_p99_us" { return "int" }
+    return ""
+}
+
 // orbit-walk: none -- asks what type an expression is
 fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
@@ -354,6 +371,7 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                 if bound != "unknown" { return bound }
                 val fromDeclaration = declaredReturnType(module, literal.text)
                 if fromDeclaration != "" { return fromDeclaration }
+                if literal.text == "system" { return "system" }
                 return "unknown"
             }
             return tirLiteralType(literal)
@@ -453,6 +471,10 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     // including a list, because the only `at` and `slice` sites
                     // the rule was read from were string ones.
                     val receiverText = typeOfExpression(module, bindings, ma.object)
+                    if receiverText == "system" {
+                        val systemType = systemMethodType(ma.field)
+                        if systemType != "" { return systemType }
+                    }
                     val elementKind = listElementKind(receiverText)
                     if elementKind != "" {
                         if ma.field == "get" || ma.field == "at" { return elementKind }
@@ -595,6 +617,14 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                     // tests/frontend/unresolved_type.orb pins.
                     val fromDeclaration = declaredReturnType(module, literal.text)
                     if fromDeclaration != "" { typeName = fromDeclaration }
+                }
+                if typeName == "unknown" {
+                    // `system` is the telemetry receiver the checker resolves by
+                    // name: `compiler/front/sema.orb` answers `system` for the
+                    // identifier and `int` for each of its ten methods. A binding
+                    // of that name wins above, the way the checker reads a local
+                    // named `system` as a local.
+                    if literal.text == "system" { typeName = "system" }
                 }
                 if typeName == "unknown" {
                     tirError(module, "E2001", "unknown identifier " + literal.text, 0, 0)
