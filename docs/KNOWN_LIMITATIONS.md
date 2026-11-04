@@ -263,6 +263,27 @@ first -- type `try` from the callee's declared `result<T>`, which changes what
 not a `tests/negative` case: that gate pins a program that fails to compile, and
 this one compiles.
 
+The hole is open on the shipped compiler and was run today. `ok(5)` inside
+`fn wrong() -> result` checks clean, and `val v: string = try wrong() catch {
+return 7 }` checks clean too, `orbit build` compiles it, and running the binary
+faults: `[ORBIT RUNTIME CRASH] ExceptionCode 0xC0000005`, exit 139, because the
+int is read back as a string pointer. No `tests/negative` case pins a refusal,
+because there is no refusal to pin -- the bare `result` is compatible with every
+payload at `compiler/front/sema.orb:2068`, and `checkCompatibility` returns true
+whenever the wanted type is `result`.
+
+One route to closing it was tried and is falsified here, because the plan said
+the block was in the checker. It is not only there. Adding a compatibility rule so
+a bare `result` value satisfies a `result<string>` signature makes
+`orbit check` accept the program, and the C step then refuses the emission:
+`r_2 = (orbit_string)(r_0.value)` reads `.value` off a `void*` local, because
+`compiler/emit/c_backend.orb` has no hoisted type for a declared `result<T>`
+return. Typing `ok(x)` from its argument was also tried; it answers
+`result<string>` everywhere and breaks 11 programs of the 125 in `tests/suite`,
+and the checker already restricts the body of `ok` to a string or an object when
+the signature writes a payload. So the change is an emission change first, and the
+checker rule is the smaller half.
+
 The size of the hole is countable without changing anything. 47 sites in the corpus
 bind a `try` with a written annotation (`val d0: string = try base64Decode(...)`),
 and 41 of them call a function that declares the bare `result`. None of the 47 can
