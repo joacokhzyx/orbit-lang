@@ -753,7 +753,10 @@ sees one module's declarations. `len`, the runtime builtins and a short list of
 names written into this file cover those, and 4,202 calls stay untyped.
 The same boundary shows on the load side: the frontend refuses `builder.orb`
 with an unknown identifier for `initIRModule`, which `compiler/ir/ir.orb:290`
-declares.
+declares. The CLI shows one of them at a time: `orbit frontend
+compiler/ir/builder.orb` prints a single E2001 and exits 1, while the census
+counts 2,271 unknown instructions in that same file. Sorting those by the name
+each load reads is the measurement that says which class to open next.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
