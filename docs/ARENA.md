@@ -219,7 +219,7 @@ The cap exists because a runaway allocator used to grow until the machine
 swapped, which reads as a freeze with no output rather than as a failure. Unset,
 zero and malformed values keep the default, which is 2048 MB on a platform that
 will not report its memory; a child arena inherits its parent's cap and the
-clause that names it.
+sentence that names it.
 
 **Telemetry** (`runtime/performance.h`): `arena_alloc_count`,
 `arena_requested_bytes`, `arena_aligned_bytes`,

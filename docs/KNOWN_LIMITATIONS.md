@@ -376,7 +376,7 @@ spawning `timeout /T 1 /NOBREAK`. `timeout` refuses to run when its input is
 redirected, so every "second" returned at once: the documented three-second
 grace measured **193 ms** for `orbit stop` and 306 ms for `cluster down`, and
 the service was terminated before its accept loop could notice anything. The
-helper has 11 call sites, and the damage differs by shape. `clusterWaitDead`
+helper has 11 call sites, and the damage differs by helper. `clusterWaitDead`
 and the `orbit stop` escalation poll for a *change*, so an instant retry loop
 gave up after a few hundred milliseconds and forced the kill.
 `clusterWaitAlive` probes before it sleeps and asks only whether the pid is
@@ -824,7 +824,7 @@ that field. `typeOfExpression` answered `int` for `len` and `unknown` for
 everything else, so every member read entered the count as `unknown` (E2004,
 5,389 of them). The program's own `model` declarations are collected before any
 body is lowered, and a field declared `int`, `string`, `bool` or `float` answers
-its written type. On 2026-11-03 two more shapes became answers: a field declared
+its written type. On 2026-11-03 two more field types became answers: one declared
 `list` or `list<string>` answers `list`, the same claim the pass already makes
 for a list literal, and a field whose type names another model this file
 declares answers that written name, so `o.i.n` reads both hops. 1,050
@@ -833,7 +833,7 @@ instructions left the unknown count with the first step, and the rate moved from
 declared in another file, a union, and one element of a list -- the element kind
 is not claimed, because this pass keeps no table for it.
 `tests/frontend/field_read.orb`, `tests/frontend/nested_field_read.orb` and
-`tests/frontend/list_field_read.orb` pin the three answered shapes;
+`tests/frontend/list_field_read.orb` pin the three answered field types;
 `tests/frontend/crossfile_field.orb` pins that an imported name is not one of
 them.
 
@@ -856,8 +856,8 @@ A `break` outside a loop has no block to name and stays a give-up that says so.
 
 `For` was the eighth: the statement lowering had no arm for a loop at all, so
 every one of the 46 reached the expression reader and suppressed its file's
-text. `for x in 0..n` counts an int between the bounds, so it is the `while`
-shape plus an increment block, and the increment is where a `continue` lands --
+text. `for x in 0..n` counts an int between the bounds, so it lowers to the `while`
+form plus an increment block, and the increment is where a `continue` lands --
 jumping to the condition with the counter unchanged repeats one item forever.
 `tests/frontend/range_loop.orb` pins both loops and an index binding.
 20 of the 46 iterate a value whose element type this pass does not keep, and 4
