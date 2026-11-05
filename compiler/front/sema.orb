@@ -4806,7 +4806,10 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             return ""
         }
         ASTNode.Try(tr) => {
-            checkNode(sema, tr.expr)
+            // The read yields the payload the callee's signature writes, so the
+            // annotation on a binding is compared with something. A bare
+            // `-> result` writes nothing and the answer stays `unknown`.
+            val tryYielded = checkNode(sema, tr.expr)
             match tr.catchBody {
                 ASTNode.Empty => {}
                 _ => {
@@ -4825,6 +4828,8 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     popScope(sema)
                 }
             }
+            val tryPayload = compatTypeResultPayload(tryYielded)
+            if tryPayload != "" { return tryPayload }
             return "unknown"
         }
         ASTNode.MatchCase(mc) => { return "" }

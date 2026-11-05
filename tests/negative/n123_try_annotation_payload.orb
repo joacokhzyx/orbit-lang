@@ -1,0 +1,14 @@
+// case: try-annotation-payload
+// what: a `try` over a callee that writes its payload, read into a binding annotated
+//      with a different type. The checker answered `unknown` for the whole read, and the
+//      compatibility rules accept `unknown` for anything, so the annotation was never
+//      compared: the program built and ran with an int register holding a string pointer.
+// expect-error: is declared int but the value is string
+fn decode(s: string) -> result<string> {
+    return ok 200 s
+}
+
+fn main() -> int {
+    val n: int = try decode("x") catch { return 7 }
+    return n
+}

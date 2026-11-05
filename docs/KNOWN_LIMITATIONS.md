@@ -97,7 +97,7 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 115/115 pass (0 known defects still accepted)
+Finished negative: 116/116 pass (0 known defects still accepted)
 ```
 
 One hundred and twelve programs: every one must be rejected and is. The last one
@@ -219,16 +219,14 @@ and the measurement that says how much of the front end is still untyped is
 [below](#194-of-instructions-are-unknown-and-every-one-of-them-says-so).
 
 
-## A `try` binding annotation is not checked
+## A `try` binding annotation is checked where the payload is written
 
-`compiler/front/sema.orb:4799` answers `unknown` for a `try` expression. The
-compatibility rules then accept `unknown` for anything, at `compiler/front/sema.orb:1146`
-and `:2012`. The annotation written on the binding is never compared with what the
-call carries:
+`compiler/front/sema.orb:4808` answers a `try` with the payload the callee's signature
+writes, so the annotation on the binding is compared with what the read yields:
 
 ```console
 $ cat tryprobe.orb
-fn decode(s: string) -> result {
+fn decode(s: string) -> result<string> {
     return ok 200 s
 }
 
@@ -238,7 +236,8 @@ fn main() -> int {
     return 0
 }
 $ orbit check tryprobe.orb
-  Checked tryprobe.orb: no errors.
+  error[E1006]: 'n' is declared int but the value is string.
+    --> tryprobe.orb:6:9
 ```
 
 `decode` carries a `string`, `n` is annotated `int`, and `print(n)` reads that
@@ -246,14 +245,16 @@ pointer as an integer. The mechanism is already written down at
 `compiler/front/sema.orb:4690`, which blames it for `ok 200 system.uptime()`
 reaching the C backend with an int where a string pointer belongs. The fix there
 named a receiver type; this site has no receiver to name, because the payload is
-written nowhere. On 2026-11-04, 42 `fn` signatures returned a bare `-> result` and
-none wrote a payload. Two counts of this sentence have been wrong and both are
-dated rather than hidden: the first said 51 in 31 files, counting the spelling
-wherever it appeared, and the second said 42 and 0 with a pattern that could not
-see a payload at all, because the formatter writes `result < string >` with spaces
-around the angle brackets. Read with a spacing-tolerant pattern today: **40
-signatures return a bare `-> result`, and 3 write a payload** -- two in
-`std/convert/codec.orb` and the suite program that proves the spelling works.
+written nowhere, and `tests/negative/n123_try_annotation_payload.orb` keeps the refusal.
+Before 2026-11-05 the same arm answered `unknown` for every `try`, and the compatibility
+rules accept `unknown` for anything, at `compiler/front/sema.orb:1146` and `:2012`: the
+probe above built, and `print(n)` read a string pointer as an integer.
+Two counts of this sentence have been wrong and both are dated rather than hidden: the
+first said 51 in 31 files, counting the spelling wherever it appeared, and the second
+said 42 and 0 with a pattern that could not see a payload at all, because the formatter
+writes `result < string >` with spaces around the angle brackets. Counting every tracked
+`.orb` and skipping comment lines, on 2026-11-05: **67 signatures return a bare
+`-> result` and 13 write a payload**, out of 527 files.
 
 The same missing spelling is why `try` expressions gave up in the frontend pass.
 `std/convert/codec.orb` now writes `result < string >` on the two decodes, and 19 of
