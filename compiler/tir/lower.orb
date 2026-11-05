@@ -202,14 +202,20 @@ fn collectModels(module: TirModule, program: ProgramNode) {
 // is no answer either. An empty
 // answer means the read stays `unknown`, which is what E2004 reports today.
 fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> string {
+    val baseName = tirTypeBaseName(typeName)
+    val args = tirTypeArguments(typeName)
     var t = 0
     while t < module.types.len() {
         val declared: TirType = module.types.get(t)
-        if declared.name == typeName {
+        if declared.name == baseName {
             var f = 0
             while f < declared.fields.len() {
                 val field: TirField = declared.fields.get(f)
                 if field.name == fieldName {
+                    val fromInstance = tirSubstitutedFieldType(module, declared, field, args)
+                    if fromInstance != "" {
+                        return fromInstance
+                    }
                     if field.declaredType == "int" { return "int" }
                     if field.declaredType == "string" { return "string" }
                     if field.declaredType == "bool" { return "bool" }
@@ -237,6 +243,151 @@ fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> 
             }
         }
         t = t + 1
+    }
+    return ""
+}
+
+// The names a model declares as its type parameters, in the order it writes
+// them: `model Pair[A, B]` gives `A` then `B`, because an instance answers by
+// position.
+// orbit-walk: none -- names a node; it visits no children
+fn tirGenericParamNames(params: list < ASTNode >) -> list < string > {
+    val names = []
+    var i = 0
+    while i < params.len() {
+        match params.get(i) {
+            ASTNode.GenericParam(gparam) => {
+                names.push(gparam.name)
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return names
+}
+
+// The model a type text names, without its arguments: `Box<int>` is `Box`, and a
+// bare `Box` is `Box`.
+fn tirTypeBaseName(typeText: string) -> string {
+    var out = ""
+    var i = 0
+    while i < typeText.length {
+        val c = typeText.slice(i, i + 1)
+        if c == "<" {
+            return out
+        }
+        if c != " " {
+            out = out + c
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// The arguments a type text writes, split on the commas outside a `<...>`, so
+// `Pair<int, list<string>>` is `int` and `list<string>`. A type text written
+// without arguments gives none, and that is the bare name the pass keeps.
+fn tirTypeArguments(typeText: string) -> list < string > {
+    val out = []
+    var current = ""
+    var depth = 0
+    var i = 0
+    while i < typeText.length {
+        val c = typeText.slice(i, i + 1)
+        if c == "<" {
+            if depth > 0 {
+                current = current + c
+            }
+            depth = depth + 1
+        } else if c == ">" {
+            depth = depth - 1
+            if depth > 0 {
+                current = current + c
+            } else if current != "" {
+                out.push(tirTrimTypeSpaces(current))
+                current = ""
+            }
+        } else if depth == 1 {
+            if c == "," {
+                if current != "" {
+                    out.push(tirTrimTypeSpaces(current))
+                    current = ""
+                }
+            } else {
+                current = current + c
+            }
+        } else if depth > 1 {
+            current = current + c
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn tirTrimTypeSpaces(typeText: string) -> string {
+    var start = 0
+    while start < typeText.length && typeText.slice(start, start + 1) == " " {
+        start = start + 1
+    }
+    var finish = typeText.length
+    while finish > start && typeText.slice(finish - 1, finish) == " " {
+        finish = finish - 1
+    }
+    return typeText.slice(start, finish)
+}
+
+// A field whose declared type is one of the model's parameters answers the
+// argument the instance writes: `v: T` under `Box<int>` is `int`, and
+// `items: list<T>` under `Bag<string>` is `list<string>`. The argument has to be
+// a type this pass already states, because a text it cannot read back would put
+// a new spelling into the file's canonical text.
+fn tirSubstitutedFieldType(module: TirModule, declared: TirType, field: TirField, args: list < string >) -> string {
+    if args.len() == 0 {
+        return ""
+    }
+    var p = 0
+    while p < declared.params.len() && p < args.len() {
+        if declared.params.get(p) == field.declaredType {
+            return tirStatedType(module, args.get(p))
+        }
+        if field.declaredType.length >= 7 {
+            if field.declaredType.slice(0, 5) == "list<" {
+                if field.declaredType.slice(field.declaredType.length - 1, field.declaredType.length) == ">" {
+                    if field.declaredType.slice(5, field.declaredType.length - 1) == declared.params.get(p) {
+                        val inner = tirStatedType(module, args.get(p))
+                        if inner != "" {
+                            return "list<" + inner + ">"
+                        }
+                    }
+                }
+            }
+        }
+        p = p + 1
+    }
+    return ""
+}
+
+// The type texts this pass prints and can read back: four builtins, `object`, a
+// model this file declares, `list`, and a `list` of one of those.
+fn tirStatedType(module: TirModule, typeText: string) -> string {
+    if typeText == "int" || typeText == "string" || typeText == "bool" || typeText == "float" {
+        return typeText
+    }
+    if typeText == "object" || typeText == "list" {
+        return typeText
+    }
+    if tirDeclaresModel(module, typeText) {
+        return typeText
+    }
+    if typeText.length >= 7 {
+        if typeText.slice(0, 5) == "list<" {
+            if typeText.slice(typeText.length - 1, typeText.length) == ">" {
+                val inner = tirStatedType(module, typeText.slice(5, typeText.length - 1))
+                if inner != "" {
+                    return "list<" + inner + ">"
+                }
+            }
+        }
     }
     return ""
 }
@@ -278,7 +429,7 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
         i = i + 1
     }
     module.ctors.push(modelDecl.name)
-    module.types.push(TirType(modelDecl.name, fields))
+    module.types.push(TirType(modelDecl.name, fields, tirGenericParamNames(modelDecl.genericParams)))
 }
 
 // An enum enters the same table, with its variants as the fields and its own
@@ -317,7 +468,7 @@ fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
         }
         i = i + 1
     }
-    module.types.push(TirType(typeDecl.name, fields))
+    module.types.push(TirType(typeDecl.name, fields, []))
 }
 
 // The element kind a list type text carries. `list<int>` answers `int`; `list`

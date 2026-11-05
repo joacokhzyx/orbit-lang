@@ -57,6 +57,7 @@ model TirField {
 model TirType {
     name: string
     fields: list < TirField >
+    params: list < string >
 }
 
 // One declared signature: the name and the return type exactly as the source

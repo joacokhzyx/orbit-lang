@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 214,
-  "instructions": 104610,
+  "instructions": 105069,
   "context": {
-    "unknown_instructions": 321,
+    "unknown_instructions": 317,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -129,7 +129,7 @@
     "tests/suite/for_range.orb": 0,
     "tests/suite/function_pointers.orb": 0,
     "tests/suite/generic_functions.orb": 1,
-    "tests/suite/generic_models.orb": 16,
+    "tests/suite/generic_models.orb": 13,
     "tests/suite/generic_multi.orb": 2,
     "tests/suite/generic_nested_argument.orb": 1,
     "tests/suite/generic_union_option.orb": 2,
@@ -176,7 +176,7 @@
     "tests/suite/object_literal_missing_key.orb": 10,
     "tests/suite/object_literals.orb": 6,
     "tests/suite/parallel_lists_table.orb": 0,
-    "tests/suite/parameter_type_fallback.orb": 1,
+    "tests/suite/parameter_type_fallback.orb": 0,
     "tests/suite/peephole_folds.orb": 0,
     "tests/suite/peephole_int_bool_only.orb": 0,
     "tests/suite/peephole_no_fold_side_effects.orb": 8,

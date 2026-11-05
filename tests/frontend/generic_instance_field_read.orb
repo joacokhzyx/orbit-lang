@@ -1,0 +1,16 @@
+// A field the model declares as a type parameter still has a type at the read,
+// because the instance writes it: `fn takeInt(b: Box<int>)` reads `b.v` as
+// `int`, and `Bag<int>` reads `items` as `list<int>`. The table used to hold the
+// model's name and its fields only, so the text beside the field's name was `T`
+// -- no type the pass could state -- and the read came back `unknown` (E2004),
+// which suppresses the canonical text of the whole file.
+//
+// The instance has to write its argument. `val b = Box { v: 3 }` keeps the bare
+// name the source wrote, so `b.v` stays unanswered here: the element is in the
+// value, not in the text, and this pass reports the source.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Box[T] { v: T }  fn takeInt(b: Box<int>) -> int { return b.v }  model Bag[T] { items: list<T> }  fn firstOf(g: Bag<int>) -> int { return g.items.get(0) }"
+    print(compileFrontendSource("fixture", source))
+}

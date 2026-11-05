@@ -846,13 +846,13 @@ that would remove the requirement.
 
 ## 0.3% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-05 over 214 files and 104,610
+`scripts/unknown_census.py`, run on 2026-11-05 over 214 files and 105,069
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 321 | **0.3%** |
+| instructions the front end types `unknown` | 317 | **0.3%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
@@ -861,9 +861,9 @@ the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-fronte
 (unknown identifier, 142 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 48), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 23) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 108). Their sum, 321, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:701`, `:714`, `:722`, `:746` and `:841`, and
+(member read, 19) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 108). Their sum, 317, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:851`, `:864`, `:872`, `:896` and `:991`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -949,21 +949,21 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 345 times on this corpus, down from 9,233. It is not in the
+<node>" fired 346 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type. On this run the two tallies
-read 321 and 345; they are counted from different fields, and their
+read 317 and 346; they are counted from different fields, and their
 per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 `Match` give-ups.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:590`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:740`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
 `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The `try` class is answered from two
-places now. `declaredPayloadType` (`compiler/tir/lower.orb:249`) reads the payload the
+places now. `declaredPayloadType` (`compiler/tir/lower.orb:400`) reads the payload the
 signature writes -- `int`, `bool`, `string`, `float`, `object`. Where the signature writes
 nothing, the annotation on the binding is the promise, and the build retypes the read to
 it (`compiler/ir/builder.orb:3140`), so `val n: int = try digit(c) catch { return 9 }`
@@ -1032,25 +1032,23 @@ its written type. On 2026-11-03 two more field types became answers: one declare
 for a list literal, and a field whose type names another model this file
 declares answers that written name, so `o.i.n` reads both hops. 1,050
 instructions left the unknown count with the first step, and the rate moved from
-19.3% to 18.3% (193 per mille to 183). 23 reads are still untyped, and the
-census names the field each one asks for; `.v` leads it.
-16 of the 23 -- `.v` 8, `.left` 4, `.right` 4 -- read a field whose declared type
-is a type parameter: `model Box[T] { v: T }` and `model Pair[A, B] { left: A,
-right: B }` in `tests/suite/generic_models.orb`, 14 of them in that one file.
-`declaredFieldType` (`compiler/tir/lower.orb:204`) answers the type text the
-declaration writes, and for those three fields the text is `T`, `A` or `B`.
-The table it reads is `TirType` (`compiler/tir/format.orb:57`), which carries a
-name and its fields and no list of type parameters, so a written argument has
-nothing to be substituted into. The list is parsed, and the code that builds the
-row is handed the node that carries it: `ModelDeclNode` holds `genericParams`
-(`compiler/front/ast.orb:53`). That row is pushed as a `TirType` of the name and
-the fields at `compiler/tir/lower.orb:281`, and the parameters are not in it.
-A read through an instance the signature names
-stays `unknown` until that table carries the parameters. The shortest
-reproduction is six lines -- `model Box[T] { v: T }` and
-`fn takeInt(b: Box < int >) -> int { return b.v }` -- and `orbit frontend` on it
-exits 1 with `E2004 at 0:0: cannot type the member read .v`, which suppresses the
-file's whole text.
+19.3% to 18.3% (193 per mille to 183). 19 reads are still untyped, and the
+census names the field each one asks for: `.v` 5, `.right` 4, `.left` 3.
+Four left on 2026-11-05, when the type table began to carry the parameters the
+model declares. `declaredFieldType` (`compiler/tir/lower.orb:204`) matches an
+instance by the base of its type text -- `Box<int>` is the model `Box` with the
+argument `int` -- and a field whose declared text is one of `TirType.params`
+answers that argument. `list<T>` substitutes inside the container it names, so
+`items` under `Bag<int>` is `list<int>` and `Bag<int>.items.get(0)` is
+`call int`. Only a type this pass already states is taken: a builtin, `object`,
+`list`, a `list` of one of those, or a model this file declares.
+12 of the 19 stay, and every one of them is an instance that writes nothing:
+`val b = Box { v: 3 }` keeps the bare name the source wrote, so the field's
+declared text is still `T` and the argument lives in the value, not in the text.
+`tests/frontend/generic_instance_field_read.orb` pins the answered read --
+`member int v0 v` under `param 0 0 b Box<int>` -- and the container read that
+answers through it. Its first function is the six-line case that used to exit 1
+with `E2004 at 0:0: cannot type the member read .v` and suppress the file.
 The count fell 44 to 23
 on 2026-11-04, when a field read of an `object` stopped asking: the register the
 build allocates for that read is declared `object` (`compiler/ir/builder.orb:4804`),
@@ -1139,11 +1137,19 @@ write into it. Neither answer is a merge *value* this pass can print: one canoni
 in the block after the join. Widening that changes the text format, which is a
 decision rather than a rule to copy.
 
-What is left of the class list is `Match` 307 and `If` 30. After them, a fall-through `try`
+What is left of the class list is `Match` 308 and `If` 30. After them, a fall-through `try`
 handler 6, one `for` over a `list` that names no element kind, and a `continue`
 outside any loop 1.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-05 the census reads 321 unknown over
+the rate is what to read. On 2026-11-05 the census reads 317 unknown over
+105,069 instructions, after the model's declared parameters entered the type
+table: 4 member reads answered and one give-up entered the tally, because a body
+this pass could not reach before it asks a question it still does not answer. The
+metric holds at 3 per mille. Two runs of this tree printed 104,752 and 105,069
+instructions with the same 317 `unknown`, so the denominator is not reproducible
+across runs while the count is; the number the baseline and this page carry is the
+run the gate read, passed to it as that same census document
+(`unknown_ratchet.py --from-json`). The run before it read 321 over
 104,610 instructions, after a list literal began answering its own element kind:
 33 loads, 35 calls and 4 binary operands left the count, and 18 give-ups with
 them. The metric the ratchet holds moved 4 to 3 on this one. The run before it read 393 over
@@ -1241,9 +1247,9 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 49/49
+## The frontend gate is 50/50
 
-`scripts/frontend_gate.py` runs 49 fixtures and all 49 pass (two of
+`scripts/frontend_gate.py` runs 50 fixtures and all 50 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
