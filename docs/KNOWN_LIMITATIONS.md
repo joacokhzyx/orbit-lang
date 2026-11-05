@@ -788,7 +788,9 @@ lives in git history with it. What is left is a different and smaller hole:
 - **A `list` parameter declared without its element.** `fn read(xs: list, i: int)`
   has nothing to check a read against, and that spelling stays lenient on
   purpose, the way `unknown` is. Dynamic values cannot be refused
-  without breaking code that works. The crash it used to hide is closed
+  without breaking code that works. The build names no element kind for that
+  parameter either: `xs.get(i)` through it emits `list_get` with `elemKind` 0 and
+  a `void*` destination register (measured 2026-11-05). The crash it used to hide is closed
   ([F-0009](ERROR_CODES.md#f-code-index), fixed): generic functions fix the
   element per call site and `tests/negative/n39_list_parameter_has_no_element_type.orb`
   pins that the incoherent call is refused. A model field is no longer in this bullet:
@@ -878,7 +880,14 @@ file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
 the file named on the command line. 108 calls stay untyped, and the census names
 what each one called. 103 are a method on a receiver the pass cannot read: `.get`
 93 and `.pop` 2 want the element kind of a list the source wrote without one,
-and `unknown` is the answer there, not a gap. `.pop` was 26 until the typed
+and `unknown` is the answer there, not a gap. The build records no kind for that
+container either: measured 2026-11-05, `orbit build --emit-ir` on
+`fn pick(xs: list, i: int) -> int { val v = xs.get(i) return v }` writes
+`list_get` with `elemKind` 0 and gives the read's register the type `void*`. So
+this pass is at parity with the build, not behind it. Typing those 93 is a
+decision about the language -- carry the caller's element kind into a
+non-generic parameter, or require the element to be written in the signature --
+and not a rule to copy. `.pop` was 26 until the typed
 receiver answered it, and 22 of those had a `list<T>` in front of them. A literal
 of `[1, 2]` writes that text itself since 2026-11-05, and 33 of those `.get`
 reads left with it. The last 5 name something no corpus file declares. The split adds up to the E2005 count, which is the check the table
