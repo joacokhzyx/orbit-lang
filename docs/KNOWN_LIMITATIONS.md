@@ -1076,6 +1076,16 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
+The three merge classes -- `Match` 307, `If` 30 and the fall-through handler 11 --
+want one thing: a value that two branches both produce. The build answers the merge
+*type* for an `if`: `compiler/ir/builder.orb:3281` allocates its result register with
+`branchTypeName` of the then branch. It answers nothing for a `match`:
+`compiler/ir/builder.orb:3955` allocates that register typed `unknown`, and the arms
+write into it. Neither answer is a merge *value* this pass can print: one canonical
+`instr` line carries one value id, and a name bound inside a branch is not readable
+in the block after the join. Widening that changes the text format, which is a
+decision rather than a rule to copy.
+
 What is left of the class list is `Match` 307, `Try` 85 and `If` 30. After them, a `for` over a value with no element
 type 20, an index read with no element kind written 8, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
