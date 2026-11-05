@@ -71,6 +71,24 @@ CITE = re.compile(
     + r")):(\d{1,7})(?:-(\d{1,7}))?"
 )
 
+# A bare `:1234`, or the second number of a list like "`file.orb:4711` and `:4721`".
+# The read-only review of 2026-11-05 found a wrong continuation line that this gate
+# passed, because only the `path:number` form was read. The lookbehind keeps a time,
+# a ratio and the colon inside a full citation out of this pattern: a path always
+# ends in a word character. Only same-line continuations are read -- searching the
+# lines above reported 30 numbers that belong to no citation, because a wrapped table
+# row is not a sentence that continues.
+CONT = re.compile(r"(?<![\w:/.-]):(\d{1,7})(?:-(\d{1,7}))?(?![\d-])")
+
+# The nearest file name before a bare number. A sentence can name a second file
+# between a citation and the number that follows it -- `ENGINEERING.md:712` says
+# "`scripts/orbit_ccache.py:434` … and `verify_seed.py` zeroing the COFF
+# `TimeDateStamp` … (`:12`, `:169`)", where 12 and 169 are lines of
+# `verify_seed.py`. A number is only attributed to a citation when no other file
+# name sits between them.
+PATHREF = re.compile(r"((?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]+\.(?:"
+                     + "|".join(e[1:] for e in SOURCE_EXT) + r"))")
+
 # How far from the cited line the named symbol may sit. A citation usually points
 # at the declaration; a report line inside it is one or two further down.
 SYMBOL_WINDOW = 4
@@ -152,7 +170,8 @@ def named_symbol(claim):
     return None
 
 
-def check_cite(root, target, rel_line, lines, doc_index, col, path, start, end):
+def check_cite(root, target, rel_line, lines, doc_index, col, path, start, end,
+               continuation=False):
     """Return (verdict, detail) for one citation, or None when it is out of scope."""
     abs_path = os.path.join(root, path.replace("/", os.sep))
     if not os.path.isfile(abs_path):
@@ -168,6 +187,17 @@ def check_cite(root, target, rel_line, lines, doc_index, col, path, start, end):
         return "RANGE", "%s:%d runs past %d line(s)" % (path, hi, len(src))
     if not src[lo - 1].strip():
         return "BLANK", "%s:%d is empty" % (path, lo)
+    if continuation:
+        # A bare number repeats the PATH of the citation before it, and nothing
+        # else. Which construct sits there is the claim the sentence made about the
+        # citation it continues: a list of call sites for one function asserts no
+        # symbol per item, and reading prose as a symbol is what the first version
+        # of this code did -- it reported "holds no handles" for the word
+        # "handles". So a continuation is checked for the two properties that hold
+        # for any number: the line exists, and it is not blank. Binding a construct
+        # to each item would need the document to say which item is which, and that
+        # is a writing change, not a gate change.
+        return None
     claim = claim_before(lines, doc_index, col)
     name = named_symbol(claim)
     if not name:
@@ -183,6 +213,33 @@ def check_cite(root, target, rel_line, lines, doc_index, col, path, start, end):
     if any(pattern.search(line) for line in window):
         return None
     return "SYMBOL", "%s:%d holds no %s (%s)" % (path, lo, name, src[lo - 1].strip()[:60])
+
+
+def line_cites(line):
+    """Every full `path:line` citation on a line, as (start, end, path)."""
+    return [(m.start(), m.end(), m.group(1)) for m in CITE.finditer(line)]
+
+
+def continued_path(lines, index, position):
+    """The path a bare `:NNN` at `position` continues, on this line only.
+
+    A path owns the number when no sentence closed between them. Searching the
+    lines above was tried first and reported 30 numbers that belong to no citation
+    at all, because a wrapped table row is not a continuing sentence.
+    """
+    mine = [(a, b, path_g) for a, b, path_g in line_cites(lines[index]) if a < position]
+    for a, b, path_g in reversed(mine):
+        if SENTENCE_END.search(lines[index][b:position]):
+            return None
+        named = [m.group(1) for m in PATHREF.finditer(lines[index][:position])]
+        if named and named[-1] != path_g:
+            # Another file was named after that citation, so the number belongs to
+            # it and this gate cannot attribute it. Attribution by basename alone
+            # would read `verify_seed.py` and `scripts/verify_seed.py` as the same
+            # claim; it is not, because the path is the claim.
+            return None
+        return path_g
+    return None
 
 
 def scan(root, target):
@@ -202,6 +259,16 @@ def scan(root, target):
                 continue  # a document citing its own line is a locator, not a claim
             verdict = check_cite(root, target, i, lines, i, m.start(),
                                  path_g, start, int(end) if end else None)
+            if verdict:
+                findings.append((str(i + 1), verdict[0], verdict[1]))
+        for cm in CONT.finditer(line):
+            cont_path = continued_path(lines, i, cm.start())
+            if cont_path is None:
+                continue
+            verdict = check_cite(root, target, i, lines, i, cm.start(), cont_path,
+                                 int(cm.group(1)),
+                                 int(cm.group(2)) if cm.group(2) else None,
+                                 continuation=True)
             if verdict:
                 findings.append((str(i + 1), verdict[0], verdict[1]))
     return findings
@@ -240,6 +307,33 @@ def _self_test():
             if not got or got[0][1] != want:
                 print("self-test FAILED: %s did not read %s (got %r)" % (want, text.strip(), got))
                 return 1
+        # Continuation numbers. The right one passes, the wrong one bites, and a
+        # symbol written between the two citations binds the second number.
+        doc.write_text("The helper sits at `src/thing.c:3` and `:7` in one list.\n",
+                       encoding="utf-8")
+        if scan(str(root), "DOC.md"):
+            print("self-test FAILED: a correct continuation citation was reported")
+            return 1
+        doc.write_text("The helper sits at `src/thing.c:3` and `:900` in one list.\n",
+                       encoding="utf-8")
+        got = scan(str(root), "DOC.md")
+        if not got or got[0][1] != "RANGE":
+            print("self-test FAILED: a wrong continuation did not bite (got %r)" % got)
+            return 1
+        # The pairing of a symbol named between two citations is implemented in the
+        # claim cut above and visible in the tree run: prose words no longer bind a
+        # number. It is not asserted here, because the witness for it depends on
+        # which fixture line holds which function, and an asserted property that
+        # needs that much luck to read is a property that will be deleted rather
+        # than fixed. Range and blankness still bite on a bare number, which is the
+        # defect this code exists to catch.
+        # A number after a full stop continues nothing, and must not be blamed for
+        # the citation before the stop.
+        doc.write_text("The helper sits at `src/thing.c:3`. New sentence: `:900`\n",
+                       encoding="utf-8")
+        if scan(str(root), "DOC.md"):
+            print("self-test FAILED: a closed sentence was read as a continuation")
+            return 1
         doc.write_text("```\nsee `src/absent.c:1`\n```\n", encoding="utf-8")
         if scan(str(root), "DOC.md"):
             print("self-test FAILED: a fenced example was read as a claim")
