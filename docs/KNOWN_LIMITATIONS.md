@@ -1041,8 +1041,16 @@ right: B }` in `tests/suite/generic_models.orb`, 14 of them in that one file.
 declaration writes, and for those three fields the text is `T`, `A` or `B`.
 The table it reads is `TirType` (`compiler/tir/format.orb:57`), which carries a
 name and its fields and no list of type parameters, so a written argument has
-nothing to be substituted into. A read through an instance the signature names
-stays `unknown` until that table carries the parameters.
+nothing to be substituted into. The list is parsed, and the code that builds the
+row is handed the node that carries it: `ModelDeclNode` holds `genericParams`
+(`compiler/front/ast.orb:53`). That row is pushed as a `TirType` of the name and
+the fields at `compiler/tir/lower.orb:281`, and the parameters are not in it.
+A read through an instance the signature names
+stays `unknown` until that table carries the parameters. The shortest
+reproduction is six lines -- `model Box[T] { v: T }` and
+`fn takeInt(b: Box < int >) -> int { return b.v }` -- and `orbit frontend` on it
+exits 1 with `E2004 at 0:0: cannot type the member read .v`, which suppresses the
+file's whole text.
 The count fell 44 to 23
 on 2026-11-04, when a field read of an `object` stopped asking: the register the
 build allocates for that read is declared `object` (`compiler/ir/builder.orb:4804`),
