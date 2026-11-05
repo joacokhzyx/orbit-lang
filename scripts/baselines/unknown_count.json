@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 214,
-  "instructions": 105069,
+  "instructions": 105091,
   "context": {
-    "unknown_instructions": 317,
+    "unknown_instructions": 301,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -99,7 +99,7 @@
     "tests/std/test_string.orb": 0,
     "tests/std/test_time.orb": 0,
     "tests/std/test_time_ns.orb": 1,
-    "tests/suite/arena_sink_scope.orb": 8,
+    "tests/suite/arena_sink_scope.orb": 0,
     "tests/suite/arith.orb": 0,
     "tests/suite/assignment_var_store.orb": 0,
     "tests/suite/ast_function_body_is_a_block.orb": 0,
@@ -179,7 +179,7 @@
     "tests/suite/parameter_type_fallback.orb": 0,
     "tests/suite/peephole_folds.orb": 0,
     "tests/suite/peephole_int_bool_only.orb": 0,
-    "tests/suite/peephole_no_fold_side_effects.orb": 8,
+    "tests/suite/peephole_no_fold_side_effects.orb": 0,
     "tests/suite/port_declaration.orb": 0,
     "tests/suite/raw_string_literals.orb": 0,
     "tests/suite/recursion_mix.orb": 0,

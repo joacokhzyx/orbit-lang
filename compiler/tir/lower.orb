@@ -503,6 +503,19 @@ fn callCalleeText(callee: ASTNode) -> string {
     return "(expression)"
 }
 
+// The model query helpers. `compiler/ir/builder.orb:4710` through `:4718` turn
+// `Item.all()`, `Item.where(...)`, `Item.find(...)` and `Item.first()` into a call of
+// `orbit_db_query_*` with the table as its first argument: no field of `Item` is read
+// for any of them. Measured 2026-11-05 with `orbit build --emit-ir`, every one of the
+// four result registers carries the type `string` -- the JSON the runtime returns.
+fn modelQueryHelper(memberName: string) -> bool {
+    if memberName == "all" { return true }
+    if memberName == "where" { return true }
+    if memberName == "find" { return true }
+    if memberName == "first" { return true }
+    return false
+}
+
 // The type of a `system.<method>` read. `compiler/front/sema.orb` answers `int`
 // for these ten names and nothing for any other, and the list is kept here as
 // one function so a method the checker does not know keeps answering `unknown`.
@@ -660,6 +673,7 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     val calleeTypeName = declaredTypeName(module, ma.object)
                     if calleeTypeName != "" {
                         if declaresVariantCtor(module, calleeTypeName, ma.field) { return calleeTypeName }
+                        if modelQueryHelper(ma.field) { return "string" }
                     }
                     if ma.field == "len" || ma.field == "length" || ma.field == "indexOf" { return "int" }
                     // An element of a list is the kind the receiver's declared
@@ -941,6 +955,13 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                         // off anything. `ASTNode.Literal(node)` travels as one call
                         // with the qualified name the source wrote.
                         if declaresVariantCtor(module, qualifiedCallee, memberCallee.field) {
+                            callCalleeIsMethod = true
+                            callOperands = qualifiedCallee + "." + memberCallee.field
+                        } else if modelQueryHelper(memberCallee.field) {
+                            // The name before the dot is a declared model and the name
+                            // after it is a query helper: the build calls a runtime
+                            // function and reads no field, so the qualified name travels
+                            // on the call the way a variant constructor does.
                             callCalleeIsMethod = true
                             callOperands = qualifiedCallee + "." + memberCallee.field
                         }
