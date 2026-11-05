@@ -1105,6 +1105,14 @@ $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
   silent_per_mille                  0  baseline      0  unchanged
 Finished unknown-count: 168 (baseline 168, ratchet holds)
 ```
+Run again on 2026-11-04, after thirteen baseline moves the same day:
+
+```console
+$ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
+  unknown_per_mille                 5  baseline      5  unchanged
+  silent_per_mille                  0  baseline      0  unchanged
+Finished unknown-count: 5 (baseline 5, ratchet holds)
+```
 
 What the second number holds now is the one-to-one tie above. An opcode that
 starts producing `unknown` without a diagnostic, or one of the five that stops
