@@ -193,7 +193,7 @@ fn padRight(s: string, width: int, pad: string) -> string {
     return out
 }
 
-fn parseIntChecked(s: string) -> result {
+fn parseIntChecked(s: string) -> result < int > {
     val t = trim(s)
     if t == "" {
         return err("empty input", 1)
@@ -230,7 +230,7 @@ fn parseIntChecked(s: string) -> result {
 // legitimate zero. Overflow past DBL_MAX is refused (code 3); underflow
 // answers 0.0, stated here rather than discovered, the way jsonQuote
 // states its control-byte boundary.
-fn parseFloatChecked(s: string) -> result {
+fn parseFloatChecked(s: string) -> result < float > {
     val t = trim(s)
     if t == "" {
         return err("empty input", 1)

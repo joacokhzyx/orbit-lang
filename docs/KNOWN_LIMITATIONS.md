@@ -835,23 +835,23 @@ that would remove the requirement.
 
 ## 0.4% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-04 over 213 files and 102,961
+`scripts/unknown_census.py`, run on 2026-11-04 over 214 files and 103,103
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 454 | **0.4%** |
+| instructions the front end types `unknown` | 449 | **0.4%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 235 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 230 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 53), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 23) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 143). Their sum, 454, is the whole unknown count. The five
+(call result, 143). Their sum, 449, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:658`, `:671`, `:679`, `:703` and `:798`, and
 each sits on the branch that emits the instruction.
 
@@ -891,14 +891,14 @@ of it lives. The probe itself was the last thing holding the old numbers: until
 2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
 text it is handed, so it measured a program the command line never compiles. It
 calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
-235 unknown loads: 229 read a name the file itself declares, led by `o` 12,
+230 unknown loads: 224 read a name the file itself declares, led by `o` 12,
 `want` 10 and `arr` 10. 6 read a name no corpus file declares:
 `Circle` 2, `Square` 2, `Both` and `taken`. No load reads a name that only a file this one imports declares.
 `Token` was 54 of those and `LiteralNode` 21: a model name in call position
 constructs the model, so the callee stopped being a value read off nothing. The
 buckets sum to the E2001 count, which is the check the sort carries.
 
-The other split says which of them is work. 220 are echoes: the reading
+The other split says which of them is work. 215 are echoes: the reading
 function binds that name, so it is the value bound into it that has no type. The
 other 15 read a name that function never binds. Two classes went here and came
 back answered: `TokType` was 582 loads of an enum name, and `NULL` was 82 of a
@@ -930,9 +930,9 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 454 times on this corpus, down from 9,233. It is not in the
-unknown total because there is no instruction to type. The two tallies print the
-same number on this run; they are counted from different fields, and their
+<node>" fired 448 times on this corpus, down from 9,233. It is not in the
+unknown total because there is no instruction to type. On this run the two tallies
+read 449 and 448; they are counted from different fields, and their
 per-file rows differ -- `compiler/tools/doctor.orb` has 73 untyped instructions
 and 29 `Match` give-ups.
 
@@ -943,16 +943,18 @@ node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
-`compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The 85 `try`
-give-ups print two messages: 74 need the value type written inside the `result`, led
-by `tests/std/test_json.orb` 17 and `tests/std/test_string.orb` 15, and 11 need a
-merge value for a handler that falls through, all of them in
-`tests/std/test_codec.orb`. Its decodes are spelled now, so 8 of the 19 stopped
-being give-ups and 11 remain, all of them the handler class. The two files left in
-the first message call a function whose `result` writes no value type:
-`fn parseJson(text: string) -> result` (`std/json/json.orb:49`) and
-`fn parseIntChecked(s: string) -> result` (`std/string/string.orb:196`). The value
-type is written at the binding instead, the way
+`compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The 79 `try`
+give-ups print two messages: 59 need the value type written inside the `result`, led
+by `tests/std/test_json.orb` 17 and `tests/suite/result_chain.orb` 6, and 20 need a
+merge value for a handler that falls through -- 11 in `tests/std/test_codec.orb` and 9
+in `tests/std/test_string.orb`. The two decodes and the two parses in `std/` now write
+their payload, and `result < int >` and `result < float >` are answers this pass reads:
+15 of the value-type class went, 9 of them becoming handler cases.
+What is left of that class is `result < object >`.
+`declaredPayloadType` (`compiler/tir/lower.orb:249`) lists four builtin payloads --
+`int`, `bool`, `string`, `float` -- and answers nothing else, so the 17 in
+`tests/std/test_json.orb` still say the value type is missing even though the signature
+writes it. The value type is written at the binding instead, the way
 `val d0: string = try base64Decode("") catch { return 6 }`
 (`tests/std/test_codec.orb:14`) writes it. The give-up message
 says what is missing. Fourteen of the classes the table first printed turned out not to
@@ -1086,11 +1088,11 @@ write into it. Neither answer is a merge *value* this pass can print: one canoni
 in the block after the join. Widening that changes the text format, which is a
 decision rather than a rule to copy.
 
-What is left of the class list is `Match` 307, `Try` 85 and `If` 30. After them, a `for` over a value with no element
+What is left of the class list is `Match` 307, `Try` 79 and `If` 30. After them, a `for` over a value with no element
 type 20, an index read with no element kind written 8, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-04 the census reads 454 unknown over
-102,961 instructions, and it read the same after the index form of a list read
+the rate is what to read. On 2026-11-04 the census reads 449 unknown over
+103,103 instructions, and it read 454 after the index form of a list read
 started lowering: the 8 cases in the corpus sit under a `list` whose type text
 names no element kind, so they changed message, not count. Earlier the same day it
 read 454 with a field read of an `object` answering `object`. Earlier

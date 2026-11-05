@@ -5,10 +5,10 @@
     "unknown_per_mille": 4,
     "silent_per_mille": 0
   },
-  "files": 213,
-  "instructions": 102961,
+  "files": 214,
+  "instructions": 103103,
   "context": {
-    "unknown_instructions": 454,
+    "unknown_instructions": 449,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -96,7 +96,7 @@
     "tests/std/test_process_exit.orb": 0,
     "tests/std/test_random.orb": 7,
     "tests/std/test_regex.orb": 0,
-    "tests/std/test_string.orb": 5,
+    "tests/std/test_string.orb": 0,
     "tests/std/test_time.orb": 0,
     "tests/std/test_time_ns.orb": 1,
     "tests/suite/arena_sink_scope.orb": 8,
@@ -192,6 +192,7 @@
     "tests/suite/result_chain.orb": 7,
     "tests/suite/result_in_loop.orb": 2,
     "tests/suite/result_message.orb": 1,
+    "tests/suite/result_payload_int.orb": 0,
     "tests/suite/result_payload_written.orb": 0,
     "tests/suite/result_stage2.orb": 2,
     "tests/suite/result_string_value.orb": 1,

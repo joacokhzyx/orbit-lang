@@ -3905,8 +3905,13 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                 _ => {
                     val bodyType = checkNode(sema, r.expr)
                     // A `-> result` function returns a result value, not an
-                    // HTTP response, so its body may be any typed value.
-                    if sema.currentReturnType == "result" {
+                    // HTTP response, so its body may be any typed value. The
+                    // payload written inside the `result` is part of the same
+                    // answer: `-> result<int>` returns a result too, and the
+                    // comparison against the whole spelling made the response
+                    // rule fire for it -- `ok(42)` was refused as
+                    // `ok response body must be a string or an object, got int`.
+                    if compatTypeBase(sema.currentReturnType) == "result" {
                         // body built and type-checked; result fn acceptance
                     } else {
                         // orbit_response_json takes a C string body: a known
