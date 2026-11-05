@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 214,
-  "instructions": 103103,
+  "instructions": 103336,
   "context": {
-    "unknown_instructions": 449,
+    "unknown_instructions": 424,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -89,7 +89,7 @@
     "tests/std/test_http_client.orb": 0,
     "tests/std/test_imports.orb": 1,
     "tests/std/test_io.orb": 0,
-    "tests/std/test_json.orb": 25,
+    "tests/std/test_json.orb": 0,
     "tests/std/test_log.orb": 0,
     "tests/std/test_option.orb": 0,
     "tests/std/test_process.orb": 1,

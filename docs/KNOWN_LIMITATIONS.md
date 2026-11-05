@@ -260,11 +260,12 @@ The same missing spelling is why `try` expressions gave up in the frontend pass.
 those give-ups moved: 8 stopped being give-ups at all, and 11 became the next class
 -- `a handler that falls through needs a merge value`, which the pass does not model. That class prints no row on 2026-11-04: a `try` in statement position reads no value, and all 20 of its cases were that.
 Closing the spelling exposes the class behind it, which is how every number here has
-fallen. The rest still wait: 17 in `tests/std/test_json.orb` and 15 in
-`tests/std/test_string.orb` cannot be spelled, because `ok` admits only a string or
-an object as its payload, so `parseIntChecked` returning `result < int >` is
-refused -- `ok response body must be a string or an object, got int`. That
-restriction is a limitation of its own, not a missing annotation. The probe above is
+fallen. 17 in `tests/std/test_json.orb` and 15 in `tests/std/test_string.orb` could not be
+spelled then, because `ok` admitted only a string or an object as its payload, so
+`parseIntChecked` returning `result < int >` was refused -- `ok response body must be a
+string or an object, got int`. That restriction was a limitation of its own, not a missing
+annotation, and it is gone: the guard reads the base type of the declared return now, and
+both files write their payloads. The probe above is
 not a `tests/negative` case: that gate pins a program that fails to compile, and
 this one compiles.
 
@@ -835,24 +836,24 @@ that would remove the requirement.
 
 ## 0.4% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-04 over 214 files and 103,281
+`scripts/unknown_census.py`, run on 2026-11-04 over 214 files and 103,336
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 449 | **0.4%** |
+| instructions the front end types `unknown` | 424 | **0.4%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 230 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 205 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 53), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 23) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 143). Their sum, 449, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:658`, `:671`, `:679`, `:703` and `:798`, and
+(call result, 143). Their sum, 424, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:662`, `:675`, `:683`, `:707` and `:802`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -891,14 +892,14 @@ of it lives. The probe itself was the last thing holding the old numbers: until
 2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
 text it is handed, so it measured a program the command line never compiles. It
 calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
-230 unknown loads: 224 read a name the file itself declares, led by `o` 12,
+205 unknown loads: 199 read a name the file itself declares, led by `want` 10,
 `want` 10 and `arr` 10. 6 read a name no corpus file declares:
 `Circle` 2, `Square` 2, `Both` and `taken`. No load reads a name that only a file this one imports declares.
 `Token` was 54 of those and `LiteralNode` 21: a model name in call position
 constructs the model, so the callee stopped being a value read off nothing. The
 buckets sum to the E2001 count, which is the check the sort carries.
 
-The other split says which of them is work. 215 are echoes: the reading
+The other split says which of them is work. 190 are echoes: the reading
 function binds that name, so it is the value bound into it that has no type. The
 other 15 read a name that function never binds. Two classes went here and came
 back answered: `TokType` was 582 loads of an enum name, and `NULL` was 82 of a
@@ -930,30 +931,30 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 410 times on this corpus, down from 9,233. It is not in the
+<node>" fired 404 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type. On this run the two tallies
-read 449 and 410; they are counted from different fields, and their
+read 424 and 404; they are counted from different fields, and their
 per-file rows differ -- `compiler/tools/doctor.orb` has 73 untyped instructions
 and 29 `Match` give-ups.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:547`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:551`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
-`compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The 41 `try`
-give-ups print two messages: 40 need the value type written inside the `result`, led
-by `tests/std/test_json.orb` 17 and `tests/suite/result_chain.orb` 6, and 1 has a
-named `catch`, which needs the error type. The two decodes and the two parses in `std/` now write
+`compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The 35 `try`
+give-ups print two messages: 34 need the value type written inside the `result`, led
+by `tests/suite/result_chain.orb` 6, and 1 has a named `catch`, which needs the error
+type. The two decodes and the two parses in `std/` now write
 their payload, and `result < int >` and `result < float >` are answers this pass reads:
 15 of the value-type class went, 9 of them becoming handler cases.
-What is left of that class is `result < object >`.
-`declaredPayloadType` (`compiler/tir/lower.orb:249`) lists four builtin payloads --
-`int`, `bool`, `string`, `float` -- and answers nothing else, so the 17 in
-`tests/std/test_json.orb` still say the value type is missing even though the signature
-writes it. The value type is written at the binding instead, the way
+What is left of that class is a signature that writes no payload at all.
+`declaredPayloadType` (`compiler/tir/lower.orb:249`) answers five payloads now --
+`int`, `bool`, `string`, `float`, and `object` since 2026-11-04 -- and the 34 that remain
+are calls declared `-> result` with nothing inside, like `parse_digit(c: int)` at
+`tests/suite/result_chain.orb:3`. The value type is written at the binding instead, the way
 `val d0: string = try base64Decode("") catch { return 6 }`
 (`tests/std/test_codec.orb:14`) writes it. The give-up message
 says what is missing. Fourteen of the classes the table first printed turned out not to
@@ -1089,12 +1090,14 @@ write into it. Neither answer is a merge *value* this pass can print: one canoni
 in the block after the join. Widening that changes the text format, which is a
 decision rather than a rule to copy.
 
-What is left of the class list is `Match` 307, `Try` 41 and `If` 30. After them, a `for` over a value with no element
+What is left of the class list is `Match` 307, `Try` 35 and `If` 30. After them, a `for` over a value with no element
 type 20, an index read with no element kind written 8, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-04 the census reads 449 unknown over
-103,281 instructions -- the same number the run before it read, while 38 `try`
-give-ups left -- and it read 454 after the index form of a list read
+the rate is what to read. On 2026-11-04 the census reads 424 unknown over
+103,336 instructions, after `object` joined the four builtin payloads a written
+`result` can name: 25 loads stopped being `unknown` and 6 `try` give-ups left. The run
+before it read 449 over 103,281, with 38 `try` give-ups gone, and 454 after the index
+form of a list read
 started lowering: the 8 cases in the corpus sit under a `list` whose type text
 names no element kind, so they changed message, not count. Earlier the same day it
 read 454 with a field read of an `object` answering `object`. Earlier
@@ -1166,15 +1169,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 44/44
+## The frontend gate is 45/45
 
-`scripts/frontend_gate.py` runs 44 fixtures and all 44 pass (two of
+`scripts/frontend_gate.py` runs 45 fixtures and all 45 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 39 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 40 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the

@@ -1,0 +1,10 @@
+// A `try` over a `result<object>` reads an object. The payload table answered the four
+// builtins and nothing else, so `val o: object = try parseJson(text) catch { ... }` asked
+// for a type the signature writes. `object` is the answer this pass already prints for
+// an object literal and for a field read of an object, so the table reads the same word.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn parse(t: string) -> result<object> { return ok 200 { node: 1 } }  fn show(t: string) -> object { val o: object = try parse(t) catch { return { empty: 0 } } return o }"
+    print(compileFrontendSource("fixture", source))
+}

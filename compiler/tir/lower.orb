@@ -255,6 +255,10 @@ fn declaredPayloadType(typeName: string) -> string {
     if payload == "bool" { return "bool" }
     if payload == "string" { return "string" }
     if payload == "float" { return "float" }
+    // The anonymous container is the fifth answer, not a sixth: this module
+    // already prints `object` for the literal and for a field read of one, so a
+    // signature that writes `result<object>` names a type the pass states.
+    if payload == "object" { return "object" }
     return ""
 }
 
