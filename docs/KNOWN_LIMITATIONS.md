@@ -256,6 +256,13 @@ writes `result < string >` with spaces around the angle brackets. Counting every
 `.orb` and skipping comment lines, on 2026-11-05: **67 signatures return a bare
 `-> result` and 13 write a payload**, out of 527 files.
 
+The half that stays open is those 67. For a bare `-> result` the read's type is the
+annotation itself: `compiler/ir/builder.orb:3140` retypes the unwrap register to it and
+`compiler/emit/c_backend.orb:4383` emits the cast for `int`, `bool`, `string` and `list`.
+Nothing conflicts with the annotation, so there is nothing to check; the program is wrong
+only when the value `ok` put there differs from what the caller asks, and that is a fact
+the signature never wrote.
+
 The same missing spelling is why `try` expressions gave up in the frontend pass.
 `std/convert/codec.orb` now writes `result < string >` on the two decodes, and 19 of
 those give-ups moved: 8 stopped being give-ups at all, and 11 became the next class
