@@ -829,8 +829,8 @@ python scripts/negative_gate.py --compiler /tmp/orbit_fp
 
 # 6b. [CI] `orbit frontend` against tests/frontend/expected/. This had NO CI
 #        coverage at all until now: the only thing that mentioned it was one
-#        usage-string case in cli_probe.py. 45 TIR goldens, 50 fixtures.
-#        Today 49/49. For most of this cycle it was 4/6, because importing
+#        usage-string case in cli_probe.py. 45 TIR goldens, 51 fixtures.
+#        Today 51/51. For most of this cycle it was 4/6, because importing
 #        compiler/tir/entry.orb reached compiler/front/lexer.orb, which called
 #        orbit_os_write_stderr_selfhost without importing compiler/host/extern.orb, and
 #        a second missing parseIntSelfhost declaration; `orbit check` was clean

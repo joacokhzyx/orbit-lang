@@ -1047,7 +1047,9 @@ answers that argument. `list<T>` substitutes inside the container it names, so
 declared text is still `T` and the argument lives in the value, not in the text.
 `tests/frontend/generic_instance_field_read.orb` pins the answered read --
 `member int v0 v` under `param 0 0 b Box<int>` -- and the container read that
-answers through it. Its first function is the six-line case that used to exit 1
+answers through it. `tests/frontend/generic_literal_field_read.orb` holds the
+other side of the rule: a literal that names no argument keeps its E2004, so the
+file prints nothing and the gate requires that silence. Its first function is the six-line case that used to exit 1
 with `E2004 at 0:0: cannot type the member read .v` and suppress the file.
 The count fell 44 to 23
 on 2026-11-04, when a field read of an `object` stopped asking: the register the
@@ -1251,13 +1253,13 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 50/50
+## The frontend gate is 51/51
 
-`scripts/frontend_gate.py` runs 50 fixtures and all 50 pass (two of
+`scripts/frontend_gate.py` runs 51 fixtures and all 51 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
-fail before. Five pin an absence of output rather than a text, and the gate
+fail before. Six pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
 the wrong artifact. 44 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its

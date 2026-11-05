@@ -86,6 +86,10 @@ EMPTY_EXPECTATIONS = {
     # which this pass does not keep. Emitting `unknown` instead would suppress
     # the same TIR and raise the count the ratchet holds.
     "list_iteration.orb": "list iteration stays a give-up",
+    # The read of a field declared as a type parameter answers the argument the
+    # instance writes. A generic literal writes none, so `b.v` under
+    # `val b = Box { v: 3 }` has no type to print and the file stays suppressed.
+    "generic_literal_field_read.orb": "a generic literal names no argument",
     # A field whose type names a model declared in ANOTHER file. The table is
     # the program's own text, so the name has no answer and the read keeps its
     # E2004; the fixture prints only when the refusal names that code, so an
