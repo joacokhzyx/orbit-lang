@@ -1,0 +1,27 @@
+orbit-tir 1
+module fixture
+function 0 digit result
+param 0 0 c int
+block 0 0
+instr 0 0 0 load int c
+instr 0 0 1 result_ok result 200 v0
+instr 0 0 2 return unit v1
+end-function 0
+function 1 take int
+param 1 0 c int
+block 1 0
+instr 1 0 0 load result digit
+instr 1 0 1 load int c
+instr 1 0 2 call result v0 v1
+instr 1 0 3 result_is_ok bool v2
+instr 1 0 4 branch unit v3 b1 b2
+block 1 1
+instr 1 1 5 result_unwrap int v2
+block 1 2
+instr 1 2 6 const int 9
+instr 1 2 7 return unit v6
+block 1 0
+instr 1 0 8 bind unit n v5
+instr 1 0 9 load int n
+instr 1 0 10 return unit v9
+end-function 1

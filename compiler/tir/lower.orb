@@ -886,28 +886,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         // in, so the instructions after it are the ok path, and the value is read
         // from the block the branch names.
         ASTNode.Try(tryNode) => {
-            val unwrapType = declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr))
-            if unwrapType == "" {
-                tirError(module, "E3001", "try needs the value type written inside the result, which this pass does not keep", 0, 0)
-                return -1
-            }
-            if tryNode.errName != "" {
-                tirError(module, "E3001", "a catch with a name needs the error type, which this pass does not keep", 0, 0)
-                return -1
-            }
-            val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
-            val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
-            val okBlock = tirCreateBlock(function)
-            val handlerBlock = tirCreateBlock(function)
-            tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
-            val unwrapped = tirEmit(function, okBlock, "result_unwrap", unwrapType, tirValue(resultValue))
-            val handlerBindings = copyBindings(bindings)
-            val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, -1, -1)
-            if handlerEnd >= 0 {
-                tirError(module, "E3001", "a handler that falls through needs a merge value, which this pass does not model", 0, 0)
-                return -1
-            }
-            return unwrapped
+            return lowerTryValue(module, function, blockId, bindings, tryNode, declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr)))
         }
         // `xs[i]` travels as the one call the build lowers it to, named the way
         // the method spelling above names it: `call <type> get <container>
@@ -932,6 +911,47 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
     }
 }
 
+// The type a binding annotation promises a `try` yields. `compiler/ir/builder.orb:3140`
+// retypes the read register to exactly these when the callee's signature writes no
+// payload: the annotation is the promise, and the checker has already compared it with
+// the value. An empty answer is the give-up E3001 reports.
+fn tryAnnotationType(annotation: string) -> string {
+    if annotation == "int" || annotation == "bool" || annotation == "string" || annotation == "float" {
+        return annotation
+    }
+    if annotation == "list" { return "list" }
+    if annotation.length > 5 && annotation.slice(0, 5) == "list<" { return "list" }
+    return ""
+}
+
+// `try <expr> catch { <handler> }` in the block the source wrote it in. The type the
+// read yields comes from the signature when it writes a payload and from the binding
+// annotation otherwise; `lowerTryValue` is handed whichever answer the caller found, so
+// one lowering covers both.
+fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, tryNode: TryNode, unwrapType: string) -> int {
+    if unwrapType == "" {
+        tirError(module, "E3001", "try needs the value type written inside the result, which this pass does not keep", 0, 0)
+        return -1
+    }
+    if tryNode.errName != "" {
+        tirError(module, "E3001", "a catch with a name needs the error type, which this pass does not keep", 0, 0)
+        return -1
+    }
+    val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
+    val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
+    val okBlock = tirCreateBlock(function)
+    val handlerBlock = tirCreateBlock(function)
+    tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
+    val unwrapped = tirEmit(function, okBlock, "result_unwrap", unwrapType, tirValue(resultValue))
+    val handlerBindings = copyBindings(bindings)
+    val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, -1, -1)
+    if handlerEnd >= 0 {
+        tirError(module, "E3001", "a handler that falls through needs a merge value, which this pass does not model", 0, 0)
+        return -1
+    }
+    return unwrapped
+}
+
 // `breakTarget` and `continueTarget` are the blocks the enclosing loop jumps to,
 // or -1 outside a loop. A `break` used to fall to the expression reader and come
 // back as "expression cannot be lowered to TIR: Break" -- 91 over the corpus, 26
@@ -943,6 +963,24 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
     if blockId < 0 { return blockId }
     match node {
         ASTNode.VarDecl(declaration) => {
+            match declaration.value {
+                // `val n: int = try digit(c) catch { return 9 }` where `digit` answers a
+                // bare `result`: the annotation is the promise, and the build retypes the
+                // read register to it (`compiler/ir/builder.orb:3140`). The signature still
+                // wins -- `declaredPayloadType` is asked first, as in the expression case.
+                ASTNode.Try(tryNode) => {
+                    var unwrapType = declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr))
+                    if unwrapType == "" {
+                        unwrapType = tryAnnotationType(declaration.typeAnnotation)
+                    }
+                    val tryValue = lowerTryValue(module, function, blockId, bindings, tryNode, unwrapType)
+                    if tryValue < 0 { return blockId }
+                    tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(tryValue))
+                    bindings.push(TirBinding(declaration.name, unwrapType))
+                    return blockId
+                }
+                _ => {}
+            }
             val value = lowerExpression(module, function, blockId, bindings, declaration.value)
             tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(value))
             bindings.push(TirBinding(declaration.name, typeOfExpression(module, bindings, declaration.value)))
