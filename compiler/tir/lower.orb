@@ -1189,8 +1189,57 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                     return exitBlock
                 }
                 _ => {
-                    tirError(module, "E3001", "for over a non-range needs an element type this pass does not keep", 0, 0)
-                    return blockId
+                    // A `for` over a list iterates the kind its receiver's type
+                    // text writes -- the same source `get`, `at`, `pop` and the
+                    // index form answer from. `compiler/ir/builder.orb:3530` lowers
+                    // this loop with a hidden `<item>_idx` counter, one length read
+                    // before the loop and the item through `list_get`, so the blocks
+                    // and the counter name are the build's, not a shape invented
+                    // here. With no kind written there is no answer, and emitting
+                    // `unknown` would suppress the same text while raising the
+                    // number the ratchet holds.
+                    val loopReceiver = typeOfExpression(module, bindings, loopNode.iterable)
+                    val elemKind = listElementKind(loopReceiver)
+                    if elemKind == "" {
+                        tirError(module, "E3001", "for over a non-range needs an element type this pass does not keep", 0, 0)
+                        return blockId
+                    }
+                    val iterValue = lowerExpression(module, function, blockId, bindings, loopNode.iterable)
+                    val lenValue = tirEmit(function, blockId, "member", "int", tirValue(iterValue) + " len")
+                    val zeroValue = tirEmit(function, blockId, "const", "int", "0")
+                    val counterName = loopNode.item + "_idx"
+                    tirEmit(function, blockId, "bind", "unit", counterName + " " + tirValue(zeroValue))
+
+                    val listConditionBlock = tirCreateBlock(function)
+                    val listBodyBlock = tirCreateBlock(function)
+                    val listIncrementBlock = tirCreateBlock(function)
+                    val listExitBlock = tirCreateBlock(function)
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(listConditionBlock))
+
+                    val tested = tirEmit(function, listConditionBlock, "load", "int", counterName)
+                    val stillGoing = tirEmit(function, listConditionBlock, "<", "bool", tirValue(tested) + " " + tirValue(lenValue))
+                    tirEmit(function, listConditionBlock, "branch", "unit", tirValue(stillGoing) + " b" + tirIntText(listBodyBlock) + " b" + tirIntText(listExitBlock))
+
+                    val listBodyBindings = copyBindings(bindings)
+                    val idxValue = tirEmit(function, listBodyBlock, "load", "int", counterName)
+                    val itemValue = tirEmit(function, listBodyBlock, "call", elemKind, "get " + tirValue(iterValue) + " " + tirValue(idxValue))
+                    tirEmit(function, listBodyBlock, "bind", "unit", loopNode.item + " " + tirValue(itemValue))
+                    listBodyBindings.push(TirBinding(loopNode.item, elemKind))
+                    if loopNode.indexVar != "" {
+                        tirEmit(function, listBodyBlock, "bind", "unit", loopNode.indexVar + " " + tirValue(idxValue))
+                        listBodyBindings.push(TirBinding(loopNode.indexVar, "int"))
+                    }
+                    val listBodyEnd = lowerStatement(module, function, listBodyBlock, listBodyBindings, loopNode.body, listExitBlock, listIncrementBlock)
+                    if listBodyEnd >= 0 {
+                        tirEmit(function, listBodyEnd, "jump", "unit", "b" + tirIntText(listIncrementBlock))
+                    }
+
+                    val goneIndex = tirEmit(function, listIncrementBlock, "load", "int", counterName)
+                    val oneStep = tirEmit(function, listIncrementBlock, "const", "int", "1")
+                    val nextIndex = tirEmit(function, listIncrementBlock, "+", "int", tirValue(goneIndex) + " " + tirValue(oneStep))
+                    tirEmit(function, listIncrementBlock, "bind", "unit", counterName + " " + tirValue(nextIndex))
+                    tirEmit(function, listIncrementBlock, "jump", "unit", "b" + tirIntText(listConditionBlock))
+                    return listExitBlock
                 }
             }
         }

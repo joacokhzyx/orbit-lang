@@ -1,0 +1,16 @@
+// `for x in xs` over a `list<int>` answers the item with the element kind the
+// receiver's type text writes: `int`. The loop lowers as the builder lowers it --
+// a hidden `<item>_idx` counter, one length read before the loop, the test `idx <
+// len`, the item read through the same `get` the call and the index form use, and
+// the increment as the block a `continue` reaches.
+//
+// A list written without an element kind stays a give-up, pinned by
+// `tests/frontend/list_iteration.orb`: no table says what is inside, and binding
+// the item to `unknown` would suppress the same file text and raise the number the
+// ratchet holds.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn walk(xs: list<int>) -> int { var s = 0 for x in xs { s = s + x } return s }"
+    print(compileFrontendSource("fixture", source))
+}
