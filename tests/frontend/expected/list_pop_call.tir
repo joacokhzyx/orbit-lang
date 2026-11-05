@@ -1,0 +1,9 @@
+orbit-tir 1
+module fixture
+function 0 last int
+param 0 0 xs list<int>
+block 0 0
+instr 0 0 0 load list<int> xs
+instr 0 0 1 call int pop v0
+instr 0 0 2 return unit v1
+end-function 0

@@ -13,6 +13,10 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **`pop` yields an element, like `get`.** `compiler/ir/builder.orb:1999` answers `pop` from the receiver's element type beside `get` and `at`, and `compiler/front/sema.orb:4636` groups the three together; this pass knew the first two and not the third. Over the corpus `.pop` was 26 untyped calls and is 4: 22 of them had a `list<T>` in front of the dot. The census reads 485 unknown over 102,961 instructions -- 0.5%, and the ratchet metric holds at 5 per mille, because 26 instructions off a 102,961-instruction denominator does not cross to the next integer. E2005 calls fall 165 to 143 and E2001 loads 248 to 244. The five per-code counts still sum to the total and the silent count is 0. `tests/frontend/list_pop_call.orb` and its golden were written before the rule and matched on the first run.
+
+Language front end:
+
 - **A `+` with a string on either side is a concatenation.** The pass knew the comparisons, the bitwise operators and the case where both operands carry the same type; it did not know the one the build path spells out at `compiler/ir/builder.orb:5420` -- the emitter lowers it to `orbit_string_concat` whatever the other operand is. So `"count=" + n` answered `unknown`, and with it 84 `+` instructions of the corpus. Over the corpus the census reads 511 unknown over 102,961 instructions -- **0.5%**, 5 per mille, down from 6. E2002 binary operands fall 107 to 54 and E2001 loads 252 to 248. The five per-code counts still sum to the total and the silent count is 0. `tests/frontend/string_concat.orb` and its golden were written before the rule and matched on the first run. What is left of the class is `+` between an operand the pass cannot read and something else: no rule answers it, and inventing one would be the lie the count exists to show.
 
 Language front end:

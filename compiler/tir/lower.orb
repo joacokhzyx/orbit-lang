@@ -485,7 +485,10 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     }
                     val elementKind = listElementKind(receiverText)
                     if elementKind != "" {
-                        if ma.field == "get" || ma.field == "at" { return elementKind }
+                        // `pop` yields an element, and `compiler/ir/builder.orb`
+                        // answers it from the receiver's element type beside `get`
+                        // and `at`; `sema.orb` groups the three the same way.
+                        if ma.field == "get" || ma.field == "at" || ma.field == "pop" { return elementKind }
                         if ma.field == "slice" { return receiverText }
                     }
                     // A list write returns nothing. `push` and `set` are emitted by

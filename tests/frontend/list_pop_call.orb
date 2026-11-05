@@ -1,0 +1,10 @@
+// `xs.pop()` takes an element off the list and yields it, so its answer is the
+// receiver's element kind -- the same rule `compiler/ir/builder.orb` applies to
+// `get` and `at`, and `compiler/front/sema.orb` groups the three together. A
+// receiver written as the bare `list` still answers nothing.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn last(xs: list<int>) -> int { return xs.pop() }"
+    print(compileFrontendSource("fixture", source))
+}
