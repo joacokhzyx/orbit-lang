@@ -1145,11 +1145,15 @@ the rate is what to read. On 2026-11-05 the census reads 317 unknown over
 105,069 instructions, after the model's declared parameters entered the type
 table: 4 member reads answered and one give-up entered the tally, because a body
 this pass could not reach before it asks a question it still does not answer. The
-metric holds at 3 per mille. Two runs of this tree printed 104,752 and 105,069
-instructions with the same 317 `unknown`, so the denominator is not reproducible
-across runs while the count is; the number the baseline and this page carry is the
-run the gate read, passed to it as that same census document
-(`unknown_ratchet.py --from-json`). The run before it read 321 over
+metric holds at 3 per mille. The census is reproducible on this tree: two runs
+printed the same 214 files, 105,069 instructions, 317 `unknown`, 0 silent and 665
+diagnostics. One number on this page claimed otherwise on 2026-11-05, and the
+mechanism is worth keeping: the driver prints `instructions with a real type`
+(104,752) one line below `instructions typed unknown` (317), and 104,752 + 317 is
+the total 105,069. The sum is the check that was not taken. The baseline and this
+page carry the run that was also handed to the gate as a document
+(`unknown_ratchet.py --from-json`), so the two agree by construction. The run
+before it read 321 over
 104,610 instructions, after a list literal began answering its own element kind:
 33 loads, 35 calls and 4 binary operands left the count, and 18 give-ups with
 them. The metric the ratchet holds moved 4 to 3 on this one. The run before it read 393 over
