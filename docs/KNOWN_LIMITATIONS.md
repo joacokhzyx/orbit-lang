@@ -1045,6 +1045,16 @@ answers that argument. `list<T>` substitutes inside the container it names, so
 12 of the 19 stay, and every one of them is an instance that writes nothing:
 `val b = Box { v: 3 }` keeps the bare name the source wrote, so the field's
 declared text is still `T` and the argument lives in the value, not in the text.
+Four of the 19 are a different mistake and the build already shows the answer:
+`.all` 2 and `.where` 2 are `Item.all()` and `Item.where("id = ?", "1")`, a model
+name in receiver position. The build emits no member read for those at all --
+`compiler/ir/builder.orb:4710` and `:4712` turn them into a call of
+`orbit_db_query_all` or `orbit_db_query_where` with the table name as a string
+argument, and measured 2026-11-05 through `orbit build --emit-ir`, both result
+registers carry the type `string`. This pass reads `.all` as a field of a model
+that has no such field, which is the E2004, and then reports E2005 for the call
+that follows it. Answering the helper the way the build does takes 4 member reads
+and 4 calls out of the count at once.
 `tests/frontend/generic_instance_field_read.orb` pins the answered read --
 `member int v0 v` under `param 0 0 b Box<int>` -- and the container read that
 answers through it. `tests/frontend/generic_literal_field_read.orb` holds the
