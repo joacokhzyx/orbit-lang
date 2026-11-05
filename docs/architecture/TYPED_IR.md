@@ -13,6 +13,13 @@ module.  A valid module contains:
 - declarations in source/module order;
 - resolved names (no unresolved identifier nodes);
 - an explicit type for every value-producing instruction;
+- one convention for a value produced in two branches: each branch writes the
+   value to one name with `bind unit <name> <value>`, both branches jump to the
+   merge block, and the merge block reads the name with `load <type> <name>`.
+   The name is the join, is unique within the function, and is written by every
+   branch that can reach the read. A branch that ends in `return` writes nothing,
+   because control never reaches the merge; a join whose branches answer different
+   types is refused rather than printed.
 - stable numeric ids for functions, values and blocks;
 - structured diagnostics with source coordinates.
 

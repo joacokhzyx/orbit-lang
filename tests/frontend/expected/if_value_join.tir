@@ -1,0 +1,43 @@
+orbit-tir 1
+module fixture
+function 0 pick int
+param 0 0 c bool
+param 0 1 n int
+block 0 0
+instr 0 0 0 load bool c
+instr 0 0 1 branch unit v0 b1 b2
+block 0 1
+instr 0 1 2 const int 1
+instr 0 1 3 bind unit join2 v2
+instr 0 1 4 jump unit b3
+block 0 2
+instr 0 2 5 const int 2
+instr 0 2 6 bind unit join2 v5
+instr 0 2 7 jump unit b3
+block 0 3
+instr 0 3 8 load int join2
+block 0 0
+instr 0 0 9 bind unit a v8
+instr 0 0 10 load bool c
+instr 0 0 11 branch unit v10 b4 b5
+block 0 4
+instr 0 4 12 load int n
+instr 0 4 13 const int 1
+instr 0 4 14 + int v12 v13
+instr 0 4 15 bind unit join12 v14
+instr 0 4 16 jump unit b6
+block 0 5
+instr 0 5 17 load int n
+instr 0 5 18 const int 1
+instr 0 5 19 - int v17 v18
+instr 0 5 20 bind unit join12 v19
+instr 0 5 21 jump unit b6
+block 0 6
+instr 0 6 22 load int join12
+block 0 0
+instr 0 0 23 bind unit b v22
+instr 0 0 24 load int a
+instr 0 0 25 load int b
+instr 0 0 26 + int v24 v25
+instr 0 0 27 return unit v26
+end-function 0

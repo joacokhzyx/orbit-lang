@@ -90,6 +90,10 @@ EMPTY_EXPECTATIONS = {
     # An undeclared receiver has no table to answer from, so it keeps its E2001 and
     # the file prints nothing -- the control for the helper rule in this directory.
     "undeclared_model_helper.orb": "an undeclared receiver keeps its E2001",
+    # An `if` in value position joins the arms on one name only when both branches
+    # answer the same type. Two types are not one value, so the pass gives up and
+    # the file prints nothing.
+    "if_value_branch_types.orb": "branches that disagree stay a give-up",
     # The read of a field declared as a type parameter answers the argument the
     # instance writes. A generic literal writes none, so `b.v` under
     # `val b = Box { v: 3 }` has no type to print and the file stays suppressed.

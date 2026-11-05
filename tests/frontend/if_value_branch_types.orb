@@ -1,0 +1,17 @@
+// The control for the join: a branch that answers a different type is not a value
+// this pass can print. One `instr` line carries one type, and `if c then 1 else
+// "two"` has two, so the rule refuses, E3001 says what is missing, and the file
+// prints nothing.
+//
+// Answering `int` anyway would put a type on the read of `x` that the else branch
+// contradicts at run time -- the exact class of defect the `unknown` count exists
+// to keep visible, and the reason this fixture requires silence rather than text.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn bad(c: bool) -> int { val x = if c then 1 else \"two\" return x }"
+    val output = compileFrontendSource("fixture", source)
+    if output == "" {
+        print("branches that disagree stay a give-up")
+    }
+}

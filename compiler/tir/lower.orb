@@ -708,6 +708,14 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
             }
             return "unknown"
         }
+        // The value of an `if` used as a value: the then branch's type, when the
+        // else branch answers the same. `branchTypeName`
+        // (`compiler/ir/builder.orb:2134`) reads the then branch this way, and the
+        // second check is this pass's own. `lowerExpression` emits the same answer, so
+        // the instruction and the binding built from it cannot disagree.
+        ASTNode.If(ifNode) => {
+            return ifValueType(module, bindings, ifNode)
+        }
         // A `try` answers with the value the `result` carries, so its type is the
         // one the callee's declaration writes inside it. `lowerExpression` emits
         // the same answer, and the two must agree: a name bound to a `try` loads
@@ -829,7 +837,7 @@ fn tirFieldText(module: TirModule, function: TirFunction, blockId: int, bindings
 // The field initials of an object or model literal are visited by `tirFieldText`, which
 // arms FieldInit; this function has no arm of its own for it, which is what the list
 // below records per walk.
-// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
@@ -1100,6 +1108,13 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         ASTNode.Try(tryNode) => {
             return lowerTryValue(module, function, blockId, bindings, tryNode, declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr)))
         }
+        // `if c then 1 else 2` in value position: the two arms write one join name
+        // and the block after them reads it. The type is the then branch's, the way
+        // the build reads it, and the else branch has to answer the same thing -- one
+        // `instr` line carries one type, so a disagreement prints nothing.
+        ASTNode.If(ifNode) => {
+            return lowerIfValue(module, function, blockId, bindings, ifNode)
+        }
         // `xs[i]` travels as the one call the build lowers it to, named the way
         // the method spelling above names it: `call <type> get <container>
         // <index>`. The condition is the receiver's type text. A list written
@@ -1148,6 +1163,106 @@ fn tryAnnotationType(annotation: string) -> string {
     if annotation == "list" { return "list" }
     if annotation.length > 5 && annotation.slice(0, 5) == "list<" { return "list" }
     return ""
+}
+
+// The value an `if` branch is worth, and the type it answers. Two shapes: a branch
+// that IS an expression (`if c then 1 else 2`) and a branch that is a block ending
+// in one (`if c { log(); 1 }`). A branch ending in a declaration or a `return`
+// answers nothing, because there is no value left to join.
+fn ifBranchType(module: TirModule, bindings: list < TirBinding >, body: ASTNode) -> string {
+    match body {
+        ASTNode.Block(b) => {
+            val n = b.statements.len()
+            if n == 0 { return "" }
+            val last: ASTNode = b.statements.get(n - 1)
+            match last {
+                ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bindings, e.expr) }
+                // A brace block can keep its last expression unwrapped, and a bare
+                // value is the same answer. A `return` or a declaration in that place
+                // answers `unknown` here, so the branch stays the give-up it was.
+                _ => { return typeOfExpression(module, bindings, last) }
+            }
+        }
+        ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bindings, e.expr) }
+        _ => { return typeOfExpression(module, bindings, body) }
+    }
+}
+
+// The type an `if` in value position answers: the then branch's, when the else
+// branch answers the same. `branchTypeName` (`compiler/ir/builder.orb:2134`) reads
+// the then branch the same way; the second check is this pass's own, because one
+// `instr` line carries one type and a join of two different ones is not a statement
+// the text can make. An empty answer is the give-up E3001 reports.
+fn ifValueType(module: TirModule, bindings: list < TirBinding >, ifNode: IfNode) -> string {
+    val thenType = ifBranchType(module, bindings, ifNode.thenBody)
+    val elseType = ifBranchType(module, bindings, ifNode.elseBody)
+    if thenType == "" || thenType == "unknown" { return "" }
+    if elseType != thenType { return "" }
+    return thenType
+}
+
+// The value of one arm, lowered in the block the arm ends in. The statements before
+// the last one lower first, so a branch that does something and then answers a
+// value keeps both halves.
+fn lowerIfArm(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, body: ASTNode) -> int {
+    match body {
+        ASTNode.Block(b) => {
+            val n = b.statements.len()
+            if n == 0 { return -1 }
+            val last: ASTNode = b.statements.get(n - 1)
+            var armBlock = blockId
+            if n > 1 {
+                val leading = []
+                var i = 0
+                while i < n - 1 {
+                    leading.push(b.statements.get(i))
+                    i = i + 1
+                }
+                armBlock = lowerStatement(module, function, blockId, bindings, ASTNode.Block(BlockNode(leading)), -1, -1)
+                if armBlock < 0 { return -1 }
+            }
+            match last {
+                ASTNode.ExpressionStmt(e) => { return lowerExpression(module, function, armBlock, bindings, e.expr) }
+                // The unwrapped expression a brace block ends with. A `return` or a
+                // declaration only reaches here when the type rule above already
+                // refused the branch, so the reader sees the give-up message, not this.
+                _ => { return lowerExpression(module, function, armBlock, bindings, last) }
+            }
+        }
+        ASTNode.ExpressionStmt(e) => { return lowerExpression(module, function, blockId, bindings, e.expr) }
+        _ => { return lowerExpression(module, function, blockId, bindings, body) }
+    }
+}
+
+// `if c then 1 else 2` where the value is wanted. Three blocks like the statement
+// form, plus the name both arms write and the read after the join: `bind unit
+// join7 v3` in each arm and `load int join7` in the merge block. Writing a name in
+// a branch and reading it after the join is the convention this adds to the text,
+// and it is stated in `docs/architecture/TYPED_IR.md`.
+fn lowerIfValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, ifNode: IfNode) -> int {
+    val valueType = ifValueType(module, bindings, ifNode)
+    if valueType == "" {
+        tirError(module, "E3001", "an if in value position needs the same type in both branches, which this pass does not keep", 0, 0)
+        return -1
+    }
+    val condition = lowerExpression(module, function, blockId, bindings, ifNode.condition)
+    if typeOfExpression(module, bindings, ifNode.condition) != "bool" {
+        tirError(module, "E2100", "if condition must have type bool", 0, 0)
+    }
+    val thenBlock = tirCreateBlock(function)
+    val elseBlock = tirCreateBlock(function)
+    val mergeBlock = tirCreateBlock(function)
+    tirEmit(function, blockId, "branch", "unit", tirValue(condition) + " b" + tirIntText(thenBlock) + " b" + tirIntText(elseBlock))
+    val joinName = "join" + tirIntText(function.nextValueId)
+    val thenArmBindings = copyBindings(bindings)
+    val thenValue = lowerIfArm(module, function, thenBlock, thenArmBindings, ifNode.thenBody)
+    tirEmit(function, thenBlock, "bind", "unit", joinName + " " + tirValue(thenValue))
+    tirEmit(function, thenBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+    val elseArmBindings = copyBindings(bindings)
+    val elseValue = lowerIfArm(module, function, elseBlock, elseArmBindings, ifNode.elseBody)
+    tirEmit(function, elseBlock, "bind", "unit", joinName + " " + tirValue(elseValue))
+    tirEmit(function, elseBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+    return tirEmit(function, mergeBlock, "load", valueType, joinName)
 }
 
 // `try <expr> catch { <handler> }` in the block the source wrote it in. The type the
