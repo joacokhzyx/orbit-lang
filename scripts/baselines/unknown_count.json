@@ -2,13 +2,13 @@
   "schema": 1,
   "note": "Ratchet baseline for the unknown-type count. Every number in totals may only go down. Written by scripts/unknown_ratchet.py --write-baseline. Do not hand-edit a number up; that is what the gate is for.",
   "totals": {
-    "unknown_per_mille": 5,
+    "unknown_per_mille": 4,
     "silent_per_mille": 0
   },
   "files": 213,
   "instructions": 102961,
   "context": {
-    "unknown_instructions": 485,
+    "unknown_instructions": 454,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -171,10 +171,10 @@
     "tests/suite/model_two_fields.orb": 0,
     "tests/suite/nesting_legal.orb": 0,
     "tests/suite/numeric_literals.orb": 0,
-    "tests/suite/object_float_missing_key.orb": 14,
-    "tests/suite/object_literal_cross_function.orb": 10,
+    "tests/suite/object_float_missing_key.orb": 5,
+    "tests/suite/object_literal_cross_function.orb": 0,
     "tests/suite/object_literal_missing_key.orb": 10,
-    "tests/suite/object_literals.orb": 18,
+    "tests/suite/object_literals.orb": 6,
     "tests/suite/parallel_lists_table.orb": 0,
     "tests/suite/parameter_type_fallback.orb": 1,
     "tests/suite/peephole_folds.orb": 0,

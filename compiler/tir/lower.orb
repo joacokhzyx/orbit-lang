@@ -418,6 +418,12 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                 val fromModel = declaredFieldType(module, ownerType, member.field)
                 if fromModel != "" { return fromModel }
             }
+            // A field read off an `object` answers `object`: the register the
+            // build allocates for it is declared `object` in
+            // `compiler/ir/builder.orb`, which is the same answer the literal
+            // itself carries. Which field the runtime then finds is not a type
+            // this pass can claim from the reader.
+            if ownerType == "object" { return "object" }
             return "unknown"
         }
         // The type a list literal carries. `lowerExpression` emits the same
