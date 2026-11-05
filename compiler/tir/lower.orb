@@ -934,7 +934,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 // more for `continue` -- and the error suppressed the file's canonical TIR.
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, MatchNode, ReturnErrNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, MatchNode, ReturnErrNode, RouteDeclNode, ScheduleDeclNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode, breakTarget: int, continueTarget: int) -> int {
     if blockId < 0 { return blockId }
     match node {
@@ -1071,6 +1071,29 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             val elseEnd = lowerStatement(module, function, elseBlock, elseBindings, branch.elseBody, breakTarget, continueTarget)
             if elseEnd >= 0 {
                 tirEmit(function, elseEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            }
+            return mergeBlock
+        }
+        // A `try` in statement position reads no value, so no merge value is wanted
+        // and no payload has to be written: the ok arm does nothing, the handler runs
+        // its body, and both arms jump to the block the statements after the `try`
+        // are lowered into. The block shape is the one the `if` above already emits.
+        ASTNode.Try(tryNode) => {
+            if tryNode.errName != "" {
+                tirError(module, "E3001", "a catch with a name needs the error type, which this pass does not keep", 0, 0)
+                return -1
+            }
+            val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
+            val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
+            val okBlock = tirCreateBlock(function)
+            val handlerBlock = tirCreateBlock(function)
+            val mergeBlock = tirCreateBlock(function)
+            tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
+            tirEmit(function, okBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+            val handlerBindings = copyBindings(bindings)
+            val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, breakTarget, continueTarget)
+            if handlerEnd >= 0 {
+                tirEmit(function, handlerEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
             }
             return mergeBlock
         }

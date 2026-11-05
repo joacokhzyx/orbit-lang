@@ -258,7 +258,7 @@ signatures return a bare `-> result`, and 3 write a payload** -- two in
 The same missing spelling is why `try` expressions gave up in the frontend pass.
 `std/convert/codec.orb` now writes `result < string >` on the two decodes, and 19 of
 those give-ups moved: 8 stopped being give-ups at all, and 11 became the next class
--- `a handler that falls through needs a merge value`, which the pass does not model.
+-- `a handler that falls through needs a merge value`, which the pass does not model. That class prints no row on 2026-11-04: a `try` in statement position reads no value, and all 20 of its cases were that.
 Closing the spelling exposes the class behind it, which is how every number here has
 fallen. The rest still wait: 17 in `tests/std/test_json.orb` and 15 in
 `tests/std/test_string.orb` cannot be spelled, because `ok` admits only a string or
@@ -835,7 +835,7 @@ that would remove the requirement.
 
 ## 0.4% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-04 over 214 files and 103,103
+`scripts/unknown_census.py`, run on 2026-11-04 over 214 files and 103,281
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
@@ -930,9 +930,9 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 448 times on this corpus, down from 9,233. It is not in the
+<node>" fired 410 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type. On this run the two tallies
-read 449 and 448; they are counted from different fields, and their
+read 449 and 410; they are counted from different fields, and their
 per-file rows differ -- `compiler/tools/doctor.orb` has 73 untyped instructions
 and 29 `Match` give-ups.
 
@@ -943,11 +943,10 @@ node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
-`compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The 79 `try`
-give-ups print two messages: 59 need the value type written inside the `result`, led
-by `tests/std/test_json.orb` 17 and `tests/suite/result_chain.orb` 6, and 20 need a
-merge value for a handler that falls through -- 11 in `tests/std/test_codec.orb` and 9
-in `tests/std/test_string.orb`. The two decodes and the two parses in `std/` now write
+`compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The 41 `try`
+give-ups print two messages: 40 need the value type written inside the `result`, led
+by `tests/std/test_json.orb` 17 and `tests/suite/result_chain.orb` 6, and 1 has a
+named `catch`, which needs the error type. The two decodes and the two parses in `std/` now write
 their payload, and `result < int >` and `result < float >` are answers this pass reads:
 15 of the value-type class went, 9 of them becoming handler cases.
 What is left of that class is `result < object >`.
@@ -1078,8 +1077,10 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
-The three merge classes -- `Match` 307, `If` 30 and the fall-through handler 11 --
-want one thing: a value that two branches both produce. The build answers the merge
+The merge classes -- `Match` 307 and `If` 30 -- want one thing: a value that two
+branches both produce. A `try` whose handler falls through asked for the same thing
+until 2026-11-04, and 20 of those cases read the statement position, where no value
+is read: that class now prints no row. The build answers the merge
 *type* for an `if`: `compiler/ir/builder.orb:3281` allocates its result register with
 `branchTypeName` of the then branch. It answers nothing for a `match`:
 `compiler/ir/builder.orb:3955` allocates that register typed `unknown`, and the arms
@@ -1088,11 +1089,12 @@ write into it. Neither answer is a merge *value* this pass can print: one canoni
 in the block after the join. Widening that changes the text format, which is a
 decision rather than a rule to copy.
 
-What is left of the class list is `Match` 307, `Try` 79 and `If` 30. After them, a `for` over a value with no element
+What is left of the class list is `Match` 307, `Try` 41 and `If` 30. After them, a `for` over a value with no element
 type 20, an index read with no element kind written 8, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
 the rate is what to read. On 2026-11-04 the census reads 449 unknown over
-103,103 instructions, and it read 454 after the index form of a list read
+103,281 instructions -- the same number the run before it read, while 38 `try`
+give-ups left -- and it read 454 after the index form of a list read
 started lowering: the 8 cases in the corpus sit under a `list` whose type text
 names no element kind, so they changed message, not count. Earlier the same day it
 read 454 with a field read of an `object` answering `object`. Earlier
@@ -1164,15 +1166,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 43/43
+## The frontend gate is 44/44
 
-`scripts/frontend_gate.py` runs 43 fixtures and all 43 pass (two of
+`scripts/frontend_gate.py` runs 44 fixtures and all 44 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 38 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 39 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
