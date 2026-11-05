@@ -852,7 +852,7 @@ the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-fronte
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 23) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
 (call result, 143). Their sum, 454, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:647`, `:660`, `:668`, `:692` and `:787`, and
+sites are `compiler/tir/lower.orb:658`, `:671`, `:679`, `:703` and `:798`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -937,7 +937,7 @@ per-file rows differ -- `compiler/tools/doctor.orb` has 73 untyped instructions
 and 29 `Match` give-ups.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:536`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:547`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
@@ -978,9 +978,12 @@ own type, and the write lowers under a receiver that has one.
 `xs[i] = v` is the same write on an index, and it emits `store_index unit <container>
 <index> <value>`. The container's own type is the condition, as it is for the field
 write: 22 of these write positions were give-ups and 5 stay that way under a
-receiver this pass cannot read. The *read* `xs[i]` stays a give-up (8 cases):
-the `list<T>` answer covers the `.get(i)` and `.at(i)` calls, and the index
-form has not been given it.
+receiver this pass cannot read. The *read* `xs[i]` is the same instruction the
+build emits for `xs.get(i)` -- `IROpcode.list_get`, `compiler/ir/builder.orb:5820` --
+and it travels as `call <kind> get <container> <index>`, with the element kind read
+from the receiver's type text. `tests/frontend/list_index_read.orb` pins it. The 8
+cases that stay give-ups are `list` written without an element kind, and the message
+says that: `index read needs the element type this pass does not keep`.
 
 `Point { x: 0, y: 0 }` is a construction with the same problem and a written
 answer: 50 model literals gave up, and the name bound to one loaded back
@@ -1074,10 +1077,13 @@ refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
 What is left of the class list is `Match` 307, `Try` 85 and `If` 30. After them, a `for` over a value with no element
-type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
+type 20, an index read with no element kind written 8, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
 the rate is what to read. On 2026-11-04 the census reads 454 unknown over
-102,961 instructions, after a field read of an `object` answered `object`. Earlier
+102,961 instructions, and it read the same after the index form of a list read
+started lowering: the 8 cases in the corpus sit under a `list` whose type text
+names no element kind, so they changed message, not count. Earlier the same day it
+read 454 with a field read of an `object` answering `object`. Earlier
 the same day it read 485, after `pop` joined `get` and `at` on the element kind, and
 511, after a `+` with a string operand answered `string` the way
 `compiler/ir/builder.orb` already answers it, and 568, after `std/convert/codec.orb`
@@ -1146,15 +1152,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 42/42
+## The frontend gate is 43/43
 
-`scripts/frontend_gate.py` runs 42 fixtures and all 42 pass (two of
+`scripts/frontend_gate.py` runs 43 fixtures and all 43 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 37 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 38 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the

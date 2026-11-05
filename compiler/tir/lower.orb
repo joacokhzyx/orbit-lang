@@ -456,6 +456,17 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         ASTNode.ObjectLiteral(objectNode) => {
             return "object"
         }
+        // The index form of a list read is the instruction the build emits for
+        // `xs.get(i)` -- `IROpcode.list_get` at `compiler/ir/builder.orb:5820` --
+        // so the answer is the same one: the element kind the receiver's type
+        // text writes. A receiver that writes none answers none, and the give-up
+        // E3001 reports it.
+        ASTNode.IndexAccess(indexNode) => {
+            val receiverText = typeOfExpression(module, bindings, indexNode.object)
+            val elementKind = listElementKind(receiverText)
+            if elementKind != "" { return elementKind }
+            return "unknown"
+        }
         ASTNode.Call(call) => {
             match call.callee {
                 ASTNode.Literal(l) => {
@@ -611,7 +622,7 @@ fn tirFieldText(module: TirModule, function: TirFunction, blockId: int, bindings
 // The field initials of an object or model literal are visited by `tirFieldText`, which
 // arms FieldInit; this function has no arm of its own for it, which is what the list
 // below records per walk.
-// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
@@ -893,6 +904,22 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 return -1
             }
             return unwrapped
+        }
+        // `xs[i]` travels as the one call the build lowers it to, named the way
+        // the method spelling above names it: `call <type> get <container>
+        // <index>`. The condition is the receiver's type text. A list written
+        // without an element kind stays a give-up, because emitting it would add
+        // an `unknown` instruction and suppress the same file text -- the trade
+        // the `for` rule names.
+        ASTNode.IndexAccess(indexNode) => {
+            val indexType = typeOfExpression(module, bindings, node)
+            if indexType == "unknown" {
+                tirError(module, "E3001", "index read needs the element type this pass does not keep", 0, 0)
+                return -1
+            }
+            val containerValue = lowerExpression(module, function, blockId, bindings, indexNode.object)
+            val positionValue = lowerExpression(module, function, blockId, bindings, indexNode.index)
+            return tirEmit(function, blockId, "call", indexType, "get " + tirValue(containerValue) + " " + tirValue(positionValue))
         }
         _ => {
             tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
