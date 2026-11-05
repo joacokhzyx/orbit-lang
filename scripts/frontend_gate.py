@@ -86,6 +86,10 @@ EMPTY_EXPECTATIONS = {
     # which this pass does not keep. Emitting `unknown` instead would suppress
     # the same TIR and raise the count the ratchet holds.
     "list_iteration.orb": "list iteration stays a give-up",
+    # The query-helper rule reads the member name off a model this program declares.
+    # An undeclared receiver has no table to answer from, so it keeps its E2001 and
+    # the file prints nothing -- the control for the helper rule in this directory.
+    "undeclared_model_helper.orb": "an undeclared receiver keeps its E2001",
     # The read of a field declared as a type parameter answers the argument the
     # instance writes. A generic literal writes none, so `b.v` under
     # `val b = Box { v: 3 }` has no type to print and the file stays suppressed.

@@ -503,7 +503,7 @@ fn callCalleeText(callee: ASTNode) -> string {
     return "(expression)"
 }
 
-// The model query helpers. `compiler/ir/builder.orb:4710` through `:4718` turn
+// The model query helpers. `compiler/ir/builder.orb:4711` through `:4726` turn
 // `Item.all()`, `Item.where(...)`, `Item.find(...)` and `Item.first()` into a call of
 // `orbit_db_query_*` with the table as its first argument: no field of `Item` is read
 // for any of them. Measured 2026-11-05 with `orbit build --emit-ir`, every one of the

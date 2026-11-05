@@ -1042,19 +1042,19 @@ answers that argument. `list<T>` substitutes inside the container it names, so
 `items` under `Bag<int>` is `list<int>` and `Bag<int>.items.get(0)` is
 `call int`. Only a type this pass already states is taken: a builtin, `object`,
 `list`, a `list` of one of those, or a model this file declares.
-12 of the 19 stay, and every one of them is an instance that writes nothing:
+14 of the 15 stay, and every one of them is an instance that writes nothing:
 `val b = Box { v: 3 }` keeps the bare name the source wrote, so the field's
 declared text is still `T` and the argument lives in the value, not in the text.
 The four `.all` and `.where` reads landed the same day, and the build is what
 showed the answer: `Item.all()` and `Item.where(cond, arg)` put a model name in
 receiver position, and the build emits no member read for them at all.
-`compiler/ir/builder.orb:4711` and `:4713` set `modelBuiltin` to
+`compiler/ir/builder.orb:4711` and `:4721` set `modelBuiltin` to
 `orbit_db_query_all` and `orbit_db_query_where`, called with the table name as a
 string argument, and measured 2026-11-05 through `orbit build --emit-ir`, all four helpers --
 `all`, `where`, `find` and `first` -- return a register typed `string`. This pass read `.all` as a field of a model that has no such field, which was the
 E2004, and then reported E2005 for the call after it. It now carries the qualified
 name on the call -- `call string Item.all`, with no `member` instruction -- the same
-move that removed the phantom read for a method callee. Over the corpus that is 4
+move that removed the phantom read for a method callee. Two controls landed with it: `tests/frontend/model_helper_name_is_a_field.orb` pins that a model declaring a field called `all` still reads it as `member int`, and `tests/frontend/undeclared_model_helper.orb` requires silence when the receiver names no model -- the build picks the helper by name and by the shape of the receiver, and the shape is missing there. Over the corpus that is 4
 member reads, 4 call results and 8 loads of the model name: 16 instructions, and
 `tests/suite/arena_sink_scope.orb` and `tests/suite/peephole_no_fold_side_effects.orb`
 went from 8 untyped each to 0. `tests/frontend/model_query_helper.orb` pins the text
@@ -1271,15 +1271,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 52/52
+## The frontend gate is 54/54
 
-`scripts/frontend_gate.py` runs 52 fixtures and all 52 pass (two of
+`scripts/frontend_gate.py` runs 54 fixtures and all 54 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
-fail before. Six pin an absence of output rather than a text, and the gate
+fail before. Seven pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 44 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 47 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
