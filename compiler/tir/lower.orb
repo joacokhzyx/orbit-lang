@@ -448,10 +448,11 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         // The type a list literal carries. `lowerExpression` emits the same
         // answer, and the two must agree: a binding seeded with a type the
         // reader does not know is an `unknown` load at every later use of the
-        // name. The element kind is not here -- the source wrote the elements,
-        // not their type, and reading a type off the first one is an inference
-        // this pass does not make.
+        // name. The element kind is the elements' own type, which is the one
+        // thing the source does write; no element, no kind.
         ASTNode.ListLiteral(listNode) => {
+            val literalElement = listLiteralElement(module, bindings, listNode)
+            if literalElement != "" { return "list<" + literalElement + ">" }
             return "list"
         }
         // An interpolated string is one value the source wrote in pieces, and the
@@ -553,6 +554,28 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         }
         _ => return "unknown"
     }
+}
+
+// The element kind a list literal writes. `listLiteralKindName`
+// (`compiler/ir/builder.orb:1725`) decides it in the build: every element that names a
+// type must name the same one, an element the build cannot type is skipped, and a
+// literal with nothing decided answers nothing. The same rule here keeps the two
+// modules reading one container the same way.
+fn listLiteralElement(module: TirModule, bindings: list < TirBinding >, listNode: ListLiteralNode) -> string {
+    var decided = ""
+    var li = 0
+    while li < listNode.elements.len() {
+        val et = typeOfExpression(module, bindings, listNode.elements.get(li))
+        if et != "unknown" && et != "void" {
+            if decided == "" {
+                decided = et
+            } else if decided != et {
+                return ""
+            }
+        }
+        li = li + 1
+    }
+    return decided
 }
 
 // Which node the frontend gave up on. E3001 printed one sentence for every
@@ -855,7 +878,9 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 elements = elements + " " + tirValue(item)
                 li = li + 1
             }
-            return tirEmit(function, blockId, "list", "list", tirIntText(li) + elements)
+            // The reader's answer for the same node, so the instruction and the
+            // binding built from it cannot disagree about what is inside.
+            return tirEmit(function, blockId, "list", typeOfExpression(module, bindings, node), tirIntText(li) + elements)
         }
         // `Point { x: 0, y: 0 }` is a construction whose type the source wrote.
         // The instruction names that type and lists the fields in the order they

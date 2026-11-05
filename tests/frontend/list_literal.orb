@@ -5,11 +5,13 @@
 // the name into an `unknown` load -- and an `unknown` anywhere suppresses the
 // canonical text this golden is made of.
 //
-// The element kind is not claimed: the pass keeps no table for it, and `list`
-// is all a reader of this text may be told.
+// The element kind comes from the elements, the way the build IR takes it
+// (`listLiteralKindName` in `compiler/ir/builder.orb`): `[1, 2]` answers
+// `list<int>` and `[true, false]` answers `list<bool>`. A literal with no
+// elements answers bare `list`, because there is no element to read a kind off.
 import "../../compiler/tir/entry.orb"
 
 fn main() {
-    val source = "fn main() -> int { val xs = [1, 2] val n = xs return 0 }"
+    val source = "fn main() -> int { val xs = [1, 2] val es = [] val bs = [true, false] val n = xs return 0 }"
     print(compileFrontendSource("fixture", source))
 }

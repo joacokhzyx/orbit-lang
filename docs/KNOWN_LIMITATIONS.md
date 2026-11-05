@@ -842,26 +842,26 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 0.4% of instructions are `unknown`, and every one of them says so
+## 0.3% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-05 over 214 files and 104,185
+`scripts/unknown_census.py`, run on 2026-11-05 over 214 files and 104,610
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 393 | **0.4%** |
+| instructions the front end types `unknown` | 321 | **0.3%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 175 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 52), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 142 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 48), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 23) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 143). Their sum, 393, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:677`, `:690`, `:698`, `:722` and `:817`, and
+(call result, 108). Their sum, 321, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:701`, `:714`, `:722`, `:746` and `:841`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -875,12 +875,13 @@ parses each imported program and registers its signatures and models before any
 body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
 `load int later` and `call int` instead of reporting E2001 and suppressing the
 file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
-the file named on the command line. 143 calls stay untyped, and the census names
-what each one called. 138 are a method on a receiver the pass cannot read: `.get`
-126 and `.pop` 4 want the element kind of a list the source wrote without one,
+the file named on the command line. 108 calls stay untyped, and the census names
+what each one called. 103 are a method on a receiver the pass cannot read: `.get`
+93 and `.pop` 2 want the element kind of a list the source wrote without one,
 and `unknown` is the answer there, not a gap. `.pop` was 26 until the typed
-receiver answered it, and 22 of those had a `list<T>` in front of them. The last 5
-name something no corpus file declares. The split adds up to the E2005 count, which is the check the table
+receiver answered it, and 22 of those had a `list<T>` in front of them. A literal
+of `[1, 2]` writes that text itself since 2026-11-05, and 33 of those `.get`
+reads left with it. The last 5 name something no corpus file declares. The split adds up to the E2005 count, which is the check the table
 carries. E2005 said only "this call" until 2026-11-04, when the callee joined the
 message: a method is not a missing declaration, and the two are not the same work.
 Reading them named the largest one -- `.push`, 375 of them -- and a list write
@@ -899,15 +900,15 @@ distinct E2001 message and the driver sorts each identifier by where a definitio
 of it lives. The probe itself was the last thing holding the old numbers: until
 2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
 text it is handed, so it measured a program the command line never compiles. It
-calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
-175 unknown loads: 169 read a name the file itself declares, led by `want` 10,
-`name` 9 and `fplines` 9. 6 read a name no corpus file declares:
+calls the entry point `orbit frontend` calls now. Measured 2026-11-05 over the
+142 unknown loads: 136 read a name the file itself declares, led by `name` 9 and
+`fplines` 9. 6 read a name no corpus file declares:
 `Circle` 2, `Square` 2, `Both` and `taken`. No load reads a name that only a file this one imports declares.
 `Token` was 54 of those and `LiteralNode` 21: a model name in call position
 constructs the model, so the callee stopped being a value read off nothing. The
 buckets sum to the E2001 count, which is the check the sort carries.
 
-The other split says which of them is work. 155 are echoes: the reading
+The other split says which of them is work. 122 are echoes: the reading
 function binds that name, so it is the value bound into it that has no type. The
 other 20 read a name that function never binds. Two classes went here and came
 back answered: `TokType` was 582 loads of an enum name, and `NULL` was 82 of a
@@ -939,14 +940,14 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 363 times on this corpus, down from 9,233. It is not in the
+<node>" fired 345 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type. On this run the two tallies
-read 393 and 363; they are counted from different fields, and their
-per-file rows differ -- `compiler/tools/doctor.orb` has 73 untyped instructions
+read 321 and 345; they are counted from different fields, and their
+per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 `Match` give-ups.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:566`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:590`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
@@ -983,13 +984,16 @@ own type, and the write lowers under a receiver that has one.
 
 `xs[i] = v` is the same write on an index, and it emits `store_index unit <container>
 <index> <value>`. The container's own type is the condition, as it is for the field
-write: 22 of these write positions were give-ups and 5 stay that way under a
-receiver this pass cannot read. The *read* `xs[i]` is the same instruction the
-build emits for `xs.get(i)` -- `IROpcode.list_get`, `compiler/ir/builder.orb:5820` --
-and it travels as `call <kind> get <container> <index>`, with the element kind read
-from the receiver's type text. `tests/frontend/list_index_read.orb` pins it. The 8
-cases that stay give-ups are `list` written without an element kind, and the message
-says that: `index read needs the element type this pass does not keep`.
+write: 22 of these write positions were give-ups and 5 stayed that way under a
+receiver this pass cannot read, measured 2026-11-04. The *read* `xs[i]` is the same
+instruction the build emits for `xs.get(i)` -- `IROpcode.list_get`,
+`compiler/ir/builder.orb:5820` -- and it travels as `call <kind> get <container>
+<index>`, with the element kind read from the receiver's type text.
+`tests/frontend/list_index_read.orb` pins it. The 8 reads that stayed give-ups sat
+over a `list` written without an element kind, and the message said so: `index read
+needs the element type this pass does not keep`. Since 2026-11-05 a literal of
+`[1, 2]` writes that element kind itself, and this run's give-up table prints no
+index row.
 
 `Point { x: 0, y: 0 }` is a construction with the same problem and a written
 answer: 50 model literals gave up, and the name bound to one loaded back
@@ -1039,8 +1043,16 @@ them.
 lowered and the name bound to one loaded back `unknown` -- the reader of types
 and the lowerer disagreed about what the value was. 412 give-ups, 780 unknown
 identifier reports, and the canonical text suppressed in every file that used
-one. It emits `list` now and both readers answer `list`; a literal's element kind
-is not claimed, because the source wrote the elements and not their type.
+one. It emits `list` now and both readers answer `list`. Since 2026-11-05 a
+literal whose elements answer one type emits that text -- `list<int>` for
+`[1, 2]` -- and the kind is read off the elements the way the build IR reads it
+(`listLiteralKindName`, `compiler/ir/builder.orb:1725`). A literal with no
+elements keeps bare `list`, because there is no element to read a kind off.
+`tests/frontend/list_literal.orb` pins both answers. Over the corpus the count
+fell 393 to 321 and the metric from 4 to 3 per mille: 33 loads, 35 calls and 4
+binary operands left it. The give-up table lost 18 with them -- 10 `for` loops
+and the 8 index reads, each sitting over a literal that now names its own element
+kind.
 
 The fifth was `fn shout() { return }`: a bare `return` has no value to lower, so
 it reached the expression reader and reported `Empty` -- 279 times -- and the
@@ -1058,14 +1070,16 @@ text. `for x in 0..n` counts an int between the bounds, so it lowers to the `whi
 form plus an increment block, and the increment is where a `continue` lands --
 jumping to the condition with the counter unchanged repeats one item forever.
 `tests/frontend/range_loop.orb` pins both loops and an index binding.
-12 of the 46 iterate a value whose type text writes the element kind, and lower as the
+A loop over a value whose type text writes the element kind lowers as the
 build's own list loop: `buildForList` (`compiler/ir/builder.orb:3530`) emits the hidden
 `<item>_idx` counter, one length read before the loop and the item through `get`, with an
 increment block for a `continue` to reach. `tests/frontend/list_iteration_typed.orb` pins
 that.
-The other 11 read a bare `list`, and binding the item to `unknown` would suppress the same
-text while raising the count the ratchet holds, so they stay give-ups and
-`tests/frontend/list_iteration.orb` pins that. A label is no longer one of the reasons a
+A loop over a `list` that names no element kind stays a give-up: binding the item to
+`unknown` would suppress the same text while raising the count the ratchet holds.
+`tests/frontend/list_iteration.orb` pins that refusal. On 2026-11-05 the give-up table
+prints one of them, in `tests/suite/list_element_type.orb`; 10 left the class when a
+literal began answering its own element kind. A label is no longer one of the reasons a
 loop is refused.
 
 Interpolation was the ninth. `"count=${n}!"` is three parts -- text, the value
@@ -1098,11 +1112,15 @@ write into it. Neither answer is a merge *value* this pass can print: one canoni
 in the block after the join. Widening that changes the text format, which is a
 decision rather than a rule to copy.
 
-What is left of the class list is `Match` 307 and `If` 30. After them, an index read over a bare `list` 8, a `for` over one 11, a fall-through `try`
-handler 6, and a `continue` outside any loop 1.
+What is left of the class list is `Match` 307 and `If` 30. After them, a fall-through `try`
+handler 6, one `for` over a `list` that names no element kind, and a `continue`
+outside any loop 1.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-05 the census reads 393 unknown over
-104,185 instructions, after a labelled `break` found its target: the row that printed 4
+the rate is what to read. On 2026-11-05 the census reads 321 unknown over
+104,610 instructions, after a list literal began answering its own element kind:
+33 loads, 35 calls and 4 binary operands left the count, and 18 give-ups with
+them. The metric the ratchet holds moved 4 to 3 on this one. The run before it read 393 over
+104,185, after a labelled `break` found its target: the row that printed 4
 prints nothing, and 3 of those loops moved to the element-kind question. A named `catch`
 reads its message now, so the row that printed 6 prints nothing. The run before it read 399 over 103,986, after a `try` binding annotation
 began answering the read the way the build answers it: 26 loads stopped being `unknown`
@@ -1124,7 +1142,8 @@ same day it read 576 over 102,668. Earlier the same day it read 614, before `sys
 as the receiver the checker names, 739 before `ok` and `err` were read by name,
 and 1,134 before a list write answered `void`. The count falls faster than the
 rate: this pass is in the corpus it measures, and every rule added grows the
-denominator with it. The per-mille the ratchet holds moved 5 to 4 on this one. Earlier the same day it read 1,757 over 102,785, before a
+denominator with it. The per-mille the ratchet holds moved 5 to 4 when a labelled
+`break` found its target. Earlier the same day it read 1,757 over 102,785, before a
 qualified construction of a declared type stopped being read as a value off
 nothing, and 2,156 over 103,008 before a field declared `list<T>` carried that
 text to the read. Earlier the same day it read 4,050 over 102,971, before a
@@ -1150,7 +1169,7 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-0.4% is the number the type work has to be scoped against, and a
+0.3% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Run on 2026-11-02, after the
 baseline moved down to the measured numbers:
 
@@ -1169,6 +1188,15 @@ $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
 Finished unknown-count: 4 (baseline 4, ratchet holds)
 ```
 
+The run on 2026-11-05, after the list literal answered its own element kind:
+
+```console
+$ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
+  unknown_per_mille                 3  baseline      4  -1
+  silent_per_mille                  0  baseline      0  unchanged
+Finished unknown-count: 3 (baseline 4, ratchet holds)
+```
+
 What the second number holds now is the one-to-one tie above. An opcode that
 starts producing `unknown` without a diagnostic, or one of the five that stops
 firing once per instruction, moves it off zero and the gate fails.
@@ -1178,7 +1206,9 @@ move a number up unless `--allow-regression` is also passed. It rewrites the res
 the file on every run -- the file count, the instruction count and the per-file
 `by_file` table -- so a commit can refresh those context numbers without moving
 either metric: `bef0782` changed 5 lines and added 4, and both metrics stayed 6 and
-0. A per-file entry going to 0 is the useful half of that churn: `tests/std/`
+0. The run on 2026-11-05 rewrote 17 lines and added 17: the metric line, the two
+context lines and 14 per-file rows, five of them down to 0. A per-file entry going
+to 0 is the useful half of that churn: `tests/std/`
 `test_codec.orb` reached 0 untyped instructions when the decodes wrote their
 payload. So the
 count can only go down, which turns "do not regress this" from a rule

@@ -888,8 +888,9 @@ python scripts/unknown_census.py --cc "$CC" --compiler /tmp/orbit_fp
 #     because the corpus legitimately grows and a gate that fails when a file
 #     is added is a gate that gets deleted. Raising a baseline is a deliberate
 #     act - --write-baseline refuses to move a number up without
-#     --allow-regression. Today: `Finished unknown-count: 296 (baseline 296,
-#     ratchet holds)`, both counts unchanged.
+#     --allow-regression. Run on 2026-11-05, after the baseline fell with a list
+#     literal that answers its own element type: `Finished unknown-count: 3
+#     (baseline 4, ratchet holds)`, one metric down and the other unchanged.
 python scripts/unknown_ratchet.py --cc "$CC" --compiler /tmp/orbit_fp
 
 # 16. [CI] Shard split round trip, T3. Splits the fixed point's bundled TU into
