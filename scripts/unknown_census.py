@@ -490,7 +490,14 @@ def main():
     give_rows = sorted(by_giveup.items(), key=lambda kv: -kv[1])[:args.top]
     for message, count in give_rows:
         kind = message.split(":")[-1].strip()
-        print("  %-22s %9d  %s" % (kind, count, message.split(" to TIR")[0]))
+        note = message.split(" to TIR")[0]
+        # A message with no node class in it is its own class name, and printing it
+        # twice makes the row look like two different give-ups. The reader wants the
+        # class in column one and the sentence that explains it in column two; when
+        # there is no shorter class, the sentence goes in column one once.
+        if note == kind:
+            note = ""
+        print("  %-22s %9d  %s" % (kind, count, note))
     if len(by_giveup) > len(give_rows):
         print("  ... %d more classes (--top raises the cap)"
               % (len(by_giveup) - len(give_rows)))
