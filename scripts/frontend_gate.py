@@ -94,6 +94,9 @@ EMPTY_EXPECTATIONS = {
     # answer the same type. Two types are not one value, so the pass gives up and
     # the file prints nothing.
     "if_value_branch_types.orb": "branches that disagree stay a give-up",
+    # A match arm that binds a payload cannot be printed until this pass reads the
+    # variant's data word: the arm's name would bind no value.
+    "variant_match_payload.orb": "a payload arm waits for the data read",
     # The read of a field declared as a type parameter answers the argument the
     # instance writes. A generic literal writes none, so `b.v` under
     # `val b = Box { v: 3 }` has no type to print and the file stays suppressed.

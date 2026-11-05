@@ -13,6 +13,12 @@ module.  A valid module contains:
 - declarations in source/module order;
 - resolved names (no unresolved identifier nodes);
 - an explicit type for every value-producing instruction;
+- a discriminator read for a `match`: `instr <fn> <block> <value> tag <union-type>
+   <scrutinee>` answers an `int`, the variant's position in the declaration, which
+   is the number the C backend defines as `<Type>_TAG_<Variant>`. It is read once
+   per match and compared against each arm with `==` and `branch`. An arm that
+   binds the variant's payload is not printed: reading the data word is not in this
+   version of the text, and the pass says so instead of binding nothing to a name.
 - one convention for a value produced in two branches: each branch writes the
    value to one name with `bind unit <name> <value>`, both branches jump to the
    merge block, and the merge block reads the name with `load <type> <name>`.

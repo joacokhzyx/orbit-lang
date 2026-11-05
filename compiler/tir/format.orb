@@ -58,6 +58,12 @@ model TirType {
     name: string
     fields: list < TirField >
     params: list < string >
+    // A union's variants in the order the source declares them. The emitter
+    // numbers a tag by this position (`<Type>_TAG_<Variant> = <index>` in
+    // `compiler/emit/c_backend.orb:2082`), so a match arm has to be read against
+    // the same order to print the number the C backend will define. A model
+    // leaves it empty.
+    variants: list < string >
 }
 
 // One declared signature: the name and the return type exactly as the source

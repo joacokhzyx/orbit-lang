@@ -429,7 +429,7 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
         i = i + 1
     }
     module.ctors.push(modelDecl.name)
-    module.types.push(TirType(modelDecl.name, fields, tirGenericParamNames(modelDecl.genericParams)))
+    module.types.push(TirType(modelDecl.name, fields, tirGenericParamNames(modelDecl.genericParams), []))
 }
 
 // An enum enters the same table, with its variants as the fields and its own
@@ -442,6 +442,7 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
 // construction of the type that declares it.
 fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
     val fields = []
+    val names = []
     var i = 0
     while i < typeDecl.variants.len() {
         // A variant with a payload is a construction that needs an argument, not
@@ -451,24 +452,23 @@ fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
         if i < typeDecl.variantPayloads.len() {
             payload = typeDecl.variantPayloads.get(i)
         }
-        if payload == "" {
-            match typeDecl.variants.get(i) {
-                ASTNode.Literal(variant) => {
+        match typeDecl.variants.get(i) {
+            ASTNode.Literal(variant) => {
+                // The order is the tag: `compiler/emit/c_backend.orb:2082` numbers
+                // every variant by its index, payload or not, and a match arm is
+                // compared against that number.
+                names.push(variant.text)
+                if payload == "" {
                     fields.push(TirField(variant.text, typeDecl.name))
-                }
-                _ => {}
-            }
-        } else {
-            match typeDecl.variants.get(i) {
-                ASTNode.Literal(variant) => {
+                } else {
                     module.ctors.push(typeDecl.name + "." + variant.text)
                 }
-                _ => {}
             }
+            _ => {}
         }
         i = i + 1
     }
-    module.types.push(TirType(typeDecl.name, fields, []))
+    module.types.push(TirType(typeDecl.name, fields, [], names))
 }
 
 // The element kind a list type text carries. `list<int>` answers `int`; `list`
@@ -1165,6 +1165,124 @@ fn tryAnnotationType(annotation: string) -> string {
     return ""
 }
 
+// The number the C backend defines as `<Type>_TAG_<Variant>`: the variant's
+// position in the declaration, payload or not (`compiler/emit/c_backend.orb:2082`).
+// "" when this file declares neither the type or not that variant in it.
+fn declaredVariantTag(module: TirModule, typeName: string, variant: string) -> string {
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == typeName {
+            var v = 0
+            while v < declared.variants.len() {
+                if declared.variants.get(v) == variant { return tirIntText(v) }
+                v = v + 1
+            }
+            return ""
+        }
+        t = t + 1
+    }
+    return ""
+}
+
+// Does any arm of this match test a variant? The tag is then read once, before the
+// first test, the way `buildMatchExpr` reads it into one register and compares that
+// register against every arm.
+fn matchTestsVariants(cases: list < ASTNode >) -> bool {
+    var i = 0
+    while i < cases.len() {
+        match cases.get(i) {
+            ASTNode.MatchCase(c) => {
+                match c.pattern {
+                    ASTNode.MemberAccess(member) => { return true }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// `match s { Shape.Empty => …  _ => … }` in statement position. One test per arm,
+// each in the block the previous test fell through to: read the tag once, name the
+// variant's declared number, compare, and `branch` into the arm or into the next
+// test. An arm that returns ends its block, so no jump is written for it -- the
+// same rule the `if` statement already follows. A wildcard tests nothing, so its
+// body is lowered in the block the last test fell through to, which is the block
+// every arm that does not return has to reach.
+//
+// An arm that binds a payload is refused with a message that says what is missing:
+// reading the data word off a variant is a second instruction this slice does not
+// print, and inventing the binding would put a value on a name with no source.
+fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, m: MatchNode, breakTarget: int, continueTarget: int) -> int {
+    val scrutineeType = typeOfExpression(module, bindings, m.expr)
+    val scrutineeValue = lowerExpression(module, function, blockId, bindings, m.expr)
+    var tagValue = -1
+    if matchTestsVariants(m.cases) {
+        tagValue = tirEmit(function, blockId, "tag", "int", tirValue(scrutineeValue))
+    }
+    val mergeBlock = tirCreateBlock(function)
+    var testBlock = blockId
+    var i = 0
+    while i < m.cases.len() {
+        val arm: ASTNode = m.cases.get(i)
+        var pattern: ASTNode = ASTNode.Empty
+        var body: ASTNode = ASTNode.Empty
+        match arm {
+            ASTNode.MatchCase(c) => {
+                pattern = c.pattern
+                body = c.body
+            }
+            _ => {}
+        }
+        var isWildcard = false
+        match pattern {
+            ASTNode.Literal(l) => { if l.text == "_" { isWildcard = true } }
+            _ => {}
+        }
+        if isWildcard {
+            val wildEnd = lowerStatement(module, function, testBlock, copyBindings(bindings), body, breakTarget, continueTarget)
+            if wildEnd >= 0 {
+                tirEmit(function, wildEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            }
+            return mergeBlock
+        }
+        val armBlock = tirCreateBlock(function)
+        val nextBlock = tirCreateBlock(function)
+        match pattern {
+            ASTNode.Literal(l) => {
+                val patternValue = lowerExpression(module, function, testBlock, copyBindings(bindings), pattern)
+                val compared = tirEmit(function, testBlock, "==", "bool", tirValue(scrutineeValue) + " " + tirValue(patternValue))
+                tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+            }
+            ASTNode.MemberAccess(member) => {
+                val tagName = declaredVariantTag(module, scrutineeType, member.field)
+                if tagName == "" {
+                    tirError(module, "E3001", "a match needs the variant table of the type it switches on, which this pass does not keep", 0, 0)
+                    return -1
+                }
+                val tagNumber = tirEmit(function, testBlock, "const", "int", tagName)
+                val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
+                tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+            }
+            _ => {
+                tirError(module, "E3001", "a match that binds a payload needs the data read this pass does not print", 0, 0)
+                return -1
+            }
+        }
+        val armEnd = lowerStatement(module, function, armBlock, copyBindings(bindings), body, breakTarget, continueTarget)
+        if armEnd >= 0 {
+            tirEmit(function, armEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+        }
+        testBlock = nextBlock
+        i = i + 1
+    }
+    tirEmit(function, testBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+    return mergeBlock
+}
+
 // The value an `if` branch is worth, and the type it answers. Two shapes: a branch
 // that IS an expression (`if c then 1 else 2`) and a branch that is a block ending
 // in one (`if c { log(); 1 }`). A branch ending in a declaration or a `return`
@@ -1295,7 +1413,7 @@ fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, binding
 // more for `continue` -- and the error suppressed the file's canonical TIR.
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, MatchNode, ReturnErrNode, RouteDeclNode, ScheduleDeclNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, ReturnErrNode, RouteDeclNode, ScheduleDeclNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode, breakTarget: int, continueTarget: int) -> int {
     if blockId < 0 { return blockId }
     match node {
@@ -1429,6 +1547,11 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                 i = i + 1
             }
             return currentBlock
+        }
+        // `match s { ... }` in statement position: a test chain, one arm block per
+        // case, and the merge block the arms that fall through jump to.
+        ASTNode.Match(m) => {
+            return lowerMatchStatement(module, function, blockId, bindings, m, breakTarget, continueTarget)
         }
         ASTNode.If(branch) => {
             val condition = lowerExpression(module, function, blockId, bindings, branch.condition)
