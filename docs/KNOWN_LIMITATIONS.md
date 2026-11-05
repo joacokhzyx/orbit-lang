@@ -836,7 +836,7 @@ that would remove the requirement.
 
 ## 0.4% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-05 over 214 files and 104,120
+`scripts/unknown_census.py`, run on 2026-11-05 over 214 files and 104,185
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
@@ -853,7 +853,7 @@ the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-fronte
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 23) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
 (call result, 143). Their sum, 393, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:662`, `:675`, `:683`, `:707` and `:802`, and
+sites are `compiler/tir/lower.orb:677`, `:690`, `:698`, `:722` and `:817`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -931,14 +931,14 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 364 times on this corpus, down from 9,233. It is not in the
+<node>" fired 363 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type. On this run the two tallies
-read 393 and 364; they are counted from different fields, and their
+read 393 and 363; they are counted from different fields, and their
 per-file rows differ -- `compiler/tools/doctor.orb` has 73 untyped instructions
 and 29 `Match` give-ups.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:551`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:566`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
@@ -1055,10 +1055,10 @@ build's own list loop: `buildForList` (`compiler/ir/builder.orb:3530`) emits the
 `<item>_idx` counter, one length read before the loop and the item through `get`, with an
 increment block for a `continue` to reach. `tests/frontend/list_iteration_typed.orb` pins
 that.
-The other 8 read a bare `list`, and binding the item to `unknown` would suppress the
-same text while raising the count the ratchet holds, so they stay give-ups and
-`tests/frontend/list_iteration.orb` pins that. 4 name an enclosing loop for a labelled
-`break`; each message says which.
+The other 11 read a bare `list`, and binding the item to `unknown` would suppress the same
+text while raising the count the ratchet holds, so they stay give-ups and
+`tests/frontend/list_iteration.orb` pins that. A label is no longer one of the reasons a
+loop is refused.
 
 Interpolation was the ninth. `"count=${n}!"` is three parts -- text, the value
 of `n`, text -- and the pass had no rule for the whole literal, so 12 of them
@@ -1090,13 +1090,13 @@ write into it. Neither answer is a merge *value* this pass can print: one canoni
 in the block after the join. Widening that changes the text format, which is a
 decision rather than a rule to copy.
 
-What is left of the class list is `Match` 307 and `If` 30. After them, an index read and a `for` over a value whose
-type text writes no element kind 8 each, a fall-through `try` handler 6, a labelled `break` with no
-target 4, and a `continue` outside any loop 1.
+What is left of the class list is `Match` 307 and `If` 30. After them, an index read over a bare `list` 8, a `for` over one 11, a fall-through `try`
+handler 6, and a `continue` outside any loop 1.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
 the rate is what to read. On 2026-11-05 the census reads 393 unknown over
-104,120 instructions. A named `catch` now reads its message, so the row that printed 6
-prints nothing. The run before it read 399 over 103,986, after a `try` binding annotation
+104,185 instructions, after a labelled `break` found its target: the row that printed 4
+prints nothing, and 3 of those loops moved to the element-kind question. A named `catch`
+reads its message now, so the row that printed 6 prints nothing. The run before it read 399 over 103,986, after a `try` binding annotation
 began answering the read the way the build answers it: 26 loads stopped being `unknown`
 and 22 give-ups left. The metric holds at 4 per mille. Earlier the same day it read 425 over 103,614 -- one higher than the
 424 before it, while 12 `for` give-ups left and 321 instructions entered the corpus:
@@ -1176,15 +1176,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 48/48
+## The frontend gate is 49/49
 
-`scripts/frontend_gate.py` runs 48 fixtures and all 48 pass (two of
+`scripts/frontend_gate.py` runs 49 fixtures and all 49 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 43 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 44 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the

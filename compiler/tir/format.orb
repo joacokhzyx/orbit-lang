@@ -32,6 +32,12 @@ model TirFunction {
     returnType: string
     parameters: list < TirParameter >
     instructions: list < TirInstruction >
+    // The loops being lowered, innermost last: the name the source wrote, the
+    // block a `break` jumps to and the block a `continue` jumps to. The build
+    // keeps the same three lists (`compiler/ir/builder.orb:20`).
+    loopLabels: list < string >
+    loopExits: list < int >
+    loopContinues: list < int >
     nextValueId: int
     nextBlockId: int
 }
@@ -81,7 +87,7 @@ fn initTirModule(name: string) -> TirModule {
 }
 
 fn initTirFunction(id: int, name: string, returnType: string) -> TirFunction {
-    return TirFunction(id, name, returnType, [], [], 0, 0)
+    return TirFunction(id, name, returnType, [], [], [], [], [], 0, 0)
 }
 
 fn tirAddFunction(module: TirModule, name: string, returnType: string) -> TirFunction {

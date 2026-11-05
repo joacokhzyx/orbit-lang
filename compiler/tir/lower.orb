@@ -369,6 +369,21 @@ fn systemMethodType(member: string) -> string {
     return ""
 }
 
+// The block a labelled transfer jumps to: the innermost loop on the function's stack
+// whose name is the label the source wrote, the same search `compiler/ir/builder.orb:3467`
+// makes over its own lists. -1 when no enclosing loop carries the name.
+fn tirLoopLabelBlock(function: TirFunction, label: string, forContinue: bool) -> int {
+    var i = function.loopLabels.len()
+    while i > 0 {
+        i = i - 1
+        if function.loopLabels.get(i) == label {
+            if forContinue { return function.loopContinues.get(i) }
+            return function.loopExits.get(i)
+        }
+    }
+    return -1
+}
+
 // orbit-walk: none -- asks what type an expression is
 fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
@@ -915,7 +930,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 // message first -- `result_unwrap_err`, which `compiler/emit/c_backend.orb:870` types
 // `string` -- and binds the name to that read. Both `try` shapes call this, so the value
 // case and the statement case cannot drift apart.
-fn enterTryHandler(module: TirModule, function: TirFunction, handlerBlock: int, bindings: list < TirBinding >, tryNode: TryNode, resultValue: int) -> list < TirBinding > {
+fn enterTryHandler(function: TirFunction, handlerBlock: int, bindings: list < TirBinding >, tryNode: TryNode, resultValue: int) -> list < TirBinding > {
     val handlerBindings = copyBindings(bindings)
     if tryNode.errName != "" {
         val messageValue = tirEmit(function, handlerBlock, "result_unwrap_err", "string", tirValue(resultValue))
@@ -953,7 +968,7 @@ fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, binding
     val handlerBlock = tirCreateBlock(function)
     tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
     val unwrapped = tirEmit(function, okBlock, "result_unwrap", unwrapType, tirValue(resultValue))
-    val handlerBindings = enterTryHandler(module, function, handlerBlock, bindings, tryNode, resultValue)
+    val handlerBindings = enterTryHandler(function, handlerBlock, bindings, tryNode, resultValue)
     val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, -1, -1)
     if handlerEnd >= 0 {
         tirError(module, "E3001", "a handler that falls through needs a merge value, which this pass does not model", 0, 0)
@@ -1138,7 +1153,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             val mergeBlock = tirCreateBlock(function)
             tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
             tirEmit(function, okBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
-            val handlerBindings = enterTryHandler(module, function, handlerBlock, bindings, tryNode, resultValue)
+            val handlerBindings = enterTryHandler(function, handlerBlock, bindings, tryNode, resultValue)
             val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, breakTarget, continueTarget)
             if handlerEnd >= 0 {
                 tirEmit(function, handlerEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
@@ -1173,10 +1188,6 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         // loop other than the innermost one, which one pair of targets cannot
         // carry, so a labelled loop is a give-up too.
         ASTNode.For(loopNode) => {
-            if loopNode.label != "" {
-                tirError(module, "E3001", "for with a label has no target for a named break", 0, 0)
-                return blockId
-            }
             match loopNode.iterable {
                 ASTNode.Range(bounds) => {
                     if typeOfExpression(module, bindings, bounds.lo) != "int" {
@@ -1217,7 +1228,13 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                         tirEmit(function, bodyBlock, "bind", "unit", loopNode.indexVar + " " + tirValue(position))
                         bodyBindings.push(TirBinding(loopNode.indexVar, "int"))
                     }
+                    function.loopLabels.push(loopNode.label)
+                    function.loopExits.push(exitBlock)
+                    function.loopContinues.push(incrementBlock)
                     val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body, exitBlock, incrementBlock)
+                    function.loopLabels.pop()
+                    function.loopExits.pop()
+                    function.loopContinues.pop()
                     if bodyEnd >= 0 {
                         tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(incrementBlock))
                     }
@@ -1273,7 +1290,13 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                         tirEmit(function, listBodyBlock, "bind", "unit", loopNode.indexVar + " " + tirValue(idxValue))
                         listBodyBindings.push(TirBinding(loopNode.indexVar, "int"))
                     }
+                    function.loopLabels.push(loopNode.label)
+                    function.loopExits.push(listExitBlock)
+                    function.loopContinues.push(listIncrementBlock)
                     val listBodyEnd = lowerStatement(module, function, listBodyBlock, listBodyBindings, loopNode.body, listExitBlock, listIncrementBlock)
+                    function.loopLabels.pop()
+                    function.loopExits.pop()
+                    function.loopContinues.pop()
                     if listBodyEnd >= 0 {
                         tirEmit(function, listBodyEnd, "jump", "unit", "b" + tirIntText(listIncrementBlock))
                     }
@@ -1299,7 +1322,16 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         // `break outer` wants a block other than the innermost loop's, and the
         // targets only carry the innermost.
         ASTNode.Break(loopBreak) => {
-            if breakTarget >= 0 && loopBreak.label == "" {
+            if loopBreak.label != "" {
+                val labelledExit = tirLoopLabelBlock(function, loopBreak.label, false)
+                if labelledExit >= 0 {
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(labelledExit))
+                    return -1
+                }
+                tirError(module, "E3001", "break with a label no enclosing loop carries", 0, 0)
+                return blockId
+            }
+            if breakTarget >= 0 {
                 tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(breakTarget))
                 return -1
             }
@@ -1307,7 +1339,16 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             return blockId
         }
         ASTNode.Continue(loopContinue) => {
-            if continueTarget >= 0 && loopContinue.label == "" {
+            if loopContinue.label != "" {
+                val labelledStep = tirLoopLabelBlock(function, loopContinue.label, true)
+                if labelledStep >= 0 {
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(labelledStep))
+                    return -1
+                }
+                tirError(module, "E3001", "continue with a label no enclosing loop carries", 0, 0)
+                return blockId
+            }
+            if continueTarget >= 0 {
                 tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(continueTarget))
                 return -1
             }

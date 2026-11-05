@@ -6,7 +6,7 @@
     "silent_per_mille": 0
   },
   "files": 214,
-  "instructions": 104120,
+  "instructions": 104185,
   "context": {
     "unknown_instructions": 393,
     "unknown_without_diagnostic": 0
