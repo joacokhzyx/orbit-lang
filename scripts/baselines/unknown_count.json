@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 214,
-  "instructions": 103986,
+  "instructions": 104120,
   "context": {
-    "unknown_instructions": 399,
+    "unknown_instructions": 393,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -185,13 +185,13 @@
     "tests/suite/recursion_mix.orb": 0,
     "tests/suite/remainder_by_zero.orb": 0,
     "tests/suite/remainder_int_min_overflow.orb": 0,
-    "tests/suite/result_bind.orb": 1,
-    "tests/suite/result_binding.orb": 1,
+    "tests/suite/result_bind.orb": 0,
+    "tests/suite/result_binding.orb": 0,
     "tests/suite/result_catch.orb": 0,
-    "tests/suite/result_catch_binding_scope.orb": 3,
+    "tests/suite/result_catch_binding_scope.orb": 0,
     "tests/suite/result_chain.orb": 6,
     "tests/suite/result_in_loop.orb": 2,
-    "tests/suite/result_message.orb": 1,
+    "tests/suite/result_message.orb": 0,
     "tests/suite/result_payload_int.orb": 0,
     "tests/suite/result_payload_written.orb": 0,
     "tests/suite/result_stage2.orb": 1,

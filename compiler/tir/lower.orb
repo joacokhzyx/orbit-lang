@@ -911,6 +911,20 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
     }
 }
 
+// The handler block opened the way the build opens it: a named `catch` reads the
+// message first -- `result_unwrap_err`, which `compiler/emit/c_backend.orb:870` types
+// `string` -- and binds the name to that read. Both `try` shapes call this, so the value
+// case and the statement case cannot drift apart.
+fn enterTryHandler(module: TirModule, function: TirFunction, handlerBlock: int, bindings: list < TirBinding >, tryNode: TryNode, resultValue: int) -> list < TirBinding > {
+    val handlerBindings = copyBindings(bindings)
+    if tryNode.errName != "" {
+        val messageValue = tirEmit(function, handlerBlock, "result_unwrap_err", "string", tirValue(resultValue))
+        tirEmit(function, handlerBlock, "bind", "unit", tryNode.errName + " " + tirValue(messageValue))
+        handlerBindings.push(TirBinding(tryNode.errName, "string"))
+    }
+    return handlerBindings
+}
+
 // The type a binding annotation promises a `try` yields. `compiler/ir/builder.orb:3140`
 // retypes the read register to exactly these when the callee's signature writes no
 // payload: the annotation is the promise, and the checker has already compared it with
@@ -933,17 +947,13 @@ fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, binding
         tirError(module, "E3001", "try needs the value type written inside the result, which this pass does not keep", 0, 0)
         return -1
     }
-    if tryNode.errName != "" {
-        tirError(module, "E3001", "a catch with a name needs the error type, which this pass does not keep", 0, 0)
-        return -1
-    }
     val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
     val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
     val okBlock = tirCreateBlock(function)
     val handlerBlock = tirCreateBlock(function)
     tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
     val unwrapped = tirEmit(function, okBlock, "result_unwrap", unwrapType, tirValue(resultValue))
-    val handlerBindings = copyBindings(bindings)
+    val handlerBindings = enterTryHandler(module, function, handlerBlock, bindings, tryNode, resultValue)
     val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, -1, -1)
     if handlerEnd >= 0 {
         tirError(module, "E3001", "a handler that falls through needs a merge value, which this pass does not model", 0, 0)
@@ -1121,10 +1131,6 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         // its body, and both arms jump to the block the statements after the `try`
         // are lowered into. The block shape is the one the `if` above already emits.
         ASTNode.Try(tryNode) => {
-            if tryNode.errName != "" {
-                tirError(module, "E3001", "a catch with a name needs the error type, which this pass does not keep", 0, 0)
-                return -1
-            }
             val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
             val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
             val okBlock = tirCreateBlock(function)
@@ -1132,7 +1138,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             val mergeBlock = tirCreateBlock(function)
             tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
             tirEmit(function, okBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
-            val handlerBindings = copyBindings(bindings)
+            val handlerBindings = enterTryHandler(module, function, handlerBlock, bindings, tryNode, resultValue)
             val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, breakTarget, continueTarget)
             if handlerEnd >= 0 {
                 tirEmit(function, handlerEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
