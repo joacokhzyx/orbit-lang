@@ -1085,10 +1085,12 @@ the frontend read imports at all. The older records stand: 17,388 over 105,644 o
 2026-11-03, 20,005 over 103,333 on
 2026-11-02 and 25,489 over 86,942 at
 the start of that day.
-The ratchet reads the rate. Measured 2026-11-04, the most untyped instructions in
-one file are `compiler/tools/doctor.orb`, 81 of 11,706 -- 0.7%. Among the files the
-table puts first, the largest share is `tests/suite/system_telemetry.orb`: 28 of its
-87 instructions, 32.2%. The sentence this replaces named `compiler/front/parser.orb`
+The ratchet reads the rate. Measured again on 2026-11-04, after the rules of the
+same day, the most untyped instructions in one file are `compiler/tools/doctor.orb`,
+73 of 11,706 -- 0.6%. Among the files the table puts first, the largest share is
+`tests/suite/object_literals.orb`: 18 of its 164 instructions, 11.0%. The
+`tests/std/test_json.orb` row between them, 25 of 581 at 4.3%, is the one the
+unwritten `result` payload explains. The sentence this replaces named `compiler/front/parser.orb`
 as the worst by share; that file is no longer in the ten first, so the claim was a
 record of an older tree. Re-run the census rather than trusting these numbers.
 
