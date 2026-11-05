@@ -1033,7 +1033,17 @@ for a list literal, and a field whose type names another model this file
 declares answers that written name, so `o.i.n` reads both hops. 1,050
 instructions left the unknown count with the first step, and the rate moved from
 19.3% to 18.3% (193 per mille to 183). 23 reads are still untyped, and the
-census names the field each one asks for; `.v` leads it. The count fell 44 to 23
+census names the field each one asks for; `.v` leads it.
+16 of the 23 -- `.v` 8, `.left` 4, `.right` 4 -- read a field whose declared type
+is a type parameter: `model Box[T] { v: T }` and `model Pair[A, B] { left: A,
+right: B }` in `tests/suite/generic_models.orb`, 14 of them in that one file.
+`declaredFieldType` (`compiler/tir/lower.orb:204`) answers the type text the
+declaration writes, and for those three fields the text is `T`, `A` or `B`.
+The table it reads is `TirType` (`compiler/tir/format.orb:57`), which carries a
+name and its fields and no list of type parameters, so a written argument has
+nothing to be substituted into. A read through an instance the signature names
+stays `unknown` until that table carries the parameters.
+The count fell 44 to 23
 on 2026-11-04, when a field read of an `object` stopped asking: the register the
 build allocates for that read is declared `object` (`compiler/ir/builder.orb:4804`),
 which is the answer the same pass already gives the literal itself; which field
