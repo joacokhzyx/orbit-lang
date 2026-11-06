@@ -16,11 +16,15 @@ Before this file, that answer lived in five places that could disagree:
 the one fix already applied (CI calling `make all`). This module is the second
 half of that fix: the table has one owner, and the four readers read it.
 
-What is NOT here yet: the liveness fields (`timeout`, `marker`, `allow_rc`) that
-`scripts/alive_check.py` keeps per tool in its rows at `:145-602`. They arrive in
-the commit that makes `alive_check.py` a reader of this table, and until then the
-fields below stay `None` rather than holding a second copy of a number nobody
-recomputes.
+What is NOT here, and should not be: the liveness fields `timeout`, `marker` and
+`allow_rc` stay `None` in these rows. Measured 2026-11-06, `scripts/dev.py` keeps
+no per-gate timeout -- its only three are internal: 30 s for the compiler
+identity probe (`:183`), 60 s for `--version` (`:406`) and 30 s for the `--help`
+capability probe (`:433`). So `scripts/alive_check.py` is not a second copy of a
+number the runner also holds: it is the one owner of how long a tool may take
+and what its output must contain. Copying those fields here would move them
+further from the code that enforces them and remove no drift, which is the only
+reason a table gets a field.
 
 A gate label is a stable identifier. `python scripts/dev.py all --filter <label>`,
 §7, §8 and the people working here name gates by it, so renaming one is a change
