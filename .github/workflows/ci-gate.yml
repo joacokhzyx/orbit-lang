@@ -181,11 +181,11 @@ jobs:
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/schema_conformance.py --self-test
-          "$PY" scripts/walk_coverage.py --self-test
-          "$PY" scripts/doc_counts.py --self-test
-          "$PY" scripts/flag_coverage.py --self-test
-          "$PY" scripts/cite_check.py --self-test
+          "$PY" scripts/static_gates.py schema --self-test
+          "$PY" scripts/static_gates.py walk --self-test
+          "$PY" scripts/static_gates.py counts --self-test
+          "$PY" scripts/static_gates.py flags --self-test
+          "$PY" scripts/static_gates.py cites --self-test
           "$PY" scripts/runtime_c_tests.py --self-test
           "$PY" scripts/kynx_gate.py --self-test
           "$PY" scripts/unknown_ratchet.py --self-test
