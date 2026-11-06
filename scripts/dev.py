@@ -858,8 +858,8 @@ def main() -> int:
         description="Developer loop for Orbit: one entry point for the gates."
     )
     ap.add_argument("target", nargs="?", default="dev",
-                    choices=["dev", "check", "all", "fp", "fp-path", "fmt",
-                             "promote", "promote-diff", "report", "list"])
+                    choices=["dev", "check", "static", "all", "fp", "fp-path",
+                             "fmt", "promote", "promote-diff", "report", "list"])
     ap.add_argument("--cc", default=None, help="C compiler (default: ORBIT_CC/CC/gcc/clang/cc)")
     ap.add_argument("--filter", default=None,
                     help="only run gates whose name contains this substring")
@@ -906,6 +906,11 @@ def main() -> int:
     tiers = classify(changed) if args.target in ("list", "dev") else {
         "check": [1, 2],
         "all": [1, 2, 3],
+        # `static` is the tier a document or script change needs, and today the
+        # only way to ask for it is `dev`, which guesses from the diff and adds
+        # T1. The five static gates plus fmt cost seconds; the T1 gates that come
+        # with them cost a bootstrap.
+        "static": [],
     }.get(args.target, [])
 
     if args.target == "list":
@@ -1052,7 +1057,13 @@ def main() -> int:
                 plan.append((label, argv))
 
     if args.filter:
-        plan = [(n, a) for n, a in plan if args.filter in n
+        # A filter that names a gate exactly runs that gate alone. Anything else
+        # stays a substring, because `--filter native` and `--filter compiler`
+        # have always meant "everything with this in its name", and the Makefile
+        # single-gate recipes need the exact case to mean one gate.
+        exact = args.filter in [g.label for g in gate_registry.gates()]
+        plan = [(n, a) for n, a in plan
+                if (n == args.filter if exact else args.filter in n)
                 or (n == "check_stale:bytes" and args.filter in "check_stale")]
         if run_fmt_files is not None and args.filter not in "fmt --check":
             # plan already filtered; fmt subset decided above, keep it only if

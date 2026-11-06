@@ -167,35 +167,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: AST schema conformance (ast.orb vs the code that builds nodes)
+      # The five static gates as one call. dev.py reads them from
+      # scripts/gate_registry.py, so the runner and this job cannot disagree
+      # about what T0 is; the step that fails says "Tier 0" and the gate line
+      # inside its log says which of the six it was.
+      - name: Tier 0 -- fmt plus the five static gates
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/schema_conformance.py
-
-      - name: AST walk coverage (every walk declares the fields it skips)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/walk_coverage.py
-
-      - name: Documented counts match the tree
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/doc_counts.py
-
-      - name: Declared CLI flags have readers (no flag promises what nothing reads)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/flag_coverage.py
-
-      - name: Documented citations open at the construct they name
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/cite_check.py
+          "$PY" scripts/dev.py static
 
       - name: Gate self-tests (the gates can say no)
         shell: bash
