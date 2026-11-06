@@ -273,7 +273,7 @@ inventing a threshold.
 Doctor prints the contributor gate commands at the end of every run for reference. It never runs them itself.
 
 ```sh
-python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+python scripts/trust.py verify --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
 python scripts/corpus_gates.py parity --cc <gcc-or-clang> --compiler <path-to-orbit>
 python scripts/corpus_gates.py suite --cc <gcc-or-clang> --compiler <path-to-orbit>
 ```

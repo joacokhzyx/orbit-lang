@@ -63,10 +63,10 @@ Two properties follow, and the arrangement depends on both:
 
 1. **The contract is the C source, not the binary.** Binary bytes carry linker
    timestamps, PDB paths, section order and relocation layout, so they are a
-   property of the C toolchain. `scripts/verify_seed.py` reports the binary
+   property of the C toolchain. `scripts/trust.py verify` reports the binary
    comparison and does not assert on it.
 2. **Every stage must hold, not just the first.** A chain can converge at
-   stage one and drift afterwards. `verify_seed.py` therefore asserts the
+   stage one and drift afterwards. `trust.py verify` therefore asserts the
    emitted C of `seed2`, `chain2` and `chain3` against the canonical, and
    `compiler/host/main.orb` is the single source every stage compiles.
 
@@ -90,11 +90,11 @@ Stating this plainly, because the arrangement has sharp edges:
 
 ## Invariants
 
-- `python scripts/build_selfhost.py --check-stale` exits 0 on `main`.
-- `python scripts/verify_seed.py` exits 0. Its closing line reports every
+- `python scripts/trust.py build --check-stale` exits 0 on `main`.
+- `python scripts/trust.py verify` exits 0. Its closing line reports every
   check it ran (`Finished verify: N/N pass`).
 - `python scripts/corpus_gates.py parity` exits 0 over every probe in
   `tests/parity/probes/` (33 today).
 - The canonical C, the parity goldens and the `.orb` sources move in one commit,
-  produced by `python scripts/build_selfhost.py --promote`.
+  produced by `python scripts/trust.py build --promote`.
 - No commit weakens the fixed point to make a gate pass.

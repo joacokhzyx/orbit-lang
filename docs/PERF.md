@@ -13,7 +13,7 @@ HTTP/1.1 keep-alive, one thread per connection, `perf_counter` latencies.
 simulates N clients against per-IP admission control. Warmup always uses the
 unbound address, which keeps the measurement pool's budgets intact.
 
-`scripts/measure_selfhost.py` samples wall time, peak RSS and output size per
+`scripts/measure.py measure-selfhost` samples wall time, peak RSS and output size per
 bootstrap phase. `scripts/orbit_ccache.py` is the content-addressed C compile
 cache the gates share.
 

@@ -41,8 +41,8 @@ The fixed-point compiler is built only after the self-host chain and canonical C
 The release workflow performs these operations for each published platform:
 
 ```sh
-python scripts/build_selfhost.py --cc <compiler> --check-stale
-python scripts/verify_seed.py --release --refresh \
+python scripts/trust.py build --cc <compiler> --check-stale
+python scripts/trust.py verify --release --refresh \
   --emit-fixed-point dist/<platform-asset>
 ```
 
@@ -162,7 +162,7 @@ If you downloaded the bare `orbit-windows-x86_64.exe` or
    runtime headers next to your project. The generated C is compiled with a
    relative `-I"runtime"`.
 
-For source-level verification, compare the published canonical C hash with the `PUBLISHED_C` contract in `scripts/verify_seed.py`, then run the seed verification command with a locally available C compiler.
+For source-level verification, compare the published canonical C hash with the `PUBLISHED_C` contract in `scripts/trust.py`, then run the seed verification command with a locally available C compiler.
 
 ## Release Types
 

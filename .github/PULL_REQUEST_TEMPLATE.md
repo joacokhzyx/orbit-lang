@@ -9,14 +9,14 @@ Name the commands and paste the closing line of each. A PR that has not run
 the gates is a draft, not a contribution.
 
 ```sh
-python scripts/build_selfhost.py --cc gcc --check-stale   # fixed point intact
-python scripts/verify_seed.py --cc gcc --release
+python scripts/trust.py build --cc gcc --check-stale   # fixed point intact
+python scripts/trust.py verify --cc gcc --release
 python scripts/corpus_gates.py parity --cc gcc --compiler <fp>
 python scripts/corpus_gates.py suite --cc gcc --compiler <fp>
 python scripts/corpus_gates.py suite --cc gcc --compiler <fp> --dir tests/std
 python scripts/corpus_gates.py werror --compiler <fp> --cc gcc
 python scripts/doctor_gates.py cli-probe --compiler <fp> --work <dir>
-python scripts/routes_probe.py
+python scripts/measure.py routes
 <fp> fmt --check compiler && <fp> fmt --check tests/suite
 <fp> doctor tests/suite
 ```
@@ -25,10 +25,10 @@ python scripts/routes_probe.py
 
 - [ ] I proved the change was necessary, not incidental.
 - [ ] `compiler/selfhost/stage3.exe.c` is regenerated in THIS commit
-      (`python scripts/build_selfhost.py --promote`).
+      (`python scripts/trust.py build --promote`).
 - [ ] The 33 parity goldens are refreshed in THIS commit
       (`python scripts/corpus_gates.py parity --compiler <fp> --update`).
-- [ ] `PUBLISHED_C` in `scripts/verify_seed.py` is updated in THIS commit.
+- [ ] `PUBLISHED_C` in `scripts/trust.py` is updated in THIS commit.
 
 The canonical, the goldens and the `.orb` sources move together or not at all.
 A stale canonical is a broken build, not a smaller diff.

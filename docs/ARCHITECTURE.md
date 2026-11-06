@@ -250,7 +250,7 @@ compiler/selfhost/stage3.exe.c   (committed canonical C)
    seed2 ──▶ chain2 ──▶ chain3
 ```
 
-`scripts/verify_seed.py` runs that chain and reports four checks: the seed
+`scripts/trust.py verify` runs that chain and reports four checks: the seed
 builds; the C the seed emits for `compiler/host/main.orb` equals the canonical; the C
 emitted by chain2 equals the canonical; the C emitted by chain3 equals the
 canonical. The last two exist because a chain can fix a point at stage one and
@@ -514,18 +514,18 @@ symbol, the dependent module imports the owning module.
 
 | Path | Role |
 |---|---|
-| `scripts/build_selfhost.py` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
-| `scripts/verify_seed.py` | Hermetic fixed-point chain; `--release` pins the published hash |
+| `scripts/trust.py build` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
+| `scripts/trust.py verify` | Hermetic fixed-point chain; `--release` pins the published hash |
 | `scripts/corpus_gates.py` | The eight corpus checks, one entry: `suite`, `negative`, `frontend`, `werror`, `runtime_gen`, `runtime_module`, `parity`, `fuzz_frontend`. `parity` covers every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
 | `scripts/static_gates.py` | The five T0 text gates, one entry: `schema`, `walk`, `counts`, `flags`, `cites` |
 | `scripts/doctor_gates.py` | The doctor goldens (`doctor`, and `--scope-only` for the clean-directory check), the CLI subcommand, help and exit-code contract (`cli-probe`), the rich and colour screens (`snapshots`), the checker's dispatch arms (`dispatch`) |
-| `scripts/routes_probe.py` | Route argument normalisation |
+| `scripts/measure.py routes` | Route argument normalisation |
 | `scripts/kynx_gate.py` | Live Kynx gate (live/route-limit/burst) + stdlib load generator (load) |
-| `scripts/amalgamate.py` | Inline the project includes into `dist/orbit_bootstrap.c` |
+| `scripts/trust.py amalgamate` | Inline the project includes into `dist/orbit_bootstrap.c` |
 | `scripts/orbit_ccache.py` | Content-addressed C compile cache for the bootstrap gates |
 | `scripts/orbit_routes.py` | Path normalisation shared by gates and the server |
 | `scripts/orbit_output.py` | Shared gate output helpers |
-| `scripts/measure_selfhost.py` | Bootstrap-side measurement |
+| `scripts/measure.py measure-selfhost` | Bootstrap-side measurement |
 | `scripts/kynx_gate.py load` | Load generator for live-service measurement |
 | `scripts/build_seed.sh`, `.bat` | Detect a C compiler and build the seed |
 | `scripts/install.sh`, `install.ps1` | Install the fixed-point compiler on `PATH` |

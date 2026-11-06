@@ -80,7 +80,7 @@ never depends on a package install:
 | Tool | Used for |
 |---|---|
 | `scripts/kynx_gate.py load` | keep-alive HTTP load with latency percentiles and per-source-IP control |
-| `scripts/measure_selfhost.py` | per-phase wall time, peak RSS and output size of the self-host bootstrap |
+| `scripts/measure.py measure-selfhost` | per-phase wall time, peak RSS and output size of the self-host bootstrap |
 | `examples/demo-ledger-server.c` | a loopback fixture that exercises the cost ledger and the energy sampler |
 | `runtime/pulse.c` | the `/_pulse` and `/_pulse/data` telemetry endpoints |
 

@@ -77,7 +77,7 @@ fields.
 
 ## The canonical C source is stale
 
-**Symptom:** `build_selfhost.py --check-stale` fails - the
+**Symptom:** `trust.py build --check-stale` fails - the
 converged output doesn't match the committed canonical source.
 
 **Cause:** someone changed `compiler/**/*.orb` without promoting,
@@ -87,7 +87,7 @@ or generated output drifted.
 reviewing the diff:
 
 ```sh
-python scripts/build_selfhost.py --promote
+python scripts/trust.py build --promote
 ```
 
 Then run the full gate (bootstrap → parity → suite) before

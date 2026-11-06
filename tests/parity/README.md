@@ -25,8 +25,8 @@ cross-lineage assurance carries over.
 
 ```sh
 # Emit the fixed-point compiler from the committed canonical C.
-python scripts/build_selfhost.py --cc "$CC" --check-stale
-python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp
+python scripts/trust.py build --cc "$CC" --check-stale
+python scripts/trust.py verify --cc "$CC" --emit-fixed-point /tmp/orbit_fp
 
 # Compare against goldens (CI gate).
 python scripts/corpus_gates.py parity --cc "$CC" --compiler /tmp/orbit_fp
@@ -42,4 +42,4 @@ python scripts/corpus_gates.py parity --cc "$CC" --compiler /tmp/orbit_fp --upda
 
 Review the golden diff, then commit goldens together with the compiler change
 (the same change must also refresh `compiler/selfhost/stage3.exe.c` via
-`build_selfhost.py --promote`).
+`trust.py build --promote`).

@@ -6,11 +6,11 @@ Orbit is a self-hosted language compiler; the checkers, codegen and runtime are 
 
 ```bash
 # fresh entry point; produces a compiler binary compiling .orb -> C -> native
-python3 scripts/build_selfhost.py --cc gcc --out /tmp/fp
+python3 scripts/trust.py build --cc gcc --out /tmp/fp
 chmod +x /tmp/fp
 ```
 
-`scripts/verify_seed.py --cc gcc --emit-fixed-point /tmp/fixed_point` builds the hermetic fixed-point compiler from the committed canonical `compiler/selfhost/stage3.exe.c`. Use that binary for every gate. Set `ORBIT_CCACHE_DIR` to a scratch dir (cached .o make bootstraps cheap), otherwise a runnable fp disappears when /tmp is cleaned.
+`scripts/trust.py verify --cc gcc --emit-fixed-point /tmp/fixed_point` builds the hermetic fixed-point compiler from the committed canonical `compiler/selfhost/stage3.exe.c`. Use that binary for every gate. Set `ORBIT_CCACHE_DIR` to a scratch dir (cached .o make bootstraps cheap), otherwise a runnable fp disappears when /tmp is cleaned.
 
 ## Verification gates (all local, all required)
 
@@ -48,15 +48,15 @@ If you need the raw commands, they are listed with their rationale in `ENGINEERI
 
 ## Replace-the-world rule
 
-The committed canonical is `compiler/selfhost/stage3.exe.c`, and `scripts/verify_seed.py` asserts it reproduces itself. Never hand-edit it or any golden. After changing compiler sources:
+The committed canonical is `compiler/selfhost/stage3.exe.c`, and `scripts/trust.py verify` asserts it reproduces itself. Never hand-edit it or any golden. After changing compiler sources:
 
 ```bash
-python3 scripts/build_selfhost.py --cc gcc --promote      # rewrites canonical C + PUBLISHED_C
-python3 scripts/verify_seed.py --cc gcc --emit-fixed-point /tmp/fp # sanity
+python3 scripts/trust.py build --cc gcc --promote      # rewrites canonical C + PUBLISHED_C
+python3 scripts/trust.py verify --cc gcc --emit-fixed-point /tmp/fp # sanity
 python3 scripts/corpus_gates.py parity --cc gcc --compiler /tmp/fp --update   # ONLY if the diff is intended
 ```
 
-Commit canonical + refreshed goldens + sources + `scripts/verify_seed.py` (PUBLISHED_C) together.
+Commit canonical + refreshed goldens + sources + `scripts/trust.py` (PUBLISHED_C) together.
 
 **Do not read the canonical's diff, read `make promote-diff` instead.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured 2026-11-03 on this branch: 27 of the last 60 commits change it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004.
 
@@ -76,7 +76,7 @@ These are gates. Do not perform them by hand and do not write them out as a habi
 
 ## Working with other agents
 
-**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/verify_seed.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. At d3352b5, 19 of the last 60 commits change it, so this is not a rare path. Before promoting, check who had it last:
+**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/trust.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. At d3352b5, 19 of the last 60 commits change it, so this is not a rare path. Before promoting, check who had it last:
 
 ```bash
 git log -1 --format='%h %ad %s' --date=short -- compiler/selfhost/stage3.exe.c
@@ -134,7 +134,7 @@ Stop and ask rather than push on, when:
 - `var` or `const` at file scope is an error (E1007), because a module-level `var` would be shared mutable state and the language has none that works. Top-level `val NAME = <int|bool lit>` is a global `#define`; it is emitted by `generateRoutePreamble`, not by route_runtime.
 - Test files the C gates do not like: `tests/negative/*.orb` are intentionally broken; every case pins `// expect-error: <substring>` (or `// known-defect: F-000N`), and the gate asserts the pinned text. Do not fmt them.
 - New files under `tests/suite/` MUST be `fmt`-clean: CI runs `fmt --check` on the directory and fails the whole job on one unformatted file (bit us twice).
-- `diff_fuzz.py` disagreements limit to runtime reference vs orbit canonical; C changes that alter generated text only change hashes in `tests/parity/golden/*` — regenerate with `--update` deliberately.
+- `measure.py diff-fuzz` disagreements limit to runtime reference vs orbit canonical; C changes that alter generated text only change hashes in `tests/parity/golden/*` — regenerate with `--update` deliberately.
 
 ## Style / workflow
 

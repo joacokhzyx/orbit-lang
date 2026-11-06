@@ -26,13 +26,13 @@ Build the compiler from the repository sources:
 ### Windows PowerShell
 
 ```powershell
-python scripts/build_selfhost.py --out orbit.exe
+python scripts/trust.py build --out orbit.exe
 ```
 
 ### Linux or macOS
 
 ```sh
-python3 scripts/build_selfhost.py --out orbit
+python3 scripts/trust.py build --out orbit
 ```
 
 When automatic compiler detection is insufficient, pass `--cc gcc`, `--cc clang`, or `--cc cl` explicitly. You can also set `ORBIT_CC`. See [Platform Support](SUPPORT.md).
@@ -108,8 +108,8 @@ This section is for contributors changing the compiler itself. Newcomers stop af
 Build a fixed-point compiler from the committed canonical C source, then verify convergence and the canonical. Replace the compiler path with `orbit.exe` on Windows or `orbit` on Linux/macOS, and pick a C compiler for `<gcc-or-clang>`:
 
 ```sh
-python scripts/build_selfhost.py --out <path-to-orbit>
-python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+python scripts/trust.py build --out <path-to-orbit>
+python scripts/trust.py verify --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
 python scripts/corpus_gates.py parity --cc <gcc-or-clang> --compiler <path-to-orbit>
 python scripts/corpus_gates.py suite --cc <gcc-or-clang> --compiler <path-to-orbit>
 ```

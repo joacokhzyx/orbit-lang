@@ -321,7 +321,7 @@ Fires in `compiler/tir/lower.orb`, `lowerExpression` fallback, for an
 expression kind with no lowering rule, and the message ends with the node
 class: `expression cannot be lowered to TIR: Match`. Before the class
 was named, the census could report how many times the front end gave up and
-not on what. `scripts/unknown_census.py` prints the tally by class. Frontend
+not on what. `scripts/measure.py census` prints the tally by class. Frontend
 lowering only. Fix hint: same as E3000 — a coverage gap, file it with the
 class. 682 hits on the 2026-11-03 corpus, from 9,233 before the classes were
 named and read. Fourteen have since stopped firing: an `Empty` statement, because a

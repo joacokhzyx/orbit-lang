@@ -133,7 +133,7 @@ Before/after and the fixture are in `ENGINEERING.md` §7 row `kynx-lease-abort`.
 ## Verifying it yourself
 
 ```sh
-python scripts/build_selfhost.py --cc gcc --out orbit_fp
+python scripts/trust.py build --cc gcc --out orbit_fp
 ./orbit_fp build examples/catalog_service.orb -o srv && ./srv # port 3000
 python scripts/kynx_gate.py burst                            # burst -> expect 429s
 ```

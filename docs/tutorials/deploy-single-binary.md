@@ -12,14 +12,14 @@ them.
 Windows (verified):
 
 ```powershell
-python scripts\build_selfhost.py --cc gcc --out orbit.exe
+python scripts\trust.py build --cc gcc --out orbit.exe
 .\orbit.exe build examples\health_service.orb -o health_service.exe
 ```
 
 Linux (UNTESTED here - same path CI uses):
 
 ```sh
-python3 scripts/build_selfhost.py --cc gcc --out orbit
+python3 scripts/trust.py build --cc gcc --out orbit
 ./orbit build examples/health_service.orb -o health_service
 ```
 

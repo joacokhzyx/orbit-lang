@@ -47,7 +47,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 Build a fixed-point compiler, then run the suite:
 
 ```sh
-python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp
+python scripts/trust.py verify --cc "$CC" --emit-fixed-point /tmp/orbit_fp
 python scripts/corpus_gates.py suite --cc "$CC" --compiler /tmp/orbit_fp
 ```
 

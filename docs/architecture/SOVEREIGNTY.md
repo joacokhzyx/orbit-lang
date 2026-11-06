@@ -13,7 +13,7 @@ shipped by anyone else.
 | Artifact | Role | SHA-256 |
 |---|---|---|
 | `compiler/selfhost/stage3.exe.c` (6,867,001 bytes, 184,739 lines) | canonical compiler, emitted by the compiler itself | `991125DEAB9E67D96E9317B444985CD96D97E20A86459EE4D3872EE1BEFF1BBF` |
-| `scripts/verify_seed.py` (`PUBLISHED_C`) | published contract, enforced by `--release` | identical to the above |
+| `scripts/trust.py` (`PUBLISHED_C`) | published contract, enforced by `--release` | identical to the above |
 
 The canonical file is **committed** (explicitly un-ignored in `.gitignore`, and
 marked `-text` in `.gitattributes` so no line-ending conversion can touch it).
@@ -83,13 +83,13 @@ of redefining them.
   no host toolchain involved: `seed2` builds `main.orb` and its emitted C
   becomes `chain2`; `chain2` builds `main.orb` and its emitted C becomes
   `chain3`. Every stage compiles the same source, `compiler/host/main.orb`.
-- **promote**: `python scripts/build_selfhost.py --promote`, the only
+- **promote**: `python scripts/trust.py build --promote`, the only
   operation that replaces the canonical, after an intentional compiler
   change. It also updates `PUBLISHED_C` and requires the refreshed parity
   goldens. Canonical, goldens, and `.orb` sources move in one commit.
-- **PUBLISHED_C**: the published hash contract in `scripts/verify_seed.py`,
+- **PUBLISHED_C**: the published hash contract in `scripts/trust.py`,
   enforced by `--release` against a self-hosted rebuild.
-- **amalgamate**: `scripts/amalgamate.py`, a mechanical step that inlines
+- **amalgamate**: `scripts/trust.py amalgamate`, a mechanical step that inlines
   the include graph from the canonical into one self-contained C
   file (system includes left alone) so the seed compiles from a single
   translation unit. It changes packaging, not semantics. See the trust
@@ -120,7 +120,7 @@ of redefining them.
 
 Trusted: the canonical C source, the one-step translation by the platform C
 compiler, and the Python drivers that sequence the chain. Verified: every
-emitted-C equality (the four `verify_seed.py` checks, with the C-source hash
+emitted-C equality (the four `trust.py verify` checks, with the C-source hash
 as the cross-platform contract). Amalgamation sits between the two: a mechanical
 include-inlining with no semantic content, covered downstream by the same
 emitted-C comparisons.
@@ -130,16 +130,16 @@ emitted-C comparisons.
 ```sh
 # Rebuild the compiler from the committed canonical and check the sources
 # still converge to it. Fails when the sources have moved on: CI mode.
-python scripts/build_selfhost.py --cc gcc --check-stale
+python scripts/trust.py build --cc gcc --check-stale
 
 # After an INTENTIONAL compiler change: converge and promote a new canonical.
 # This is the ONLY way to replace the root of trust, and it also updates
 # PUBLISHED_C. Commit the canonical, the goldens and the .orb sources together.
-python scripts/build_selfhost.py --promote
+python scripts/trust.py build --promote
 
 # Hermetic verification: amalgamate -> seed -> seed2 -> chain2 -> chain3, and
 # assert the emitted C of every stage equals the canonical.
-python scripts/verify_seed.py --cc gcc
+python scripts/trust.py verify --cc gcc
 
 # Install the fixed-point compiler and put it on PATH.
 scripts/install.sh          # or scripts/install.ps1 on Windows
@@ -150,7 +150,7 @@ The build resolves the C compiler as `ORBIT_CC`, then `CC`, then the POSIX
 
 ### What the gates actually assert
 
-`scripts/verify_seed.py` checks four things and reports each one:
+`scripts/trust.py verify` checks four things and reports each one:
 
 1. the seed builds;
 2. the C the seed emits for `compiler/host/main.orb` equals the canonical;
@@ -186,7 +186,7 @@ enables is superlinear in emitted size. The strict warning gate is
 ## Rules for contributors
 
 - **Never break the fixed point silently.** If `compiler/**/*.orb` changes, run
-  `python scripts/build_selfhost.py --promote` and commit the canonical, the
+  `python scripts/trust.py build --promote` and commit the canonical, the
   33 parity goldens and the sources in the same commit.
 - **Never introduce a hard dependency on a specific toolchain vendor.** The
   build must keep working with the CI matrix compilers (gcc on Ubuntu,
@@ -203,14 +203,14 @@ enables is superlinear in emitted size. The strict warning gate is
 1. `git checkout main -- compiler/selfhost/stage3.exe.c`, or take
    `dist/orbit_bootstrap.c` from the latest release (it is the amalgamation
    whose entry file is the canonical).
-2. Validate: `python scripts/build_selfhost.py --cc <cc> --check-stale`.
+2. Validate: `python scripts/trust.py build --cc <cc> --check-stale`.
 3. If the sources also moved past the restored canonical, converge forward:
    `--promote`, then refresh the goldens.
 
 **Scenario 2 - the fixed point is broken by a bad commit.**
 
 1. Find the last green commit, or bisect:
-   `git bisect run python scripts/build_selfhost.py --cc gcc --check-stale`.
+   `git bisect run python scripts/trust.py build --cc gcc --check-stale`.
 2. Revert, or fix forward: repair `compiler/**/*.orb`, then `--promote` plus a
    goldens refresh in one commit.
 
@@ -223,12 +223,12 @@ enables is superlinear in emitted size. The strict warning gate is
    supposed to be a property of the sources and not of the compiler that reads
    them.
 3. Only once two toolchains agree, re-publish. The promote flow updates
-   `PUBLISHED_C`, and `verify_seed.py --release` pins the new contract.
+   `PUBLISHED_C`, and `trust.py verify --release` pins the new contract.
 
 Invariants that must hold afterwards:
 
-- `build_selfhost.py --check-stale` exits 0 on `main`.
-- `verify_seed.py` exits 0. Its closing line reports every check it ran.
+- `trust.py build --check-stale` exits 0 on `main`.
+- `trust.py verify` exits 0. Its closing line reports every check it ran.
 - `corpus_gates.py parity` exits 0 over every probe in `tests/parity/probes/`
   against the committed goldens (33 today).
 - CI is green on ubuntu/gcc and windows/clang, and all eight stress legs pass.
@@ -259,13 +259,13 @@ chain2
 chain3
 ```
 
-Per stage: `amalgamate.py` inlines the `#include "..."` graph from the
+Per stage: `trust.py amalgamate` inlines the `#include "..."` graph from the
 canonical into one self-contained C file (system includes left alone). A C
 compiler turns it into `seed` with `-DORBIT_WITH_EXEC` so the compiler can
 spawn its own `cc` (the only step needing more than a C compiler and
 Python). Each stage builds `main.orb`, writes one intermediate C file of a
 fixed name (`compilers embed the source path in the binary, so a per-stage
-name would break byte-comparability`), and `verify_seed.py` recompiles that
+name would break byte-comparability`), and `trust.py verify` recompiles that
 C itself with known-good flags.
 
 Promotion between stages: canonical -> seed needs any conforming C

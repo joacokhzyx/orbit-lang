@@ -223,13 +223,13 @@ These commands are for contributors and release maintainers:
 
 | Command | Purpose |
 |---|---|
-| `python scripts/build_selfhost.py --out <path>` | Build the compiler from the committed canonical C source |
-| `python scripts/build_selfhost.py --check-stale` | Confirm the generated fixed point matches the committed canonical source |
-| `python scripts/verify_seed.py --cc <compiler>` | Rebuild and verify the C seed and self-host chain |
-| `python scripts/verify_seed.py --cc <compiler> --emit-fixed-point <path>` | Emit a compiler binary for local gates |
+| `python scripts/trust.py build --out <path>` | Build the compiler from the committed canonical C source |
+| `python scripts/trust.py build --check-stale` | Confirm the generated fixed point matches the committed canonical source |
+| `python scripts/trust.py verify --cc <compiler>` | Rebuild and verify the C seed and self-host chain |
+| `python scripts/trust.py verify --cc <compiler> --emit-fixed-point <path>` | Emit a compiler binary for local gates |
 | `python scripts/corpus_gates.py parity --cc <compiler> --compiler <path>` | Compare compiler output with committed parity goldens |
 | `python scripts/corpus_gates.py suite --cc <compiler> --compiler <path>` | Compile and execute the language behavior suite |
-| `python scripts/build_selfhost.py --promote` | Promote an intentional compiler change to the canonical C artifact |
+| `python scripts/trust.py build --promote` | Promote an intentional compiler change to the canonical C artifact |
 
 Use the commands from the repository root. Set `ORBIT_CC` or pass `--cc` when the C compiler is not detected automatically.
 

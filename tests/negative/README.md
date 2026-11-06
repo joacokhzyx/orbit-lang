@@ -84,8 +84,8 @@ fuzzer output for a whole wave.
 | | what it asks | what it cannot see |
 |---|---|---|
 | `scripts/corpus_gates.py negative` (this directory) | what the **compiler must reject**. Every program here must fail `orbit check`, with a pinned diagnostic. | a program that computes the wrong number. Just over half the cases here are programs the compiler wrongly *accepts*, so this gate's own verdict is often "still broken" — it holds the defect, it does not detect it. |
-| `scripts/diff_fuzz.py` | what the **compiler computes**, against a reference implementation in Python with the same truncating semantics. | anything it has no case for. It generates integer arithmetic, integer literals, division by zero, string escapes and floats; it has never looked at a list, a map, a model or a control-flow edge. |
-| `scripts/unknown_ratchet.py` | the static measure: what share of emitted instructions the front end typed `unknown`. | the behaviour. 75% of that can be right. |
+| `scripts/measure.py diff-fuzz` | what the **compiler computes**, against a reference implementation in Python with the same truncating semantics. | anything it has no case for. It generates integer arithmetic, integer literals, division by zero, string escapes and floats; it has never looked at a list, a map, a model or a control-flow edge. |
+| `scripts/measure.py ratchet` | the static measure: what share of emitted instructions the front end typed `unknown`. | the behaviour. 75% of that can be right. |
 
 The hole is what both of the other two leave: a **compile-only** gate cannot
 see a wrong value, and a **crash-only** fuzzer cannot either, because a wrong
@@ -113,7 +113,7 @@ and is not done. Three are **decisions**, and they deliberately have none — th
 argument is below. The count is read, not held: `scripts/diff_fuzz_ratchet.py`
 and its baseline were retired when the corpus reached 0 disagreements in 678
 cases, because a one-way ratchet whose floor is zero cannot detect a regression.
-`scripts/diff_fuzz.py` prints the count and the corpus sha on every run.
+`scripts/measure.py diff-fuzz` prints the count and the corpus sha on every run.
 
 | fuzzer class | n | verdict | pin |
 |---|---|---|---|
@@ -172,7 +172,7 @@ will read it. So the reference now implements the documented rule instead of
 C's, which turns 24 "disagreements" into 24 **asserted agreements** — a stronger
 pin than a note, because if the escape behaviour ever changes the count goes up
 and the summary says so. Reversing the decision stays possible and stays
-deliberate: edit the table in `scripts/diff_fuzz.py`, and the corpus sha moves
+deliberate: edit the table in `scripts/measure.py diff-fuzz`, and the corpus sha moves
 with it, so the change is recorded rather than silent.
 
 ## Why the substring is asserted

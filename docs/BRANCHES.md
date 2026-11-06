@@ -18,7 +18,7 @@ A topic name is lowercase words joined by hyphens: `feature/runtime-strings`,
 
 | Repo | Full gate (merge into `develop`) | Release gate (merge into `main`) |
 |---|---|---|
-| `orbit-lang` | `python scripts/dev.py all` and `python scripts/verify_seed.py --cc <gcc>`, with `ORBIT_R6` set so `suite_native` runs | The full gate from a clean clone of `develop` |
+| `orbit-lang` | `python scripts/dev.py all` and `python scripts/trust.py verify --cc <gcc>`, with `ORBIT_R6` set so `suite_native` runs | The full gate from a clean clone of `develop` |
 | `orbit-r6` | `scripts\ci.ps1 -Diff -Corpus -Selfhost` | The same, from a clean clone of `develop` |
 
 A merge commit is gated as well: the tree after the merge is what the gate

@@ -199,7 +199,7 @@ contents, and the rarity of the `&` prefix (grammar-derived, no corpus sites).
 
 - `compiler/selfhost/stage3.exe.c` (canonical C) goes stale after any
   compiler change by design: refreshing it needs
-  `scripts/build_selfhost.py --promote` (a long build).
+  `scripts/trust.py build --promote` (a long build).
 - `--check <dir>` lists files with `find ... | sort` (POSIX) or
   `cmd /c dir /s /b ... | sort` (Windows) through the same shell-exec
   helper the build driver uses. Paths containing double quotes are not

@@ -23,7 +23,7 @@ as a baseline, not "just to see". Three independent reasons:
    every ~49 days. Any clock arithmetic past a restart is wrong.
 
 Instruments that stay on the reference toolchain: `scripts/kynx_gate.py
-load`, `scripts/measure_selfhost.py`, the `/_ledger` energy columns.
+load`, `scripts/measure.py measure-selfhost`, the `/_ledger` energy columns.
 `docs/PERF.md` and `docs/ENERGY.md` record what those instruments say.
 A tcc timing belongs in neither file.
 
