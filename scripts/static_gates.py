@@ -731,6 +731,34 @@ def claim_regex(pattern: str) -> "re.Pattern":
     return re.compile(pattern.replace("{N}", NUMBER), re.S | re.I)
 
 
+def flag_census(root: pathlib.Path) -> dict:
+    """Which scripts in `scripts/` take `--cc` and which take `--compiler`.
+
+    A script accepts a flag when `add_argument` names it or when it calls the
+    helper that declares both. The helper test is why this is a function and
+    not a grep: a grep reading one line at a time misses a flag written on the
+    line after its `add_argument(`, which is how `scripts/alive_check.py` gets
+    counted wrong.
+    """
+    files = [f for f in sorted((root / "scripts").glob("*.py"))
+             if f.name != "_common.py"]
+    takes = []
+    for f in files:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        takes.append((bool(_TAKES_CC.search(text)) or bool(_TAKES_ANY.search(text)),
+                      bool(_TAKES_COMPILER.search(text))
+                      or bool(_TAKES_ANY.search(text))))
+    return {"script_files": len(files),
+            "flags_cc": sum(a for a, _ in takes),
+            "flags_compiler": sum(b for _, b in takes),
+            "flags_both": sum(a and b for a, b in takes),
+            "flags_neither": sum(not a and not b for a, b in takes)}
+
+
+_TAKES_CC = re.compile(r'add_argument\(\s*"--cc"')
+_TAKES_COMPILER = re.compile(r'add_argument\(\s*"--compiler"')
+_TAKES_ANY = re.compile(r"add_common_args\(|add_gate_args\(")
+
 def measure(root: pathlib.Path) -> dict:
     """Every count a claim may rest on, read from the tree as it is now."""
     suite = sorted((root / "tests" / "suite").rglob("*.orb"))
@@ -778,6 +806,7 @@ def measure(root: pathlib.Path) -> dict:
         "fmt_examples": len(examples),
         "fmt_files": len(compiler) + len(suite) + len(std) + len(std_tests)
                      + len(examples),
+        **flag_census(root),
     }
 
 
@@ -830,6 +859,12 @@ CLAIMS = [
      ["fmt_files"], "fmt corpus, total"),
 
     # ENGINEERING.md, section 6 (the debt table) and section 8 (the commands).
+    ("ENGINEERING.md",
+     r"Of the {N}\s+scripts\s+besides\s+`_common\.py`,\s+{N}\s+accept\s+`--cc`,"
+     r"\s+{N}\s+accept\s+`--compiler`,\s+{N}\s+accept\s+both\s+and\s+{N}\s+accept"
+     r"\s+neither",
+     ["script_files", "flags_cc", "flags_compiler", "flags_both",
+      "flags_neither"], "the flag census, section 8"),
     ("ENGINEERING.md", r"program table \({N}(?: runtime C)? programs; {N} on Windows",
      ["runtime_programs", "runtime_windows"],
      "runtime C program table, section 6"),

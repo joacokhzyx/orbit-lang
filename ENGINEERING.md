@@ -769,9 +769,11 @@ passes. **A green `make dev` is therefore not a green CI**, and
 `dev.py` owns four things that had no owner. `TEMP`/`TMP` is pointed at
 `.orbit/tmp`, because the system temp is a different filesystem on some machines
 and is the first thing anyone cleans. The other three are `ORBIT_CCACHE_DIR`, the fixed-point binary
-path and its freshness stamp, and the flags each gate takes. Of the 29
-scripts besides `_common.py`, 18 accept `--cc`, 13 accept
-`--compiler`, 11 accept both and 9 accept neither, measured 2026-11-06. A
+path and its freshness stamp, and the flags each gate takes. Of the 18
+scripts besides `_common.py`, 12 accept `--cc`, 8 accept `--compiler`, 8
+accept both and 6 accept neither, measured 2026-11-06.
+`python scripts/static_gates.py counts` recomputes those five numbers, so
+the next merge that moves one turns the gate red. A
 script counts as accepting a flag when `add_argument` names it, or when it
 calls the helper that declares both. A grep over single lines reads one
 `--compiler` fewer, because `scripts/alive_check.py` names the flag on the
