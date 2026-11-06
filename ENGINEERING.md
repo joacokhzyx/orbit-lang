@@ -769,12 +769,19 @@ passes. **A green `make dev` is therefore not a green CI**, and
 `dev.py` owns four things that had no owner. `TEMP`/`TMP` is pointed at
 `.orbit/tmp`, because the system temp is a different filesystem on some machines
 and is the first thing anyone cleans. The other three are `ORBIT_CCACHE_DIR`, the fixed-point binary
-path and its freshness stamp, and the flags each gate takes. Of the 42 scripts
-besides `_common.py`, 24 accept `--cc`, 22 accept `--compiler`, 17 accept both
-and 13 accept neither (measured 2026-11-05: `add_argument` declarations plus the
-two files that inherit both flags from `add_common_args`). The sentence this
-replaced said twenty-one, fifteen and ten, and named `doctor_gate.py` as
-accepting `--cc` and ignoring it. `scripts/doctor_gates.py:2277` declares
+path and its freshness stamp, and the flags each gate takes. Of the 29
+scripts besides `_common.py`, 18 accept `--cc`, 13 accept
+`--compiler`, 11 accept both and 9 accept neither, measured 2026-11-06. A
+script counts as accepting a flag when `add_argument` names it, or when it
+calls the helper that declares both. A grep over single lines reads one
+`--compiler` fewer, because `scripts/alive_check.py` names the flag on the
+line after the call. The same rule over `6eaa6e5` gives 42 scripts and 24,
+22, 17 and 13 -- what this passage said until the merges deleted the files
+it counted.
+
+The sentence this replaced said twenty-one, fifteen and ten, and named the
+doctor gate as accepting `--cc` and ignoring it. `scripts/doctor_gates.py:2277`
+declares
 `--compiler`, and no `--cc` appears in the `doctor` parser: a declared flag nobody reads
 is the defect `flag_coverage.py` fails a run on, so the second half went stale
 when that gate landed and nothing re-dated the sentence.
