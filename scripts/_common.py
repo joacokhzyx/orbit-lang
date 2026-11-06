@@ -10,9 +10,11 @@ runnable compilers went missing that way during a single session, and
 `doctor_scope_gate.py` was writing its scratch to a different disk from the one
 holding the cache.
 
-`--cc` and `--compiler` are worse, because the inconsistency is invisible. Fourteen
-scripts accept `--cc`, fifteen accept `--compiler`, three accept neither, and
-`doctor_gate.py` accepts `--cc` and ignores it. `cli_probe.py` runs the compiler
+`--cc` and `--compiler` are worse, because the inconsistency is invisible. Of
+the 42 scripts besides this one, 24 accept `--cc`, 22 accept `--compiler`, 17
+accept both and 13 accept neither (counted 2026-11-05 from `add_argument`
+declarations plus the two files that inherit both from `add_common_args`).
+`cli_probe.py` runs the compiler
 with `cwd` set to its own work directory, so a relative `--compiler` resolves
 against the wrong place and the failure is a `FileNotFoundError` on the gate's own
 argument. Anyone driving these from a script has to know which of the two each one
@@ -74,8 +76,9 @@ def add_common_args(ap):
 
     Two flags rather than one because they really are two things: `--cc` is the
     C toolchain the compiler shells out to, `--compiler` is the orbit binary
-    under test. Nine of the scripts need both, three need only the first, and
-    until this existed each one declared whichever it happened to want.
+    under test. Seventeen of the 42 scripts accept both, seven accept only the
+    first and five only the second, and until this existed each one declared
+    whichever it happened to want.
     """
     ap.add_argument("--cc", default=None,
                     help="C compiler (default: ORBIT_CC/CC/gcc/clang/cc)")
