@@ -768,9 +768,15 @@ passes. **A green `make dev` is therefore not a green CI**, and
 `dev.py` owns four things that had no owner. `TEMP`/`TMP` is pointed at
 `.orbit/tmp`, because the system temp is a different filesystem on some machines
 and is the first thing anyone cleans. The other three are `ORBIT_CCACHE_DIR`, the fixed-point binary
-path and its freshness stamp, and the flags each gate takes. Twenty-one scripts
-accept `--cc`, fifteen accept `--compiler`, ten accept neither, and
-`doctor_gate.py` accepts `--cc` and ignores it.
+path and its freshness stamp, and the flags each gate takes. Of the 42 scripts
+besides `_common.py`, 24 accept `--cc`, 22 accept `--compiler`, 17 accept both
+and 13 accept neither (measured 2026-11-05: `add_argument` declarations plus the
+two files that inherit both flags from `add_common_args`). The sentence this
+replaced said twenty-one, fifteen and ten, and named `doctor_gate.py` as
+accepting `--cc` and ignoring it. `scripts/doctor_gate.py:510` declares
+`--compiler`, and no `--cc` appears in its parser: a declared flag nobody reads
+is the defect `flag_coverage.py` fails a run on, so the second half went stale
+when that gate landed and nothing re-dated the sentence.
 
 One thing this does NOT do, recorded as **gate-sequence** in §7: CI no longer
 carries a copy of the sequence for the two to drift apart. The `gates` job calls
