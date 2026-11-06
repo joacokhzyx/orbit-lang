@@ -429,7 +429,7 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
         i = i + 1
     }
     module.ctors.push(modelDecl.name)
-    module.types.push(TirType(modelDecl.name, fields, tirGenericParamNames(modelDecl.genericParams), []))
+    module.types.push(TirType(modelDecl.name, fields, tirGenericParamNames(modelDecl.genericParams), [], []))
 }
 
 // An enum enters the same table, with its variants as the fields and its own
@@ -443,6 +443,7 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
 fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
     val fields = []
     val names = []
+    val payloads = []
     var i = 0
     while i < typeDecl.variants.len() {
         // A variant with a payload is a construction that needs an argument, not
@@ -456,8 +457,10 @@ fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
             ASTNode.Literal(variant) => {
                 // The order is the tag: `compiler/emit/c_backend.orb:2082` numbers
                 // every variant by its index, payload or not, and a match arm is
-                // compared against that number.
+                // compared against that number. `payloads` keeps the same order so
+                // a `match` arm that binds the payload knows what it binds.
                 names.push(variant.text)
+                payloads.push(payload)
                 if payload == "" {
                     fields.push(TirField(variant.text, typeDecl.name))
                 } else {
@@ -468,7 +471,7 @@ fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
         }
         i = i + 1
     }
-    module.types.push(TirType(typeDecl.name, fields, [], names))
+    module.types.push(TirType(typeDecl.name, fields, [], names, payloads))
 }
 
 // The element kind a list type text carries. `list<int>` answers `int`; `list`
@@ -1185,6 +1188,66 @@ fn declaredVariantTag(module: TirModule, typeName: string, variant: string) -> s
     return ""
 }
 
+// The payload type a union variant declares, "" when it declares none or when
+// this file declares neither the type nor that variant in it. A `match` arm that
+// binds the payload names this type, and the arm's body reads fields from it.
+fn declaredVariantPayload(module: TirModule, typeName: string, variant: string) -> string {
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == typeName {
+            var v = 0
+            while v < declared.variants.len() {
+                if declared.variants.get(v) == variant {
+                    if v < declared.payloads.len() { return declared.payloads.get(v) }
+                    return ""
+                }
+                v = v + 1
+            }
+            return ""
+        }
+        t = t + 1
+    }
+    return ""
+}
+
+// The payload types a variant declares, split on the tab sema joins them with.
+// "" for a unit variant, which has no entry at all.
+fn tirSplitPayloadTypes(joined: string) -> list {
+    val parts = []
+    if joined == "" { return parts }
+    val n = joined.len()
+    var start = 0
+    var i = 0
+    while i <= n {
+        var atEnd = false
+        if i == n { atEnd = true }
+        var isTab = false
+        if atEnd == false {
+            if joined.at(i) == 9 { isTab = true }
+        }
+        if atEnd || isTab {
+            parts.push(joined.slice(start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return parts
+}
+
+// Bind one arm argument to the value read for it, when the argument is a name.
+fn tirBindArmName(function: TirFunction, blockId: int, arg: ASTNode, typeName: string, valueId: int, bodyBindings: list < TirBinding >) {
+    match arg {
+        ASTNode.Literal(binding) => {
+            if binding.valType == "identifier" {
+                tirEmit(function, blockId, "bind", "unit", binding.text + " " + tirValue(valueId))
+                bodyBindings.push(TirBinding(binding.text, typeName))
+            }
+        }
+        _ => {}
+    }
+}
+
 // Does any arm of this match test a variant? The tag is then read once, before the
 // first test, the way `buildMatchExpr` reads it into one register and compares that
 // register against every arm.
@@ -1195,6 +1258,7 @@ fn matchTestsVariants(cases: list < ASTNode >) -> bool {
             ASTNode.MatchCase(c) => {
                 match c.pattern {
                     ASTNode.MemberAccess(member) => { return true }
+                    ASTNode.Call(callPattern) => { return true }
                     _ => {}
                 }
             }
@@ -1213,9 +1277,12 @@ fn matchTestsVariants(cases: list < ASTNode >) -> bool {
 // body is lowered in the block the last test fell through to, which is the block
 // every arm that does not return has to reach.
 //
-// An arm that binds a payload is refused with a message that says what is missing:
-// reading the data word off a variant is a second instruction this slice does not
-// print, and inventing the binding would put a value on a name with no source.
+// An arm that binds a payload reads the variant's data word with `data`, names
+// it with `bind`, and lowers the body with that name in scope. The type comes
+// from the variant's declaration, so a body that reads a field of the payload
+// resolves it the way the build path does. A variant that declares no payload
+// cannot be bound, and a pattern with more than one argument cannot be a union
+// variant: both are refused rather than lowered to a name with no value.
 fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, m: MatchNode, breakTarget: int, continueTarget: int) -> int {
     val scrutineeType = typeOfExpression(module, bindings, m.expr)
     val scrutineeValue = lowerExpression(module, function, blockId, bindings, m.expr)
@@ -1251,6 +1318,7 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
         }
         val armBlock = tirCreateBlock(function)
         val nextBlock = tirCreateBlock(function)
+        var bodyBindings = copyBindings(bindings)
         match pattern {
             ASTNode.Literal(l) => {
                 val patternValue = lowerExpression(module, function, testBlock, copyBindings(bindings), pattern)
@@ -1267,12 +1335,69 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
                 val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
                 tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
             }
+            ASTNode.Call(callPattern) => {
+                // The owner the tag comes from: the type the pattern wrote
+                // (`Shape.Circle(r)`), or the scrutinee's own type for a bare
+                // `Circle(r)`. Two unions may declare one variant name.
+                var variant = ""
+                var owner = ""
+                match callPattern.callee {
+                    ASTNode.MemberAccess(member) => {
+                        variant = member.field
+                        match member.object {
+                            ASTNode.Literal(literal) => { owner = literal.text }
+                            _ => {}
+                        }
+                    }
+                    ASTNode.Literal(literal) => { variant = literal.text }
+                    _ => {}
+                }
+                if owner == "" { owner = scrutineeType }
+                val tagName = declaredVariantTag(module, owner, variant)
+                if tagName == "" {
+                    tirError(module, "E3001", "a match needs the variant table of the type it switches on, which this pass does not keep", 0, 0)
+                    return -1
+                }
+                val tagNumber = tirEmit(function, testBlock, "const", "int", tagName)
+                val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
+                tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+                val payloadText = declaredVariantPayload(module, owner, variant)
+                val payloads = tirSplitPayloadTypes(payloadText)
+                if callPattern.args.len() > 0 && payloads.len() == 0 {
+                    tirError(module, "E3001", "a match arm binds a payload and the variant declares none", 0, 0)
+                    return -1
+                }
+                if callPattern.args.len() != payloads.len() {
+                    tirError(module, "E3001", "a match arm binds " + tirIntText(callPattern.args.len()) + " name(s) and the variant declares " + tirIntText(payloads.len()) + " payload(s)", 0, 0)
+                    return -1
+                }
+                if payloads.len() == 1 {
+                    val payloadType: string = payloads.get(0)
+                    val dataValue = tirEmit(function, armBlock, "data", payloadType, tirValue(scrutineeValue))
+                    tirBindArmName(function, armBlock, callPattern.args.get(0), payloadType, dataValue, bodyBindings)
+                }
+                if payloads.len() > 1 {
+                    // Multi-payload: the data word holds the packed struct
+                    // `<Owner>_<Variant>`, and each name reads one field of it
+                    // (`T_V._0`, `T_V._1`). The reads come after the tag test, so
+                    // a unit variant's null data word is never read.
+                    val structName = owner + "_" + variant
+                    val dataValue = tirEmit(function, armBlock, "data", structName, tirValue(scrutineeValue))
+                    var ai = 0
+                    while ai < payloads.len() {
+                        val payloadType: string = payloads.get(ai)
+                        val fieldValue = tirEmit(function, armBlock, "member", payloadType, tirValue(dataValue) + " _" + tirIntText(ai))
+                        tirBindArmName(function, armBlock, callPattern.args.get(ai), payloadType, fieldValue, bodyBindings)
+                        ai = ai + 1
+                    }
+                }
+            }
             _ => {
-                tirError(module, "E3001", "a match that binds a payload needs the data read this pass does not print", 0, 0)
+                tirError(module, "E3001", "a match pattern this pass cannot lower", 0, 0)
                 return -1
             }
         }
-        val armEnd = lowerStatement(module, function, armBlock, copyBindings(bindings), body, breakTarget, continueTarget)
+        val armEnd = lowerStatement(module, function, armBlock, bodyBindings, body, breakTarget, continueTarget)
         if armEnd >= 0 {
             tirEmit(function, armEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
         }

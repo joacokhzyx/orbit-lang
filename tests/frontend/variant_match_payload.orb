@@ -1,17 +1,17 @@
-// The control for the test chain. An arm that binds a payload needs the variant's
-// data word read off the scrutinee, and this slice prints no such instruction: the
-// pass says what is missing (E3001, "a match that binds a payload needs the data
-// read this pass does not print") and prints no text.
+// The payload arm lowers: `data <payload> <scrutinee>` reads the variant's data
+// word, `bind` names it, and the body reads the binding. The golden pins the
+// text, and the binding carries the type the variant declares (`int` here).
 //
-// Lowering the arm anyway would bind `r` to nothing, and a name with no value behind
-// it is the invention the `unknown` count exists to make visible. When the data read
-// lands, this fixture has to be re-declared with the text it then prints.
+// Before 2026-11-06 this fixture pinned the opposite: the pass printed no
+// instruction for the data word and said so (E3001). It is the control for
+// `tests/frontend/variant_match_bindless.orb`, which pins the arm that binds a
+// variant declaring no payload.
 import "../../compiler/tir/entry.orb"
 
 fn main() {
     val source = "union Shape { Circle(int) }  fn area(s: Shape) -> int { match s { Shape.Circle(r) => { return r } } return 0 }"
     val output = compileFrontendSource("fixture", source)
     if output == "" {
-        print("a payload arm waits for the data read")
+        print("the payload arm lowered no TIR")
     }
 }

@@ -846,24 +846,29 @@ that would remove the requirement.
 
 ## 0.2% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-05 over 214 files and 111,537
+`scripts/measure.py census`, run on 2026-11-06 over 214 files and 147,001
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 275 | **0.2%** |
+| instructions the front end types `unknown` | 307 | **0.2%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
+
+A `match` arm that binds a payload lowers since 2026-11-06: the files that
+printed no TIR for one now print theirs, so the measured corpus grew from
+111,537 instructions to 147,001. The rate fell from 2.46 to 2.09 per mille in
+the same change; the absolute count rose with the denominator, 275 to 307.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 112 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 46), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 126 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 51), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 15) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 102). Their sum, 275, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:873`, `:886`, `:894`, `:918` and `:1020`, and
+(call result, 115). Their sum, 307, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:876`, `:889`, `:897`, `:921` and `:1023`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -1314,19 +1319,20 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 58/58
+## The frontend gate is 59/59
 
-`scripts/corpus_gates.py frontend` runs 58 fixtures and all 58 pass (two of
+`scripts/corpus_gates.py frontend` runs 59 fixtures and all 59 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
-fail before. Nine pin an absence of output rather than a text, and the gate
+fail before. Ten pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 49 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 50 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
 gate's test plumbing rather than as a language escape.
+`variant_match_payload.orb` moved from the absence list to a golden when the payload arm started lowering on 2026-11-06, and `variant_match_bindless.orb` took its place as the refusal control.
 `crossfile_field.orb` is the fifth and the boundary case: a field whose type is
 a model declared in another file keeps E2004, and the fixture prints only when
 the refusal names that code, so an input that stopped reaching the member-read

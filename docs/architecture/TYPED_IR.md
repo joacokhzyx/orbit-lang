@@ -17,8 +17,11 @@ module.  A valid module contains:
    <scrutinee>` answers an `int`, the variant's position in the declaration, which
    is the number the C backend defines as `<Type>_TAG_<Variant>`. It is read once
    per match and compared against each arm with `==` and `branch`. An arm that
-   binds the variant's payload is not printed: reading the data word is not in this
-   version of the text, and the pass says so instead of binding nothing to a name.
+   binds the variant's payload reads it with `data <payload-type> <scrutinee>`,
+   names the value with `bind`, and the arm's body reads that name. A variant
+   with several payloads packs them into `<Owner>_<Variant>`, and each name reads
+   one field of it (`_0`, `_1`) through `member`. An arm whose count of names
+   differs from the variant's payload count is refused rather than printed.
 - one convention for a value produced in two branches: each branch writes the
    value to one name with `bind unit <name> <value>`, both branches jump to the
    merge block, and the merge block reads the name with `load <type> <name>`.

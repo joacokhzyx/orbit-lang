@@ -1,0 +1,12 @@
+// A variant that declares no payload cannot be bound: the arm would name a value
+// with no source. The pass refuses (E3001) instead of printing TIR, and this
+// fixture prints only when that suppression happens.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "union Shape { Empty | Circle(int) }  fn area(s: Shape) -> int { match s { Shape.Empty(x) => { return x } } return 0 }"
+    val output = compileFrontendSource("fixture", source)
+    if output == "" {
+        print("a bindless arm is refused")
+    }
+}

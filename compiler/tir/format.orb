@@ -64,6 +64,10 @@ model TirType {
     // the same order to print the number the C backend will define. A model
     // leaves it empty.
     variants: list < string >
+    // The payload each variant declares, parallel to `variants`: "" for one that
+    // carries none. A `match` arm that binds the payload names this type, so the
+    // `data` read below answers the model the arm's body then reads fields from.
+    payloads: list < string >
 }
 
 // One declared signature: the name and the return type exactly as the source
