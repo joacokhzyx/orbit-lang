@@ -1076,10 +1076,27 @@ def ctx_cache():
                           os.path.join(os.environ.get("TMPDIR", "/tmp"), "orbit_ccache"))
 
 
+def _fp_default():
+    """The fixed point a run uses when nobody named one: asked of `dev.py`, not
+    guessed. The literal this replaces pointed at `ROOT/orbit.exe`, and a
+    compiler sitting at the repository root is not merely untidy -- it satisfies
+    `doctor_gate`'s three `--fix` goldens and silently voids `cli_probe`'s
+    `cc-include-failure-is-not-a-missing-toolchain` probe, because that probe
+    asserts a C include failure a compiler able to see `runtime/` never
+    produces. That constraint is written down in `dev.fp_path()`; asking for it
+    is how a tool stops re-deriving it wrong.
+    """
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import dev
+    return str(dev.fp_path())
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Every tool in scripts/ has to prove it still works (D8)")
-    ap.add_argument("--compiler", default=os.path.join(ROOT, "orbit.exe"),
+    ap.add_argument(
+        "--compiler", default=_fp_default(),
                     help="an orbit compiler, for the tools that need one")
     ap.add_argument("--cc", default="gcc")
     ap.add_argument("--quick", action="store_true",

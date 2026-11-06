@@ -447,10 +447,26 @@ def self_test():
 
 
 # --------------------------------------------------------------------------
+def _fp_default():
+    """The fixed point a run uses when nobody named one: asked of `dev.py`, not
+    guessed. The literal this replaces pointed at `ROOT/orbit.exe`, and a
+    compiler sitting at the repository root is not merely untidy -- it satisfies
+    `doctor_gate`'s three `--fix` goldens and silently voids `cli_probe`'s
+    `cc-include-failure-is-not-a-missing-toolchain` probe, because that probe
+    asserts a C include failure a compiler able to see `runtime/` never
+    produces. That constraint is written down in `dev.fp_path()`; asking for it
+    is how a tool stops re-deriving it wrong.
+    """
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import dev
+    return str(dev.fp_path())
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Fail if the unknown-type count went up (one-way ratchet)")
-    ap.add_argument("--compiler", default=os.path.join(ROOT, "orbit.exe"))
+    ap.add_argument("--compiler", default=_fp_default())
     ap.add_argument("--cc", default="gcc", help="C compiler for building the census probe")
     ap.add_argument("--dir", action="append", default=None,
                     help="corpus directory, repeatable (passed to the census)")
