@@ -1059,7 +1059,7 @@ def self_test():
     # and must not be reported twice.
     proc = subprocess.run(
         [sys.executable, os.path.join(SCRIPTS, "alive_check.py"),
-         "--only", "schema_conformance.py"],
+         "--only", "static_gates.py"],
         cwd=ROOT, capture_output=True, text=True, errors="replace", timeout=600)
     blob = (proc.stdout or "") + (proc.stderr or "")
     if "all gated, rowed or exempted" in blob and "Failed coverage" not in blob:

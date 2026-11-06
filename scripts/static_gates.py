@@ -19,17 +19,18 @@ Subcommand, old file, closing line:
     flags       flag_coverage.py       Finished flag-coverage:
     cites       cite_check.py          Finished cite-coverage:
 
-The closing lines are the contract: `scripts/alive_check.py` matches them and
-`ENGINEERING.md` quotes them. Each subcommand takes `--self-test`, the mode that
-asserts the rule can still say no; `walk` and `flags` also take `--list`;
-`cites` also takes `--quiet` and file arguments. Exit codes are unchanged: 0 on
-a clean tree, 1 on findings or a failed self-test, 2 where the old script used
-2 (`schema` when ast.orb declares no model, and argparse misuse).
+The closing lines are what a run is judged on: the five rows of
+`scripts/alive_check.py` name each one as its marker. Each subcommand takes
+`--self-test`, the mode that asserts the rule can still say no; `walk` and
+`flags` also take `--list`; `cites` also takes `--quiet` and file arguments.
+Exit codes are unchanged: 0 on a clean tree, 1 on findings or a failed
+self-test, 2 where the old script used 2 (`schema` when ast.orb declares no
+model, and argparse misuse).
 
-The five belong together because they are the same kind of tool. `grep -c
-subprocess` is 0 in each of them and none needs a compiler, which is the bargain
-AGENTS.md:75 prices at "about a second" for tier 0. Merging them removes five
-shebangs, five `argparse` preludes and two module-level `sys.path.insert`
+The five belong together because they are the same kind of tool. No section
+imports the subprocess module, and none of the five needs a compiler -- the
+bargain AGENTS.md:75 prices at "about a second" for tier 0. Merging them removes
+five shebangs, five `argparse` preludes and two module-level `sys.path.insert`
 guards. It changes no analysis: the gate labels in `scripts/gate_registry.py`
 stay `schema_conformance`, `walk_coverage`, `doc_counts`, `flag_coverage` and
 `cite_coverage`, so `python scripts/dev.py all --filter cite_coverage` still
@@ -385,9 +386,6 @@ def self_test_schema() -> int:
     return 0
 
 
-    raise SystemExit(main())
-
-
 # ---- from scripts/walk_coverage.py ----
 # Report AST walks in this compiler that do not say which fields they skip.
 #
@@ -549,7 +547,7 @@ def _wc_check(root: pathlib.Path) -> list:
         if w["declared"] is None:
             findings.append((
                 w["loc"], "undeclared",
-                f"fn {w['fn']} walks the _WC_AST and does not declare what it skips. "
+                f"fn {w['fn']} walks the AST and does not declare what it skips. "
                 f"It has no arm of its own for: "
                 f"{', '.join(w['missing']) or 'nothing'}. That is a CANDIDATE, not "
                 f"a verdict: a walk can reach a node by iterating its parent's "
@@ -661,9 +659,6 @@ def self_test_walk() -> int:
     print("Finished walk-coverage self-test: 4/4 rules fired; an accurate "
           "declaration is silent; `orbit-walk: none` exempts.")
     return 0
-
-
-    raise SystemExit(main())
 
 
 # ---- from scripts/doc_counts.py ----
@@ -995,9 +990,6 @@ def self_test_counts() -> int:
     return 0
 
 
-    raise SystemExit(main())
-
-
 # ---- from scripts/flag_coverage.py ----
 # Every CLI flag a script declares must be read by the script that owns it.
 #
@@ -1231,9 +1223,6 @@ def self_test_flags() -> int:
           "%d file(s) in scripts/ parse arguments with nothing unread."
           % owners)
     return 0
-
-
-    raise SystemExit(main())
 
 
 # ---- from scripts/cite_check.py ----
@@ -1574,9 +1563,6 @@ def self_test_cites():
             return 1
     print("Finished cite-coverage self-test: 6 properties hold")
     return 0
-
-
-    sys.exit(main())
 
 
 
