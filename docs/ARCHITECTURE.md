@@ -165,7 +165,7 @@ unity build above (`--verbose` names a stale or unstamped archive).
 | `ORBIT_LINK_RUNTIME=0` | Always unity. `scripts/dev.py` defaults it to `0`; `make all` sets `1` for the `suite` and `suite_std` gates only. |
 | `ORBIT_RUNTIME_LIB=<path>` | Use this archive instead of the lookup, with no freshness check. |
 
-`scripts/werror_gate.py` puts `-Werror` on generated C, and that is the strict
+`scripts/corpus_gates.py werror` puts `-Werror` on generated C, and that is the strict
 contract. The driver itself only passes `-Wall`.
 `ORBIT_CCFLAGS_EXTRA` is the escape hatch the bootstrap uses for its own
 low-memory profile.
@@ -516,11 +516,9 @@ symbol, the dependent module imports the owning module.
 |---|---|
 | `scripts/build_selfhost.py` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
 | `scripts/verify_seed.py` | Hermetic fixed-point chain; `--release` pins the published hash |
-| `scripts/parity_selfhost.py` | every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
-| `scripts/test_suite.py` | Language and std behaviour suites, driven by process exit code |
-| `scripts/werror_gate.py` | `-Werror` over generated C |
-| `scripts/fuzz_frontend.py` | Frontend fuzzing |
-| `scripts/cli_probe.py` | CLI subcommand, help, and exit-code contract |
+| `scripts/corpus_gates.py` | The eight corpus checks, one entry: `suite`, `negative`, `frontend`, `werror`, `runtime_gen`, `runtime_module`, `parity`, `fuzz_frontend`. `parity` covers every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
+| `scripts/static_gates.py` | The five T0 text gates, one entry: `schema`, `walk`, `counts`, `flags`, `cites` |
+| `scripts/doctor_gates.py` | The doctor goldens (`doctor`, and `--scope-only` for the clean-directory check), the CLI subcommand, help and exit-code contract (`cli-probe`), the rich and colour screens (`snapshots`), the checker's dispatch arms (`dispatch`) |
 | `scripts/routes_probe.py` | Route argument normalisation |
 | `scripts/kynx_gate.py` | Live Kynx gate (live/route-limit/burst) + stdlib load generator (load) |
 | `scripts/amalgamate.py` | Inline the project includes into `dist/orbit_bootstrap.c` |
@@ -538,9 +536,9 @@ symbol, the dependent module imports the owning module.
 
 | Corpus | Location | How it runs | Assertion |
 |---|---|---|---|
-| Language behaviour | `tests/suite/` | `scripts/test_suite.py` | The test program compiles, runs, and its **exit code** matches `// expect-exit <N>`. |
-| Standard library | `tests/std/` | `scripts/test_suite.py --dir tests/std` | Same convention. |
-| Parity | `tests/parity/probes/` + `tests/parity/golden/` | `scripts/parity_selfhost.py` | For an exit-0 probe, the SHA-256 of the generated C matches the golden. For a non-zero probe, the normalised diagnostics match. |
+| Language behaviour | `tests/suite/` | `scripts/corpus_gates.py suite` | The test program compiles, runs, and its **exit code** matches `// expect-exit <N>`. |
+| Standard library | `tests/std/` | `scripts/corpus_gates.py suite --dir tests/std` | Same convention. |
+| Parity | `tests/parity/probes/` + `tests/parity/golden/` | `scripts/corpus_gates.py parity` | For an exit-0 probe, the SHA-256 of the generated C matches the golden. For a non-zero probe, the normalised diagnostics match. |
 | Frontend TIR | `tests/frontend/` + `expected/` | `orbit frontend` | The emitted canonical TIR matches the expected file. |
 | Runtime C | `runtime/test_arena.c`, `test_file.c`, `test_oom.c`, `test_http_parse.c`, `test_kynx.c` | compiled and run directly | The C harness's own assertions. |
 | Auth | `tests/auth/auth_harness.c` | compiled and run directly | Bearer token, role, and `has_role` behaviour against the real runtime. |

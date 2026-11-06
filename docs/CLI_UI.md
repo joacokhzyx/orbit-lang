@@ -15,7 +15,7 @@ the glyphs and the layout; `runtime/console.c` holds what only the OS can say.
 
 Plain is not a screen of its own. Each command keeps its previous code path and
 branches into `ui.orb` only when the tier is not plain. The doctor goldens and
-`cli_probe.py` hold that output and none of them changed with the tiers.
+`cli_probe` hold that output and none of them changed with the tiers.
 
 The measured facts come from `orbit_ui_caps(fd)` in `runtime/console.c`. It
 returns three bits per stream: console, escapes enabled on that handle (the call
@@ -91,18 +91,18 @@ ORBIT_UI=plain orbit build hello.orb -o hello     # the old output
 
 ## Snapshots
 
-`scripts/ui_snapshots.py` runs twelve screens in the rich tier
+`scripts/doctor_gates.py snapshots` runs twelve screens in the rich tier
 (`ORBIT_UI=rich ORBIT_UI_MOTION=0`, truecolor) and in the color tier
 (`ORBIT_UI=color`) and compares them with `tests/ui/<screen>.<tier>.txt`.
 Escape sequences stay in the files, so a changed color is a changed snapshot.
 Times, sizes and the cells of a bar vary between runs and are masked.
 
 ```text
-python scripts/ui_snapshots.py --compiler <orbit> --cc <gcc>           # check
-python scripts/ui_snapshots.py --compiler <orbit> --cc <gcc> --update  # rewrite, then read the diff
+python scripts/doctor_gates.py snapshots --compiler <orbit> --cc <gcc>           # check
+python scripts/doctor_gates.py snapshots --compiler <orbit> --cc <gcc> --update  # rewrite, then read the diff
 ```
 
-The same script runs an animated build of `compiler/host/main.orb`, sends it a
+The same subcommand runs an animated build of `compiler/host/main.orb`, sends it a
 console break and requires the stream to end with `ESC[?25h ESC[0m`. It reports
 "skipped" when the platform offers no console to send the break to. `dev.py`
 runs it as the `ui_snapshots` gate in tier 1.

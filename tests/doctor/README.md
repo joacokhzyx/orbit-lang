@@ -1,4 +1,4 @@
-# Doctor D002 fixtures (not executed by test_suite.py, which scans only tests/suite)
+# Doctor D002 fixtures (not executed by `corpus_gates.py suite`, which scans only tests/suite)
 
 Manual check with a built compiler:
 
@@ -18,6 +18,6 @@ Expected:
   legitimately.
 - Exit code 1.
 
-`scripts/cli_probe.py` pins the same two halves automatically
+`scripts/doctor_gates.py cli-probe` pins the same two halves automatically
 (`doctor-separate-programs`, `doctor-one-program`), so this directory is a
 readable example rather than the only coverage.

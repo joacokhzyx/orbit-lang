@@ -82,8 +82,8 @@ Stating this plainly, because the arrangement has sharp edges:
 - **It is not a proof of correctness.** A self-hosting compiler can reproduce a
   bug perfectly. What self-hosting buys is auditability and a reproducibility
   contract, and those are what the parity goldens
-  (`scripts/parity_selfhost.py`, 33 probes) and the behaviour suite
-  (`scripts/test_suite.py`) exist to back up.
+  (`scripts/corpus_gates.py parity`, 33 probes) and the behaviour suite
+  (`scripts/corpus_gates.py suite`) exist to back up.
 - **It does not remove the bootstrap.** There is always a first compiler, and
   it is C. Self-hosting moves the trust root from a binary to readable source.
   It does not eliminate it.
@@ -93,7 +93,7 @@ Stating this plainly, because the arrangement has sharp edges:
 - `python scripts/build_selfhost.py --check-stale` exits 0 on `main`.
 - `python scripts/verify_seed.py` exits 0. Its closing line reports every
   check it ran (`Finished verify: N/N pass`).
-- `python scripts/parity_selfhost.py` exits 0 over every probe in
+- `python scripts/corpus_gates.py parity` exits 0 over every probe in
   `tests/parity/probes/` (33 today).
 - The canonical C, the parity goldens and the `.orb` sources move in one commit,
   produced by `python scripts/build_selfhost.py --promote`.

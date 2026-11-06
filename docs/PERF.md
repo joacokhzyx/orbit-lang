@@ -46,7 +46,7 @@ flag delta on a 32 KB unit is 0.02 s. Consequences, all in place:
 
 - the bootstrap no longer passes `-Wall`. Set `ORBIT_BOOTSTRAP_WARNINGS=1` to
   restore it when investigating.
-- the strict gate is `scripts/werror_gate.py` (`-Werror` on generated C), and
+- the strict gate is `scripts/corpus_gates.py werror` (`-Werror` on generated C), and
   it runs on every CI push rather than being a local convention.
 - `scripts/orbit_ccache.py` makes the repeated compilations of this unit a
   file copy instead of a 24 s compile.
@@ -149,7 +149,7 @@ Remaining cost: the compiler's own `cc` on the 3.9 MB unit is still
 the largest single item in `orbit build`, and the fixed point has 0
 `-Wint-conversion` warnings since 2026-09-26 (clean-emission, ENGINEERING.md).
 The register machine's pointer/int conflation was fixed at the source, and the
-suppression flags were removed. `scripts/werror_gate.py` is the guard.
+suppression flags were removed. `scripts/corpus_gates.py werror` is the guard.
 
 ## HTTP request path: what was changed
 
@@ -562,7 +562,7 @@ line.
 It is wired in one place, `_common.disposable_test_env`, and only when the
 caller **names** the driver -- the `cc=` argument every compiling gate passes.
 Without that argument the toolchain is whatever the ambient environment says.
-The one caller that relies on it (`test_suite.py`, which passes a no-op
+The one caller that relies on it (`corpus_gates.py suite`, which passes a no-op
 compiler to run without compiling at all) would pay an interpreter start and a
 key computation per test for a cache that can never hit. `ORBIT_CC` becomes
 `<python> <shim>`, `ORBIT_CC_REAL` and `CC` keep the real driver, and
@@ -613,7 +613,7 @@ above a 3.2 s compile's spread. On a *miss* the wrapper costs the hashing and
 nothing else.
 
 **The whole gate suite.** In the `all` composition only two gates can be
-touched at all, because `test_suite.py` and `dual_judge.py` are the only callers
+touched at all, because `corpus_gates.py suite` and `dual_judge.py` are the only callers
 of `disposable_test_env` that name a driver. A whole `make all` at HEAD and
 twice with the change, same box, same contention:
 

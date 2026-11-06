@@ -10,7 +10,7 @@ list of ints, `print(undeclaredThing)`. All of those compiled clean.
 Run it:
 
 ```sh
-python scripts/negative_gate.py --compiler /tmp/orbit_fp
+python scripts/corpus_gates.py negative --compiler /tmp/orbit_fp
 ```
 
 ## Header directives
@@ -83,13 +83,13 @@ fuzzer output for a whole wave.
 
 | | what it asks | what it cannot see |
 |---|---|---|
-| `scripts/negative_gate.py` (this directory) | what the **compiler must reject**. Every program here must fail `orbit check`, with a pinned diagnostic. | a program that computes the wrong number. Just over half the cases here are programs the compiler wrongly *accepts*, so this gate's own verdict is often "still broken" — it holds the defect, it does not detect it. |
+| `scripts/corpus_gates.py negative` (this directory) | what the **compiler must reject**. Every program here must fail `orbit check`, with a pinned diagnostic. | a program that computes the wrong number. Just over half the cases here are programs the compiler wrongly *accepts*, so this gate's own verdict is often "still broken" — it holds the defect, it does not detect it. |
 | `scripts/diff_fuzz.py` | what the **compiler computes**, against a reference implementation in Python with the same truncating semantics. | anything it has no case for. It generates integer arithmetic, integer literals, division by zero, string escapes and floats; it has never looked at a list, a map, a model or a control-flow edge. |
 | `scripts/unknown_ratchet.py` | the static measure: what share of emitted instructions the front end typed `unknown`. | the behaviour. 75% of that can be right. |
 
 The hole is what both of the other two leave: a **compile-only** gate cannot
 see a wrong value, and a **crash-only** fuzzer cannot either, because a wrong
-answer is not an event. `scripts/fuzz_frontend.py` looks for crashes; a crash
+answer is not an event. `scripts/corpus_gates.py fuzz_frontend` looks for crashes; a crash
 announces itself. `print(1.5)` returns 1 and nothing anywhere says a word. That
 hole is where all 99 were, and it is not a gap in coverage so much as a gap in
 *kind*: nothing in the suite had ever executed a program and compared the
@@ -261,5 +261,5 @@ A number in a document goes stale, which is F-0021 and it is why this section
 exists at all. Recompute it rather than trust it:
 
 ```sh
-python scripts/negative_gate.py --compiler <orbit> --list
+python scripts/corpus_gates.py negative --compiler <orbit> --list
 ```

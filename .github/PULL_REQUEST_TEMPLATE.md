@@ -11,11 +11,11 @@ the gates is a draft, not a contribution.
 ```sh
 python scripts/build_selfhost.py --cc gcc --check-stale   # fixed point intact
 python scripts/verify_seed.py --cc gcc --release
-python scripts/parity_selfhost.py --cc gcc --compiler <fp>
-python scripts/test_suite.py --cc gcc --compiler <fp>
-python scripts/test_suite.py --cc gcc --compiler <fp> --dir tests/std
-python scripts/werror_gate.py --compiler <fp> --cc gcc
-python scripts/cli_probe.py --compiler <fp> --work <dir>
+python scripts/corpus_gates.py parity --cc gcc --compiler <fp>
+python scripts/corpus_gates.py suite --cc gcc --compiler <fp>
+python scripts/corpus_gates.py suite --cc gcc --compiler <fp> --dir tests/std
+python scripts/corpus_gates.py werror --compiler <fp> --cc gcc
+python scripts/doctor_gates.py cli-probe --compiler <fp> --work <dir>
 python scripts/routes_probe.py
 <fp> fmt --check compiler && <fp> fmt --check tests/suite
 <fp> doctor tests/suite
@@ -26,8 +26,8 @@ python scripts/routes_probe.py
 - [ ] I proved the change was necessary, not incidental.
 - [ ] `compiler/selfhost/stage3.exe.c` is regenerated in THIS commit
       (`python scripts/build_selfhost.py --promote`).
-- [ ] The 32 parity goldens are refreshed in THIS commit
-      (`python scripts/parity_selfhost.py --compiler <fp> --update`).
+- [ ] The 33 parity goldens are refreshed in THIS commit
+      (`python scripts/corpus_gates.py parity --compiler <fp> --update`).
 - [ ] `PUBLISHED_C` in `scripts/verify_seed.py` is updated in THIS commit.
 
 The canonical, the goldens and the `.orb` sources move together or not at all.

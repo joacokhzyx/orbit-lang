@@ -29,7 +29,7 @@ python scripts/build_selfhost.py --cc "$CC" --check-stale
 python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp
 
 # Compare against goldens (CI gate).
-python scripts/parity_selfhost.py --cc "$CC" --compiler /tmp/orbit_fp
+python scripts/corpus_gates.py parity --cc "$CC" --compiler /tmp/orbit_fp
 ```
 
 Exit code is `0` only when all probes in `probes/` match their goldens (33 today).
@@ -37,7 +37,7 @@ Exit code is `0` only when all probes in `probes/` match their goldens (33 today
 ## After an intentional compiler change
 
 ```sh
-python scripts/parity_selfhost.py --cc "$CC" --compiler /tmp/orbit_fp --update
+python scripts/corpus_gates.py parity --cc "$CC" --compiler /tmp/orbit_fp --update
 ```
 
 Review the golden diff, then commit goldens together with the compiler change

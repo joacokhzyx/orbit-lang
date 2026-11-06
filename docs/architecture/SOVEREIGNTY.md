@@ -180,7 +180,7 @@ unaffected, and they are the contract.
 The bootstrap also builds the compiler without `-Wall`: on the 3.9 MB unit
 that flag is a 5.7x penalty and reports 89 warnings, because the analysis it
 enables is superlinear in emitted size. The strict warning gate is
-`scripts/werror_gate.py`, which runs `-Werror` over generated C in CI. Set
+`scripts/corpus_gates.py werror`, which runs `-Werror` over generated C in CI. Set
 `ORBIT_BOOTSTRAP_WARNINGS=1` to get `-Wall` back locally.
 
 ## Rules for contributors
@@ -229,7 +229,7 @@ Invariants that must hold afterwards:
 
 - `build_selfhost.py --check-stale` exits 0 on `main`.
 - `verify_seed.py` exits 0. Its closing line reports every check it ran.
-- `parity_selfhost.py` exits 0 over every probe in `tests/parity/probes/`
+- `corpus_gates.py parity` exits 0 over every probe in `tests/parity/probes/`
   against the committed goldens (33 today).
 - CI is green on ubuntu/gcc and windows/clang, and all eight stress legs pass.
 

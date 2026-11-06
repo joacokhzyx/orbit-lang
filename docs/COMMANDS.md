@@ -227,8 +227,8 @@ These commands are for contributors and release maintainers:
 | `python scripts/build_selfhost.py --check-stale` | Confirm the generated fixed point matches the committed canonical source |
 | `python scripts/verify_seed.py --cc <compiler>` | Rebuild and verify the C seed and self-host chain |
 | `python scripts/verify_seed.py --cc <compiler> --emit-fixed-point <path>` | Emit a compiler binary for local gates |
-| `python scripts/parity_selfhost.py --cc <compiler> --compiler <path>` | Compare compiler output with committed parity goldens |
-| `python scripts/test_suite.py --cc <compiler> --compiler <path>` | Compile and execute the language behavior suite |
+| `python scripts/corpus_gates.py parity --cc <compiler> --compiler <path>` | Compare compiler output with committed parity goldens |
+| `python scripts/corpus_gates.py suite --cc <compiler> --compiler <path>` | Compile and execute the language behavior suite |
 | `python scripts/build_selfhost.py --promote` | Promote an intentional compiler change to the canonical C artifact |
 
 Use the commands from the repository root. Set `ORBIT_CC` or pass `--cc` when the C compiler is not detected automatically.
@@ -241,7 +241,7 @@ A compiler change is not complete until the relevant gates pass:
 2. The canonical C source is current when the change is intentional.
 3. The parity probes match their goldens.
 4. The behavior suite passes.
-5. `fmt --check` is clean on `compiler`, `tests/suite`, `std`, `tests/std` and `examples`, `doctor` reports nothing on `tests/suite`, and `cli_probe.py` passes.
+5. `fmt --check` is clean on `compiler`, `tests/suite`, `std`, `tests/std` and `examples`, `doctor` reports nothing on `tests/suite`, and `cli_probe` passes.
 6. Documentation and examples reflect the supported behavior.
 
 See [Platform Support](SUPPORT.md), [Getting Started](GETTING_STARTED.md), and the [Engineering Contract](../ENGINEERING.md) for platform-specific details and invariants.

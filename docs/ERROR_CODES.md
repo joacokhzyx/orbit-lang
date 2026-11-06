@@ -24,7 +24,7 @@ parser diagnostic is re-emitted into the TIR module with code E1000,
 keeping the parser's original message text. This is the `orbit frontend`
 command, not `orbit check` (which renders the parser's own E0301–E0304
 cards). Fix hint: read the message text — it is the underlying parser
-diagnostic. No negative case: the frontend gate (`scripts/frontend_gate.py`)
+diagnostic. No negative case: the frontend gate (`scripts/corpus_gates.py frontend`)
 covers this path.
 
 ## E0130 — nesting too deep
@@ -413,7 +413,7 @@ full write-up.
 | F-0015 — parameter types recorded but never compared at call sites | `n33_call_argument_type_unchecked.orb` | fixed (E1005), pinned |
 | F-0016 — `.at()` past the end answered 0 (the NUL byte) with no diagnostic | `n32_at_out_of_range.orb` | fixed (E1002), pinned |
 | F-0018 — frontend member/call expressions with no type rule reached codegen silently | no negative case (frontend-only; E2004/E2005) | fixed in lowering |
-| F-0021 — numbers in documents go stale | counts in `tests/negative/README.md` and siblings; recompute with `python scripts/negative_gate.py --compiler <orbit> --list` | process note, not a defect |
+| F-0021 — numbers in documents go stale | counts in `tests/negative/README.md` and siblings; recompute with `python scripts/corpus_gates.py negative --compiler <orbit> --list` | process note, not a defect |
 | F-0023 — literal-zero division is SIGFPE, not a diagnostic | `n41_division_by_zero_is_not_a_diagnostic.orb` | fixed for literal divisors (E1004); a variable divisor is a checked trap (exit 2) |
 | F-0024 — `for` over a never-set dynamic field miscompiles (read answers `""`, loop walks it as a list: garbage `.len()`, segfault iteration) | `n59_for_over_unknown_field.orb` | fixed (model-field reads answer declared types, and unprovable iterables are check errors) |
 | F-0025 - assignment target is never checked: a `val` store, a type mismatch, and an undeclared name all pass `check` | `n90_val_reassignment.orb`, `n91_assignment_type_mismatch.orb`, `n92_assignment_target_undeclared.orb` | fixed (E1009), pinned |

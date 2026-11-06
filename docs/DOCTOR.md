@@ -145,7 +145,7 @@ one is printed and marked `(in baseline: known finding, not counted toward
 the exit code)` instead of failing the run. Delete a line once you have fixed
 it, so the baseline only ever shrinks.
 
-`scripts/doctor_gate.py` pins the exact output of each check against the
+`scripts/doctor_gates.py doctor` pins the exact output of each check against the
 goldens in `tests/doctor/golden/`, so a check cannot quietly change what it
 says.
 
@@ -204,7 +204,7 @@ tracks:
 
 That is 435 findings, and almost none of them is something to fix. The gate
 names what must be clean instead of baselining the rest.
-`scripts/doctor_gate.py --scope-only` runs doctor over `compiler`, `std` and
+`scripts/doctor_gates.py doctor --scope-only` runs doctor over `compiler`, `std` and
 `tests/suite`, and those three produce nothing outside the advisory codes.
 Four dead models came out of making that true: `IRTraitMethod` and `Loc` in the
 compiler, `JwtHeader` and `JwtToken` in std.
@@ -215,7 +215,7 @@ and one mutable route. Route conflicts are no longer among them. `D002`
 compares two routes only when one program's import closure reaches both files,
 so five services' `GET /health` handlers are five programs' routes. Within one
 program the check still fires: `tests/doctor/` is a two-file program, and
-`scripts/cli_probe.py` pins both halves.
+`scripts/doctor_gates.py cli-probe` pins both halves.
 
 Two limits of the walk. A directory whose name begins with a dot is tool state
 and is skipped, so `.orbit/` with its thousands of build copies is never
@@ -274,8 +274,8 @@ Doctor prints the contributor gate commands at the end of every run for referenc
 
 ```sh
 python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
-python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
-python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+python scripts/corpus_gates.py parity --cc <gcc-or-clang> --compiler <path-to-orbit>
+python scripts/corpus_gates.py suite --cc <gcc-or-clang> --compiler <path-to-orbit>
 ```
 
 Run those from the repository root when you change the compiler. See `docs/COMMANDS.md` for the full command reference.

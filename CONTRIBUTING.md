@@ -75,7 +75,7 @@ When one thing is broken and the rest is noise, use the single-gate targets
 `make report`) instead of retyping gate commands. The runtime C tests run
 inside these tiers (via `scripts/runtime_c_tests.py`).
 
-`scripts/werror_gate.py` is the strict warning gate. The bootstrap
+`scripts/corpus_gates.py werror` is the strict warning gate. The bootstrap
 deliberately builds without `-Wall` because it costs 5.7x on the compiler's own
 multi-megabyte output unit. See [Performance notes](docs/PERF.md). Set
 `ORBIT_BOOTSTRAP_WARNINGS=1` to get warnings back while hacking.

@@ -835,7 +835,7 @@ the whole import graph, and `private` does not restrict anything.
 ## Standard library: test, strings and hashing
 
 Shipped modules are exercised under `tests/std/` (run with
-`test_suite.py --dir tests/std`). Each module's header is the API reference.
+`corpus_gates.py suite --dir tests/std`). Each module's header is the API reference.
 Only the scope is listed here:
 
 - `std/test/assert.orb`: assertions for exit-code tests.

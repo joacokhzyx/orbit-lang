@@ -43,7 +43,7 @@ in any `.orb` file sit inside the C text the emitter prints. A scoped arena the
 source can select is the change that makes the ceiling beside the point rather than
 merely high enough, and it is the open item.
 
-`scripts/doctor_gate.py` scans the directories that must be clean, and when one
+`scripts/doctor_gates.py doctor` scans the directories that must be clean, and when one
 process cannot hold a directory it retries it one subdirectory at a time. That retry
 is unreached on both hosts today: `--scope-only` answers `Finished doctor_scope: 3
 directories clean (compiler, std, tests/suite)` with no kill and no split. This is
@@ -1316,7 +1316,7 @@ people follow into a property the build enforces.
 
 ## The frontend gate is 58/58
 
-`scripts/frontend_gate.py` runs 58 fixtures and all 58 pass (two of
+`scripts/corpus_gates.py frontend` runs 58 fixtures and all 58 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`

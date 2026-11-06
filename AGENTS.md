@@ -41,7 +41,7 @@ returning 0, and the table's own `--self-test` fails if a row loses its checker 
 Useful when something breaks:
 
 ```bash
-python scripts/doctor_gate.py --compiler "$(make -s fp >/dev/null && echo /tmp/orbit-fp-*)"
+python scripts/doctor_gates.py doctor --compiler "$(make -s fp >/dev/null && echo /tmp/orbit-fp-*)"
 ```
 
 If you need the raw commands, they are listed with their rationale in `ENGINEERING.md` §8. Do not copy them from there; that is the drift this script exists to end.
@@ -53,7 +53,7 @@ The committed canonical is `compiler/selfhost/stage3.exe.c`, and `scripts/verify
 ```bash
 python3 scripts/build_selfhost.py --cc gcc --promote      # rewrites canonical C + PUBLISHED_C
 python3 scripts/verify_seed.py --cc gcc --emit-fixed-point /tmp/fp # sanity
-python3 scripts/parity_selfhost.py --cc gcc --compiler /tmp/fp --update   # ONLY if the diff is intended
+python3 scripts/corpus_gates.py parity --cc gcc --compiler /tmp/fp --update   # ONLY if the diff is intended
 ```
 
 Commit canonical + refreshed goldens + sources + `scripts/verify_seed.py` (PUBLISHED_C) together.
@@ -72,7 +72,7 @@ These are gates. Do not perform them by hand and do not write them out as a habi
 - `tests/negative/*.orb` must FAIL to compile with the text their header pins. A `known-defect:` asserts the bug is STILL there, so a fix makes the gate red until you re-declare the case as `expect-error:` with the diagnostic you measured, never from memory. See `tests/negative/README.md`.
 - `alive_check` (D8) requires every file in `scripts/` to be able to fail. A new script with no row there is the same class of thing as a gate nobody reads.
 - `unknown_ratchet` fails only when the number goes UP. Raising a baseline is a deliberate act and `--write-baseline` refuses to move it up without `--allow-regression`.
-- `schema_conformance.py`, `walk_coverage.py`, `doc_counts.py` and `flag_coverage.py` run in T0, cost about a second, and need no compiler. They check `compiler/front/ast.orb` against the code that builds nodes, require every AST walk to declare the fields it skips, require every counted claim about the corpus in the docs to equal the tree, and require every CLI flag a script declares to be read by the script that owns it.
+- The five text gates are subcommands of `scripts/static_gates.py`: `schema`, `walk`, `counts`, `flags` and `cites`. They run in T0, cost about a second each, and need no compiler. `schema` checks `compiler/front/ast.orb` against the code that builds nodes. `walk` requires every AST walk to declare the fields it skips. `counts` requires every counted claim about the corpus in the docs to equal the tree. `flags` requires every CLI flag a script declares to be read by the script that owns it. `cites` opens every `path:line` citation in the documents.
 
 ## Working with other agents
 

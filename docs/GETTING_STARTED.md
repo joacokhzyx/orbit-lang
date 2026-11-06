@@ -110,8 +110,8 @@ Build a fixed-point compiler from the committed canonical C source, then verify 
 ```sh
 python scripts/build_selfhost.py --out <path-to-orbit>
 python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
-python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
-python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+python scripts/corpus_gates.py parity --cc <gcc-or-clang> --compiler <path-to-orbit>
+python scripts/corpus_gates.py suite --cc <gcc-or-clang> --compiler <path-to-orbit>
 ```
 
 The parity command compares the compiler output with committed probe goldens. The behavior suite compiles and runs the executable programs under `tests/suite/`. The full model is described in [Self-Hosting](architecture/SELF_HOSTING.md) and [Sovereignty](architecture/SOVEREIGNTY.md).
