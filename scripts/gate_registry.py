@@ -40,13 +40,16 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(ROOT, "scripts")
 
-# The two forms of the shard step's argv, transcribed from dev.py:742-758. The
-# reuse form is chosen by dev.py's main() only when a bundle header is bound to
-# the canonical's exact bytes; the table keeps the emission form, which is what
-# `list` shows and what a cold run executes.
-SHARD_EMIT = ["--name", "emit_verify", "--emit-with", "FP", "--no-build",
+# The two forms of the shard step's argv, transcribed from dev.py's
+# shard_split_argv. The reuse form is chosen by dev.py's main() only when a
+# bundle header is bound to the canonical's exact bytes; the table keeps the
+# emission form, which is what `list` shows and what a cold run executes.
+# (amended by the root-of-trust merge of 2026-11-07: the shard step is the
+# `shard` subcommand of scripts/trust.py; the subcommand stays the first
+# argument after the script.)
+SHARD_EMIT = ["shard", "--name", "emit_verify", "--emit-with", "FP", "--no-build",
               "--fresh"]
-SHARD_REUSE = ["--name", "emit_verify", "--tu", "CANONICAL", "--header",
+SHARD_REUSE = ["shard", "--name", "emit_verify", "--tu", "CANONICAL", "--header",
                "HEADER", "--no-build"]
 
 
@@ -201,8 +204,8 @@ GATES = [
              "the compiler produces a working server is how a compiler ends up "
              "green on every unit test and broken in the way that matters "
              "(dev.py:848-851)"),
-    Gate("unknown_ratchet", 2, "scripts/unknown_ratchet.py", _argv(
-        "unknown_ratchet.py", "--compiler", "{fp}", "--cc", "{cc}"),
+    Gate("unknown_ratchet", 2, "scripts/measure.py", _argv(
+        "measure.py", "ratchet", "--compiler", "{fp}", "--cc", "{cc}"),
          why="D7's one-way ratchet, the reader the baseline never had in this "
              "sequence. It was a hard CI step until f001308 folded CI into "
              "`dev.py all`, and alive_check's row for it is liveness only (rc 1 "
@@ -212,35 +215,36 @@ GATES = [
              "`report` keeps only the raw census (dev.py:854-860)"),
 
     # ---- T3: the root of trust.
-    Gate("check_stale", 3, "scripts/build_selfhost.py", _argv(
-        "build_selfhost.py", "--cc", "{cc}", "--check-stale"),
+    Gate("check_stale", 3, "scripts/trust.py", _argv(
+        "trust.py", "build", "--cc", "{cc}", "--check-stale"),
          why="the committed canonical still describes these sources"),
-    Gate("shard_split", 3, "scripts/shard_selfhost.py", _argv(
-        "shard_selfhost.py", "--name", "emit_verify", "--emit-with", "{fp}",
+    Gate("shard_split", 3, "scripts/trust.py", _argv(
+        "trust.py", "shard", "--name", "emit_verify", "--emit-with", "{fp}",
          "--no-build", "--fresh", "--shards-dir",
          "{work}" + os.sep + "shards", "--cc", "{cc}"),
          why="the T3 split step in its emission form; dev.py's main() swaps in "
              "the reuse form (dev.py:752-755) when a bundle header is bound to "
              "the canonical's exact bytes, so `list` shows the emission argv "
              "either way (dev.py:794-797)"),
-    Gate("verify_seed", 3, "scripts/verify_seed.py", _argv(
-        "verify_seed.py", "--cc", "{cc}"),
+    Gate("verify_seed", 3, "scripts/trust.py", _argv(
+        "trust.py", "verify", "--cc", "{cc}"),
          why="the seed chain reproduces the canonical bit for bit"),
     Gate("alive_check", 3, "scripts/alive_check.py", _argv(
         "alive_check.py", "--cc", "{cc}", "--compiler", "{fp}"),
          why="D8: every tool in scripts/ proves it can still fail"),
 
     # ---- report tier: measured, printed, and never able to fail the build.
-    Gate("routes_probe", 99, "scripts/routes_probe.py", _argv(
-        "routes_probe.py"), kind="report",
+    Gate("routes_probe", 99, "scripts/measure.py", _argv(
+        "measure.py", "routes"), kind="report",
          why="the routes CLI probe, run by `dev.py report` (dev.py:1108)"),
-    Gate("unknown_census", 99, "scripts/unknown_census.py", _argv(
-        "unknown_census.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("unknown_census", 99, "scripts/measure.py", _argv(
+        "measure.py", "census", "--cc", "{cc}", "--compiler", "{fp}"),
          kind="report",
          why="the raw census behind the D7 ratchet; the ratchet is the gate, "
              "the census is the measurement (dev.py:1109)"),
-    Gate("diff_fuzz", 99, "scripts/diff_fuzz.py", _argv(
-        "diff_fuzz.py", "--cc", "{cc}", "--compiler", "{fp}"), kind="report",
+    Gate("diff_fuzz", 99, "scripts/measure.py", _argv(
+        "measure.py", "diff-fuzz", "--cc", "{cc}", "--compiler", "{fp}"),
+        kind="report",
          why="the differential fuzzer, report-only by design since the D9 "
              "ratchet retired (dev.py:1110)"),
 ]
@@ -256,6 +260,9 @@ GATES = [
 # tier each label runs in, which is what a reviewer has to disagree with.
 # (amended by the corpus merge of 2026-11-06: twelve labels invoke
 # scripts/corpus_gates.py with their gate name; the tiers did not move)
+# (amended by the measurement and root-of-trust merges of 2026-11-07: seven
+# labels invoke scripts/measure.py or scripts/trust.py with their
+# subcommand; no label, tier or verdict line moved)
 EXPECTED_ARGV = {
     "schema_conformance": ["{script}static_gates.py", "schema"],
     "walk_coverage": ["{script}static_gates.py", "walk"],
@@ -290,19 +297,20 @@ EXPECTED_ARGV = {
     "fuzz_frontend": ["{script}corpus_gates.py", "fuzz_frontend", "--compiler", "FP"],
     "kynx_live": ["{script}kynx_gate.py", "live", "--cc", "CC", "--compiler",
                   "FP"],
-    "unknown_ratchet": ["{script}unknown_ratchet.py", "--compiler", "FP",
+    "unknown_ratchet": ["{script}measure.py", "ratchet", "--compiler", "FP",
                         "--cc", "CC"],
-    "check_stale": ["{script}build_selfhost.py", "--cc", "CC",
+    "check_stale": ["{script}trust.py", "build", "--cc", "CC",
                     "--check-stale"],
-    "shard_split": ["{script}shard_selfhost.py", "--name", "emit_verify",
+    "shard_split": ["{script}trust.py", "shard", "--name", "emit_verify",
                     "--emit-with", "FP", "--no-build", "--fresh",
                     "--shards-dir", "W" + os.sep + "shards", "--cc", "CC"],
-    "verify_seed": ["{script}verify_seed.py", "--cc", "CC"],
+    "verify_seed": ["{script}trust.py", "verify", "--cc", "CC"],
     "alive_check": ["{script}alive_check.py", "--cc", "CC", "--compiler", "FP"],
-    "routes_probe": ["{script}routes_probe.py"],
-    "unknown_census": ["{script}unknown_census.py", "--cc", "CC", "--compiler",
-                       "FP"],
-    "diff_fuzz": ["{script}diff_fuzz.py", "--cc", "CC", "--compiler", "FP"],
+    "routes_probe": ["{script}measure.py", "routes"],
+    "unknown_census": ["{script}measure.py", "census", "--cc", "CC",
+                       "--compiler", "FP"],
+    "diff_fuzz": ["{script}measure.py", "diff-fuzz", "--cc", "CC",
+                  "--compiler", "FP"],
 }
 
 # The tier a label runs in, transcribed from dev.py's tier dict on 2026-11-05 and

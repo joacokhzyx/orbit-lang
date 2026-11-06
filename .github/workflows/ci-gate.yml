@@ -71,14 +71,14 @@ jobs:
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/routes_probe.py
+          "$PY" scripts/measure.py routes
 
       - name: Build and verify the self-host bootstrap (fixed-point gate, seed verifier)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           set +e
-          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale > gate_output.log 2>&1
+          "$PY" scripts/trust.py build --cc "${{ matrix.cc }}" --check-stale > gate_output.log 2>&1
           rc=$?
           set -e
           tail -n 40 gate_output.log
@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/verify_seed.py --cc "${{ matrix.cc }}"
+          "$PY" scripts/trust.py verify --cc "${{ matrix.cc }}"
 
   # The Python gates, by blast radius, through the one entry point. This is
   # `make all && make report`: doctor goldens, doctor scope, the CLI contract,
@@ -188,7 +188,7 @@ jobs:
           "$PY" scripts/static_gates.py cites --self-test
           "$PY" scripts/runtime_c_tests.py --self-test
           "$PY" scripts/kynx_gate.py --self-test
-          "$PY" scripts/unknown_ratchet.py --self-test
+          "$PY" scripts/measure.py ratchet --self-test
           "$PY" scripts/corpus_gates.py werror --self-test
           "$PY" scripts/alive_check.py --self-test
 
@@ -434,5 +434,5 @@ jobs:
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           echo "[stress] iteration ${{ matrix.iteration }} of 8"
-          "$PY" scripts/verify_seed.py --cc gcc
+          "$PY" scripts/trust.py verify --cc gcc
           echo "[stress] iteration ${{ matrix.iteration }} passed"

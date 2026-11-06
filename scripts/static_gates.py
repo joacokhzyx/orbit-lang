@@ -696,7 +696,7 @@ def self_test_walk() -> int:
 #
 # Out of scope, and it is a decision rather than an oversight:
 #
-#  * The unknown-type census. `scripts/unknown_census.py` types the corpus with a
+#  * The unknown-type census. `scripts/measure.py census` types the corpus with
 #    front end, so it needs a bootstrapped compiler; this gate is T0 and costs a
 #    second. Every place the census is written down is dated or defers to
 #    `scripts/baselines/unknown_count.json` as the current truth, which is a
@@ -1213,7 +1213,11 @@ def self_test_flags() -> int:
             print("%s:%d %s %s" % (where, line, spelling, message))
         print("self-test FAILED: the real tree has %d unread flag(s)" % len(findings))
         return 1
-    if owners < 20:
+    # The floor is the count after the 2026-11-06 merges: thirteen scripts
+    # became two entry points, so fourteen files in scripts/ parse arguments
+    # and every one of them has to be read. Below this the audit is not
+    # reading the tree.
+    if owners < 14:
         print("self-test FAILED: only %d file(s) in scripts/ parse arguments, "
               "so the tree audit is not reading the tree" % owners)
         return 1
@@ -1305,9 +1309,9 @@ CONT = re.compile(r"(?<![\w:/.-]):(\d{1,7})(?:-(\d{1,7}))?(?![\d-])")
 
 # The nearest file name before a bare number. A sentence can name a second file
 # between a citation and the number that follows it -- `ENGINEERING.md:712` says
-# "`scripts/orbit_ccache.py:434` … and `verify_seed.py` zeroing the COFF
+# "`scripts/orbit_ccache.py:434` … and `trust.py` zeroing the COFF
 # `TimeDateStamp` … (`:12`, `:169`)", where 12 and 169 are lines of
-# `verify_seed.py`. A number is only attributed to a citation when no other file
+# `trust.py`. A number is only attributed to a citation when no other file
 # name sits between them.
 PATHREF = re.compile(r"((?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]+\.(?:"
                      + "|".join(e[1:] for e in SOURCE_EXT) + r"))")
@@ -1458,7 +1462,7 @@ def continued_path(lines, index, position):
         if named and named[-1] != path_g:
             # Another file was named after that citation, so the number belongs to
             # it and this gate cannot attribute it. Attribution by basename alone
-            # would read `verify_seed.py` and `scripts/verify_seed.py` as the same
+            # would read `trust.py` and `scripts/trust.py` as the same
             # claim; it is not, because the path is the claim.
             return None
         return path_g

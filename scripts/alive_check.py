@@ -70,7 +70,7 @@ TRACEBACK = "Traceback (most recent call last)"
 # a slow T3 while still catching yesterday's log.
 WITNESS_MAX_AGE_SECS = 7200
 
-# Single-census wiring: alive_check runs `unknown_census.py --json` once and
+# Single-census wiring: alive_check runs `measure.py census --json` once and
 # hands the document to the ratchet via --from-json, instead of the census and
 # the ratchet each censusing the corpus. The marker below is checked against
 # the census's stdout (pure JSON); the human "Corpus: ..." banner is not
@@ -226,9 +226,11 @@ def registry(compiler, cc, work):
         # a promote did without reading 20 000 lines of renumbering. Its
         # self-test is the row that matters; the full run needs a pending
         # promote to say anything.
-        Tool("promote_diff.py", "gate",
+        # (the tool is the `promote-diff` subcommand of scripts/trust.py since
+        # the root-of-trust merge of 2026-11-07; the marker is unchanged)
+        Tool("trust.py", "gate",
              "the canonical's diff with register and label numbering flattened",
-             lambda: _script("promote_diff.py", "--self-test"),
+             lambda: _script("trust.py", "promote-diff", "--self-test"),
              r"Finished promote-diff", 120, allow_rc=(0, 1)),
         # Not exempt, despite being a module rather than a tool. It is imported
         # by every gate that builds a compiler, so a defect in build_env or
@@ -390,28 +392,28 @@ def registry(compiler, cc, work):
              r"Finished doctor_gate: \d+ case", 900, allow_rc=(0, 1),
              witness=r"Finished doctor_gate: \d+ case",
              needs=("compiler",)),
-        Tool("routes_probe.py", "gate",
+        Tool("measure.py", "gate",
              "MSYS2 argument-rewrite normalization; Windows CI only breaks "
              "without it and nothing else notices",
-             lambda: _script("routes_probe.py"),
+             lambda: _script("measure.py", "routes"),
              r"Finished routes-probe: \d+/\d+", 60),
-        Tool("build_selfhost.py", "gate",
+        Tool("trust.py", "gate",
              "the canonical is stale check. Non-zero is correct whenever the tree "
              "holds a core edit that has not been promoted, so both 0 and 1 are "
              "allowed here. The marker is the per-iteration hash line rather than "
              "the closing verdict, because the verdict line differs between the "
              "two outcomes ('converged' vs 'canonical is stale') and a marker "
              "that only matches the happy path fails the tool for being right",
-             lambda: _script("build_selfhost.py", "--cc", cc, "--check-stale"),
+             lambda: _script("trust.py", "build", "--cc", cc, "--check-stale"),
              r"^Iteration \d+: [0-9a-f]{64}", 900, allow_rc=(0, 1),
              witness=r"Finished bootstrap: converged",
              cost="heavy"),
 
-        Tool("verify_seed.py", "gate",
+        Tool("trust.py", "gate",
              "hermetic seed -> canonical C fixed point. Same: non-zero here "
              "means the tree has an unpromoted core edit, which is the tool "
              "being right, not the tool being dead",
-             lambda: _script("verify_seed.py", "--cc", cc),
+             lambda: _script("trust.py", "verify", "--cc", cc),
              witness=r"Finished verify: \d+/\d+ pass",
              marker=r"fixed point", timeout=900, allow_rc=(0, 1), cost="heavy"),
         Tool("kynx_gate.py", "gate",
@@ -423,19 +425,24 @@ def registry(compiler, cc, work):
              r"Finished kynx gate: FAIL", 120, allow_rc=(1,), expect_fail=True),
 
         # ---- measurements: something consumes them --------------------------
-        Tool("unknown_census.py", "measurement",
-             "the unknown-type count. It is the reader inside "
-             "unknown_ratchet.py, so a rotted probe makes the ratchet exit 2 "
-             "rather than quietly pass -- and the marker here is the "
-             "measurement line, so a rotted probe is still caught on its own",
-             lambda: _script("unknown_census.py", "--compiler", compiler,
+        # The census and the ratchet are the `census` and `ratchet`
+        # subcommands of scripts/measure.py, and the amalgamation is the
+        # `amalgamate` subcommand of scripts/trust.py, since the merges of
+        # 2026-11-07. One row per tool is deliberate: each marker names that
+        # tool's own verdict line.
+        Tool("measure.py", "measurement",
+             "the unknown-type count. It is the reader inside the ratchet, so "
+             "a rotted probe makes the ratchet exit 2 rather than quietly "
+             "pass -- and the marker here is the measurement line, so a rotted "
+             "probe is still caught on its own",
+             lambda: _script("measure.py", "census", "--compiler", compiler,
                              "--cc", cc),
              r"^Corpus: \d+ files, \d+ functions, \d+ instructions$", 600,
              needs=("compiler",)),
-        Tool("unknown_ratchet.py", "measurement",
+        Tool("measure.py", "measurement",
              "the gate that holds the count one way (D7). Marker is the "
              "verdict line, so 'could not measure' cannot pass for 'held'",
-             lambda: _script("unknown_ratchet.py", "--compiler", compiler,
+             lambda: _script("measure.py", "ratchet", "--compiler", compiler,
                              "--cc", cc),
              r"^Finished unknown-count: \d+ \(baseline \d+, (ratchet holds|"
              r"ratchet broken)", 600, allow_rc=(0, 1), needs=("compiler",)),
@@ -451,11 +458,12 @@ def registry(compiler, cc, work):
         # The fuzzer itself is still here, still run, and its count is still
         # worth reading. What is gone is the promise that the number cannot get
         # worse -- the corpus is the evidence now, not a baseline.
-        Tool("amalgamate.py", "measurement",
+        Tool("trust.py", "measurement",
              "inlines 20 runtime/*.c into the seed. Runs with --out into a "
              "temp dir ON PURPOSE: with no arguments it writes 4.8 MB into the "
              "repo's dist/, so 'just run it to see if it works' is not free",
-             lambda: _script("amalgamate.py", "--out", _tmp(work, "amalg", "seed.c")),
+             lambda: _script("trust.py", "amalgamate",
+                             "--out", _tmp(work, "amalg", "seed.c")),
              r"Wrote .*seed\.c \(\d+\.\d+ MB\)", 300),
         # The static library is a build artifact, not a gate input, so this
         # row runs only its --self-test: a TU that does not compile and a
@@ -467,12 +475,12 @@ def registry(compiler, cc, work):
              "--self-test proves a broken TU and a missing runtime still fail",
              lambda: _script("mklib_runtime.py", "--self-test"),
              r"Finished mklib self-test: 2/2", 300),
-        Tool("shard_selfhost.py", "measurement",
+        Tool("trust.py", "measurement",
              "sharded build driver: R1-R7 split of the compiler-emitted TU "
              "+ parallel gcc -c + link + auto-emission SHA check; --self-test "
              "splits a synthetic TU, refuses a missing header, and proves a "
              "bad shard is rejected",
-             lambda: _script("shard_selfhost.py", "--self-test",
+             lambda: _script("trust.py", "shard", "--self-test",
                              "--cc", cc),
              r"Finished shard-selfhost self-test: \d+/\d+", 300),
         # The IR corpus is a pinned artifact for the same reason the runtime
@@ -485,17 +493,17 @@ def registry(compiler, cc, work):
         # whole-corpus hash must each still be reported. The marker is the full
         # ratio, so a self-test that quietly stopped asserting one of them
         # fails this row instead of passing it.
-        Tool("emit_ir_corpus.py", "measurement",
+        Tool("measure.py", "measurement",
              "emits the 149+1 IR corpus and its hash manifest; --self-test "
              "proves the corpus contract and that the comparator catches a "
              "changed hash, size, member and whole-corpus hash",
-             lambda: _script("emit_ir_corpus.py", "--self-test"),
+             lambda: _script("measure.py", "emit-ir", "--self-test"),
              r"Finished emit-ir-corpus self-test: 31/31", 300),
-        Tool("ir_unknown_census.py", "measurement",
+        Tool("measure.py", "measurement",
              "unknown register types in the emitted IR, by defining opcode; "
              "--self-test proves the count on a synthetic document and that "
              "a destination-less instruction and a non-.ir file are ignored",
-             lambda: _script("ir_unknown_census.py", "--self-test"),
+             lambda: _script("measure.py", "ir-census", "--self-test"),
              r"Finished ir-unknown-census self-test: 6/6", 60, needs=()),
         Tool("tcc_setup.py", "measurement",
              "the pinned tcc 0.9.27 acquisition; --check proves the pin "
@@ -529,11 +537,12 @@ def registry(compiler, cc, work):
         Tool("corpus_gates.py", "report",
              "crash-only fuzzer, in NO CI step at all. Three iterations is "
              "enough: this asserts the runner works, not that the compiler is "
-             "crash-free (scripts/diff_fuzz.py is the one hunting wrong values)",
+             "crash-free (scripts/measure.py diff-fuzz is the one hunting "
+             "wrong values)",
              lambda: _script("corpus_gates.py", "fuzz_frontend", "--compiler", compiler,
                              "--iterations", "3"),
              r"^Fuzzed 3 iterations: ", 600, needs=("compiler",)),
-        Tool("diff_fuzz.py", "report",
+        Tool("measure.py", "report",
              "the differential fuzzer, report-only in CI. Two categories at 8 "
              "iterations (~30 cases in 2 programs), not the gate's 400: this "
              "row asks whether the tool still works, and int-arith plus "
@@ -541,17 +550,17 @@ def registry(compiler, cc, work):
              "sentinel-framed bytes). The marker is the closing line "
              "INCLUDING the corpus sha, because a fuzzer that measured nothing "
              "still prints a line and non-empty output is not evidence (D8)",
-             lambda: _script("diff_fuzz.py", "--compiler", compiler,
+             lambda: _script("measure.py", "diff-fuzz", "--compiler", compiler,
                              "--cc", cc, "--only", "int-arith",
                              "--only", "string-escape", "--iterations", "8"),
              r"^Finished diff-fuzz: \d+/\d+ agree with the reference across \d+ "
              r"cases \(seed \d+, sha [0-9a-f]{16}\)$", 600,
              needs=("compiler",)),
-        Tool("measure_selfhost.py", "report",
+        Tool("measure.py", "report",
              "resource measurement across bootstrap phases, in NO CI step. One "
              "phase with a 1 ms interval is the aliveness question: did it "
              "build, sample and write a report",
-             lambda: _script("measure_selfhost.py", "--cc", cc,
+             lambda: _script("measure.py", "measure-selfhost", "--cc", cc,
                              "--phases", "1", "--interval-ms", "1"),
              r"^Finished measure: \d+ phase record\(s\) written$", 900,
              allow_rc=(0, 1, 2), cost="heavy"),
@@ -589,20 +598,20 @@ def registry(compiler, cc, work):
              "name this file skipped rather than followed",
              lambda: _script("cc_cached.py", "--self-test"),
              r"^cc cache shim self-test: OK", 60),
-        Tool("phase_times.py", "measurement",
+        Tool("measure.py", "measurement",
              "phase boundaries read from the [mem] stamps the binary already "
              "prints, for one small program; the self-test is the part that "
              "matters, because a timer that never runs and a timer that "
              "measures nothing print the same table",
-             lambda: _script("phase_times.py", "--compiler", compiler,
+             lambda: _script("measure.py", "phase-times", "--compiler", compiler,
                              "--only", "hello", "--runs", "1"),
              r"^Finished phase-times: 1/1 pass \(\d+ program\(s\), 1 run\(s\),",
              300, allow_rc=(0,), needs=("compiler",)),
-        Tool("phase_times.py", "measurement",
+        Tool("measure.py", "measurement",
              "the two ways this harness must say no: an invalid --compiler "
              "path is refused with exit 2, and a program that cannot build is "
              "recorded as a non-zero run",
-             lambda: _script("phase_times.py", "--compiler", compiler,
+             lambda: _script("measure.py", "phase-times", "--compiler", compiler,
                              "--self-test"),
              r"^Finished phase-times: 2/2 pass \(self-test\)$",
              120, allow_rc=(0,), needs=("compiler",)),
@@ -613,7 +622,7 @@ def registry(compiler, cc, work):
              "away, every gate in the repo changes shape at once",
              None, needs=()),
         Tool("orbit_routes.py", "library",
-             "route normalization for Windows CI; routes_probe.py is the "
+             "route normalization for Windows CI; measure.py routes is the "
              "behavioural check, this is the surface it needs",
              None, needs=()),
     ]
@@ -670,7 +679,8 @@ STATIC_ROWS = [
 # it is a file somebody forgot, and D8's decision is that every script has a
 # gate or an aliveness check. A tool that drops off the registry by accident is
 # a tool nobody checks, which is the exact state D8 exists to end -- and
-# diff_fuzz.py WAS in that state until the D9 ratchet made it worth a row.
+# measure.py's diff-fuzz subcommand WAS in that state until the D9 ratchet made
+# it worth a row.
 COVERAGE_EXEMPT = {
     "alive_check.py": "the checker. A row that ran the checker from inside the "
                       "checker recurses forever. Its own coverage is "
@@ -683,7 +693,7 @@ SHELL_ROWS = [
     ("install.sh", "Linux/macOS installer. Runs code in the user's home "
      "directory, so it is never executed by a gate; parsed and its referenced "
      "repo paths are checked instead"),
-    ("build_seed.sh", "POSIX seed builder. Superseded by build_selfhost.py in "
+    ("build_seed.sh", "POSIX seed builder. Superseded by trust.py build in "
      "CI but still the documented manual path"),
     ("install.ps1", "Windows installer, same reasoning as install.sh"),
     ("build_seed.bat", "Windows seed builder, same reasoning as build_seed.sh"),
@@ -889,7 +899,7 @@ def run_unknown_pair(census_tool, census_label, ratchet_tool, ratchet_label,
                      ctx, compiler, cc, work):
     """One census for both unknown rows; returns two result tuples.
 
-    Runs `unknown_census.py --json` once, writes its stdout to
+    Runs `measure.py census --json` once, writes its stdout to
     work/unknown_census.json, and judges that document with the ratchet via
     --from-json. Before this, the census row and the ratchet row each censused
     the corpus on their own: same probe build, same walk, twice the minutes.
@@ -900,7 +910,7 @@ def run_unknown_pair(census_tool, census_label, ratchet_tool, ratchet_label,
     import json as _json
 
     json_path = _tmp(work, CENSUS_JSON_NAME)
-    census_argv = _script("unknown_census.py", "--compiler", compiler,
+    census_argv = _script("measure.py", "census", "--compiler", compiler,
                           "--cc", cc, "--json")
     env = dict(os.environ)
     env["ORBIT_CC"] = ctx["cc"]
@@ -979,7 +989,7 @@ def run_unknown_pair(census_tool, census_label, ratchet_tool, ratchet_label,
                  ["could not write shared census json %s: %s"
                   % (json_path, exc)], 0.0)]
     synth = Tool(ratchet_tool.name, ratchet_tool.kind, ratchet_tool.why,
-                 lambda p=json_path: _script("unknown_ratchet.py",
+                 lambda p=json_path: _script("measure.py", "ratchet",
                                              "--from-json", p),
                  marker=ratchet_tool.marker, timeout=ratchet_tool.timeout,
                  allow_rc=ratchet_tool.allow_rc, cost=ratchet_tool.cost,
@@ -1206,17 +1216,21 @@ def main():
             continue
         runnable.append((tool, label))
 
-    # Single census for the two unknown rows: run `unknown_census --json`
+    # Single census for the two unknown rows: run `measure.py census --json`
     # once and judge it with the ratchet via --from-json, instead of each row
     # censusing the corpus on its own. Only when BOTH rows are runnable; with
-    # --only on a single one, each still runs standalone as before.
+    # --only on a single one, each still runs standalone as before. The two
+    # rows share the name measure.py since the 2026-11-07 merge, so they are
+    # found by the subcommand in their argv, not by the file name.
     pair_results = []
     pair_task = None
     _census_at = _ratchet_at = None
     for _i, (_t, _l) in enumerate(runnable):
-        if _t.name == "unknown_census.py" and _census_at is None:
+        if _t.name == "measure.py" and "census" in _t.argv() \
+                and _census_at is None:
             _census_at = _i
-        if _t.name == "unknown_ratchet.py" and _ratchet_at is None:
+        if _t.name == "measure.py" and "ratchet" in _t.argv() \
+                and _ratchet_at is None:
             _ratchet_at = _i
     if _census_at is not None and _ratchet_at is not None:
         _ct, _cl = runnable[_census_at]

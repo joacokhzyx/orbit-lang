@@ -52,7 +52,7 @@ def resolve_cc(explicit=None, required=True):
     """The C compiler, in the order the bootstrap itself uses.
 
     ORBIT_CC, then CC, then the usual names. The order is duplicated from
-    build_selfhost.py rather than imported, because importing a bootstrap script
+    the bootstrap (scripts/trust.py build) rather than imported, because importing a bootstrap script
     from the tool that drives it couples the tool's lifetime to that script's
     import-time behaviour, and the order is three lines.
     """
@@ -302,7 +302,7 @@ def run(argv, cwd=None, env=None, timeout=180, label=""):
     against the wrong place was a `FileNotFoundError` in a shared frame.
 
     The sites this replaces each wrapped `subprocess.run` themselves:
-    `build_selfhost.py:243`, `doctor_gate.py:145`, `doctor_gate.py:334`,
+    `trust.py:build`, `doctor_gates.py:doctor` (three sites),
     `doctor_gate.py:481`, `negative_gate.py:186`, `frontend_gate.py:172` and
     `triangle.py:70`. Several of them set no timeout at all.
     """
@@ -320,11 +320,14 @@ def run(argv, cwd=None, env=None, timeout=180, label=""):
 def owned_scratch(prefix="orbit_gate_"):
     """A scratch directory this call owns and removes, wherever TEMP points.
 
-    Six modules register an `atexit` cleanup for a scratch they made with
-    `mkdtemp` -- `build_selfhost.py`, `dual_judge.py`, `measure_selfhost.py`,
-    `shard_selfhost.py`, `triangle.py`, `verify_seed.py` -- and 19 files call
-    `mkdtemp` (`grep -n mkdtemp scripts/*.py | wc -l` prints 24), so the other
-    thirteen leak on every run. The context manager makes the removal
+    Six sites register an `atexit` cleanup for a scratch made with
+    `mkdtemp` -- `trust.py` (its build, verify and
+    shard sections), `dual_judge.py`, `measure.py` (its measure-selfhost
+    section), `triangle.py` -- and 9 files call
+    `mkdtemp` (`grep -n mkdtemp scripts/*.py | wc -l` printed 25 on
+    2026-11-07, after the merges moved the six sections into their two
+    entry points), so the rest leak on every run. The context manager makes
+    the removal
     unconditional, including on the failure path a gate takes when it returns 1
     early, which is the path that used to leak. The directory is created under
     the temp this module points at, because the compiler writes its intermediate

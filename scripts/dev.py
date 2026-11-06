@@ -14,7 +14,7 @@ Tiers:
   T1  existing orbit binary. Doctor goldens, doctor scope, CLI contract.
   T2  freshly built fixed point. Language behaviour, negative corpus,
       parity, -Werror on generated C, unknown-count ratchet.
-  T3  root of trust. build_selfhost --check-stale and verify_seed.
+  T3  root of trust. trust.py build --check-stale and trust.py verify.
 
 Tier selection: `dev` selects tiers from `git diff --name-only` and errs
 toward running more. `check` runs T0..T2 unconditionally. `all` adds T3.
@@ -54,14 +54,14 @@ CANONICAL_C = ROOT / "compiler" / "selfhost" / "stage3.exe.c"
 WITNESS_LOG = ORBIT / "last_run.log"
 
 # Shared-chain contract (owner of the writers: agent F; dev.py only consumes).
-# When build_selfhost.py and verify_seed.py accept `--shared-work <dir>`, that
+# When trust.py build and trust.py verify accept `--shared-work <dir>`, that
 # run writes exactly these four files and dev.py `all` runs ONE real chain:
 #   <dir>/chain3.exe  the converged fixed-point compiler (copy source for fp)
 #   <dir>/chain3.c    the converged C that must equal the canonical byte-for-byte
 #   <dir>/seed.c      the seed-stage C snapshot (diagnostics, cache reuse)
 #   <dir>/hashes.json {canonical_sha, seed_sha, chain3_sha, published, runtime_sha}
 # All hashes are lowercase hex of file bytes, except `published` which is the
-# uppercase PUBLISHED_C from verify_seed.py. `runtime_sha` covers the
+# uppercase PUBLISHED_C from scripts/trust.py. `runtime_sha` covers the
 # runtime/**/*.c and *.h the canonical C includes: without it a snapshot built
 # before a runtime edit was adopted by both consumers, because the canonical
 # text had not moved. The driver merges a sixth key of its own, `sources_sha`
@@ -320,28 +320,29 @@ def fp_is_fresh(cc: str) -> bool:
 def build_fp(cc: str) -> pathlib.Path:
     """Converge the chain and leave the compiler where the runtime lookup finds it.
 
-    This is `build_selfhost.py --out`, not `verify_seed.py --emit-fixed-point`,
-    and the difference is deliberate: --out stops as soon as the chain has
-    converged, and does not also run the four equality checks. Those checks are
-    T3's job. Running them on every inner-loop iteration would be paying for the
-    root of trust to answer a question you did not ask yet.
+    This is `trust.py build --out`, not `trust.py verify
+    --emit-fixed-point`, and the difference is deliberate: --out stops as
+    soon as the chain has converged, and does not also run the four equality
+    checks. Those checks are T3's job. Running them on every inner-loop
+    iteration would be paying for the root of trust to answer a question you
+    did not ask yet.
     """
     binary = fp_path()
     ORBIT.mkdir(parents=True, exist_ok=True)
     say(f"  building the fixed point into {short(binary)} ...")
-    argv = [sys.executable, str(ROOT / "scripts" / "build_selfhost.py"),
+    argv = [sys.executable, str(ROOT / "scripts" / "trust.py"), "build",
             "--cc", cc, "--out", str(binary)]
     # Populate the shared snapshots on every real build: consumption is gated
     # on validity elsewhere, but without this no run ever writes the dir and
     # every `all` falls back forever (populate-always, consume-when-valid).
-    wrote_shared = script_supports("build_selfhost.py", "--shared-work")
+    wrote_shared = script_supports("trust.py", "--shared-work", sub="build")
     if wrote_shared:
         argv += ["--shared-work", str(SHARED_DIR)]
     proc = subprocess.run(argv, cwd=str(ROOT), env=child_env())
     if proc.returncode != 0:
         print("Failed: the bootstrap did not converge.", file=sys.stderr)
         raise SystemExit(proc.returncode)
-    # build_selfhost.py copies the binary without setting the exec bit, which is
+    # trust.py build copies the binary without setting the exec bit, which is
     # why every hand-built fp2..fp13 needed a `chmod +x` afterwards. Do it here
     # so the thing that owns the binary is also the thing that makes it runnable.
     mode = binary.stat().st_mode
@@ -360,7 +361,7 @@ def build_fp(cc: str) -> pathlib.Path:
 def record_shared_sources(cc: str) -> None:
     """Merge dev.py's `sources_sha` into the shared manifest (best effort).
 
-    The manifest is written whole by build_selfhost.py / verify_seed.py, which
+    The manifest is written whole by trust.py build / trust.py verify, which
     cannot compute compiler_fingerprint (it folds in the driver's resolved C
     compiler identity): they emit the four writer keys and nothing else, and a
     rewrite mid-run drops this key with them. This is called exactly when the
@@ -418,18 +419,24 @@ def sha256_file(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
-def script_supports(script: str, flag: str) -> bool:
+def script_supports(script: str, flag: str, sub: str = None) -> bool:
     """Whether scripts/<script> --help names <flag> (cached).
 
     The --shared-work / --witness wiring must not break on a tree where the
     flag is still unknown: passing it blindly would fail the gate, so callers
     check this first and fall back to the current argv when it is False.
+    `sub` is the subcommand whose --help is asked; the merged entry points
+    (scripts/trust.py, scripts/measure.py) list a subcommand's flags under
+    that subcommand, not under the script.
     """
-    key = (script, flag)
+    key = (script, flag, sub)
     if key not in _SUPPORTS_CACHE:
         try:
+            argv = [sys.executable, str(ROOT / "scripts" / script)]
+            if sub:
+                argv.append(sub)
             proc = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / script), "--help"],
+                argv + ["--help"],
                 capture_output=True, text=True, timeout=30, cwd=str(ROOT),
             )
             _SUPPORTS_CACHE[key] = flag in (proc.stdout or "")
@@ -732,13 +739,15 @@ def shard_split_argv(py: str, s_dir: str, fp: str, shards_dir: str, cc: str,
     the split needs. Reuse path (`header` given): a header already bound to the
     canonical's exact C bytes -- see bundle_header -- so the ~9 s emission is
     skipped and the canonical itself is split. Both forms name the bundle
-    emit_verify, because that is the name verify_seed is told to read.
+    emit_verify, because that is the name verify_seed is told to read. Both
+    invoke the `shard` subcommand of scripts/trust.py as the first argument
+    after the script.
     """
     if header is not None:
-        return [py, f"{s_dir}/shard_selfhost.py", "--name", "emit_verify",
+        return [py, f"{s_dir}/trust.py", "shard", "--name", "emit_verify",
                 "--tu", str(CANONICAL_C), "--header", header, "--no-build",
                 "--shards-dir", shards_dir, "--cc", cc]
-    return [py, f"{s_dir}/shard_selfhost.py", "--name", "emit_verify",
+    return [py, f"{s_dir}/trust.py", "shard", "--name", "emit_verify",
             "--emit-with", fp, "--no-build", "--fresh",
             "--shards-dir", shards_dir, "--cc", cc]
 
@@ -746,7 +755,7 @@ def shard_split_argv(py: str, s_dir: str, fp: str, shards_dir: str, cc: str,
 def bundle_header(bundle: pathlib.Path, canonical: pathlib.Path):
     """The bundle's header when it is bound to the canonical's exact C bytes.
 
-    shard_selfhost.py records <base>.header.json {tu_sha256, header_sha256}
+    trust.py shard records <base>.header.json {tu_sha256, header_sha256}
     whenever it splits an emission. Reuse needs both to still hold: the header
     was emitted with these C bytes, and the file on disk is still the bytes
     recorded. What the header *describes* is not taken on faith -- the split
@@ -948,7 +957,8 @@ def main() -> int:
         # actually do, once the register renumbering is flattened. No compiler,
         # no bootstrap -- it reads git and a text file.
         return subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "promote_diff.py")] +
+            [sys.executable, str(ROOT / "scripts" / "trust.py"),
+             "promote-diff"] +
             (["--expect-none"] if args.filter == "none" else []),
             cwd=str(ROOT),
         ).returncode
@@ -960,7 +970,7 @@ def main() -> int:
         # describes exactly the sources it was built from. Deleting the stamp
         # here cost a needless 20 s rebuild and was wrong.
         rc = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "build_selfhost.py"),
+            [sys.executable, str(ROOT / "scripts" / "trust.py"), "build",
              "--cc", cc, "--promote"],
             cwd=str(ROOT), env=child_env(),
         ).returncode
@@ -1007,8 +1017,8 @@ def main() -> int:
     # only decides whether it rebuilds the chain or reuses the snapshots.
     shared_ok, shared_reason = (shared_is_valid(cc) if args.target == "all"
                                 else (False, "not all"))
-    supports_build = script_supports("build_selfhost.py", "--shared-work")
-    supports_verify = script_supports("verify_seed.py", "--shared-work")
+    supports_build = script_supports("trust.py", "--shared-work", sub="build")
+    supports_verify = script_supports("trust.py", "--shared-work", sub="verify")
     use_shared_chain = bool(shared_ok and (supports_build or supports_verify))
     use_stale_bytes = bool(shared_ok)
     if args.target == "all":

@@ -22,7 +22,7 @@ if not exist "%SEED_SRC%" (
     echo error: python is required to regenerate the amalgamation. >&2
     exit /b 1
   )
-  python "%ROOT%\scripts\amalgamate.py" || exit /b 1
+  python "%ROOT%\scripts\trust.py" amalgamate || exit /b 1
 )
 
 set CC=
