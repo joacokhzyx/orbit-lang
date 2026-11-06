@@ -151,12 +151,13 @@ jobs:
           cat gates.log report.log
           exit $rc
 
-  # Three checks that read files of text and need no compiler: what
-  # compiler/front/ast.orb declares against the code that builds nodes, what each
-  # AST walk in the compiler declares about the fields it skips, and whether the
-  # documents' counted claims about the corpus still match the tree they
-  # describe. About a second between them, which is why they are worth running on
-  # every push instead of being discovered by hand.
+  # The tier-0 checks: what compiler/front/ast.orb declares against the code
+  # that builds nodes, what each AST walk in the compiler declares about the
+  # fields it skips, and whether the documents' counted claims about the corpus
+  # still match the tree they describe. The first two are Orbit probes built
+  # with the fixed point; the rest read text and need no compiler. The tier is
+  # about 20 seconds here, which is why it runs on every push instead of being
+  # discovered by hand.
   #
   # Linux only: they analyse Orbit source, so a second runner would prove that
   # Python reads the same file identically twice, at the cost of a runner.

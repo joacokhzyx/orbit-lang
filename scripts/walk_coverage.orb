@@ -1,0 +1,596 @@
+// Walk coverage probe: every AST walk in the compiler declares the fields it
+// skips, and every declaration still matches the arms.
+//
+// This file is the analysis. `scripts/static_gates.py walk` is the driver: it
+// builds this probe with the fixed-point compiler, runs it on the tree, and
+// turns the lines below into the gate's verdict. One record per line,
+// tab-separated:
+//
+//     WALK <loc> <fn> <tag> <missing,comma,separated>
+//     FIND <rule> <where> <message>
+//     END <findings>
+//
+// A walk is detected structurally: a function with a `match` on `ASTNode` that
+// recurses into itself after that match. `// orbit-walk: none` overrides the
+// detection. Two findings, both about the declaration rather than the code:
+//
+//    undeclared   a walk with a gap and no `orbit-walk-misses` line. The gap may
+//                 be correct; the point is that nobody wrote down that it is.
+//    stale        the annotation disagrees with the measured gap. A field was
+//                 added to a model, or an arm to a walk, and the declaration
+//                 did not move with it.
+//
+// The rules are the ones `scripts/static_gates.py` carried as a Python regex
+// analysis until 2026-11-06, transcribed as character scans. orbit_string_len
+// is strlen, so every loop caches it, and every character read goes through
+// orbit_string_char_at_selfhost; `.at()` and `.len()` in a loop are quadratic.
+
+import "../compiler/host/extern.orb"
+import "../std/fs/file.orb"
+
+fn ch(s: string, i: int) -> int {
+    return orbit_string_char_at_selfhost(s, i)
+}
+
+fn isUpper(c: int) -> bool { return c >= 65 && c <= 90 }
+fn isLower(c: int) -> bool { return c >= 97 && c <= 122 }
+fn isDigit(c: int) -> bool { return c >= 48 && c <= 57 }
+fn isLetter(c: int) -> bool { return isUpper(c) || isLower(c) }
+fn isWord(c: int) -> bool { return isLetter(c) || isDigit(c) || c == 95 }
+fn isSpace(c: int) -> bool { return c == 32 || c == 9 || c == 10 || c == 13 }
+
+fn slice(s: string, a: int, b: int, n: int) -> string {
+    return orbit_string_slice_known_len(s, a, b, n)
+}
+
+// A line without its terminator. The CR goes too: a checkout with
+// core.autocrlf holds every source with CRLF, and Python's text mode used to
+// translate that away before the old analyzer saw the line.
+fn stripCR(s: string) -> string {
+    val n = s.len()
+    if n > 0 && ch(s, n - 1) == 13 {
+        return orbit_string_slice_known_len(s, 0, n - 1, n)
+    }
+    return s
+}
+
+fn splitLines(text: string) -> list {
+    val out = []
+    val n = text.len()
+    var start = 0
+    var i = 0
+    while i < n {
+        if ch(text, i) == 10 {
+            out.push(stripCR(slice(text, start, i, n)))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    out.push(stripCR(slice(text, start, n, n)))
+    return out
+}
+
+fn trimText(s: string) -> string {
+    val n = s.len()
+    var a = 0
+    while a < n {
+        if isSpace(ch(s, a)) { a = a + 1 } else { break }
+    }
+    var b = n
+    while b > a {
+        if isSpace(ch(s, b - 1)) { b = b - 1 } else { break }
+    }
+    return slice(s, a, b, n)
+}
+
+fn startsWith(s: string, prefix: string) -> bool {
+    val n = s.len()
+    if prefix.len() > n { return false }
+    var i = 0
+    while i < prefix.len() {
+        if ch(s, i) != ch(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn matchesAt(s: string, n: int, at: int, what: string) -> bool {
+    val m = what.len()
+    if at + m > n { return false }
+    var i = 0
+    while i < m {
+        if ch(s, at + i) != ch(what, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn indexOfString(items: list, value: string) -> int {
+    var i = 0
+    while i < items.len() {
+        val at: string = items.get(i)
+        if at == value { return i }
+        i = i + 1
+    }
+    return - 1
+}
+
+fn sortedStrings(items: list) -> list {
+    val out = []
+    var i = 0
+    while i < items.len() {
+        out.push(items.get(i))
+        i = i + 1
+    }
+    val n = out.len()
+    var a = 0
+    while a < n {
+        var b = 0
+        while b + 1 < n - a {
+            val x: string = out.get(b)
+            val y: string = out.get(b + 1)
+            if orbit_string_cmp_selfhost(x, y) > 0 {
+                out.set(b, y)
+                out.set(b + 1, x)
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}
+
+fn orbFiles(dir: string) -> list {
+    val all = walk(dir)
+    val out = []
+    var i = 0
+    while i < all.len() {
+        val p: string = all.get(i)
+        val n = p.len()
+        if n > 4 && ch(p, n - 4) == 46 && ch(p, n - 3) == 111
+            && ch(p, n - 2) == 114 && ch(p, n - 1) == 98 {
+            out.push(p)
+        }
+        i = i + 1
+    }
+    return sortedStrings(out)
+}
+
+fn relativeTo(root: string, path: string) -> string {
+    val rn = root.len()
+    val pn = path.len()
+    if pn > rn + 1 {
+        if matchesAt(path, pn, 0, root) && ch(path, rn) == 47 {
+            return slice(path, rn + 1, pn, pn)
+        }
+    }
+    return path
+}
+
+fn cutComment(s: string) -> string {
+    val n = s.len()
+    var i = 0
+    while i + 1 < n {
+        if ch(s, i) == 47 && ch(s, i + 1) == 47 { return slice(s, 0, i, n) }
+        i = i + 1
+    }
+    return s
+}
+
+// One field line, `name: type`, as the two strings; empty when it is not one.
+fn parseField(line: string) -> list {
+    val text = trimText(cutComment(line))
+    val n = text.len()
+    var i = 0
+    while i < n {
+        if isWord(ch(text, i)) { i = i + 1 } else { break }
+    }
+    if i == 0 || i >= n { return [] }
+    if ch(text, i) != 58 { return [] }
+    val name = slice(text, 0, i, n)
+    val kind = trimText(slice(text, i + 1, n, n))
+    if kind == "" { return [] }
+    var k = 0
+    while k < kind.len() {
+        val c = ch(kind, k)
+        if isWord(c) || c == 60 || c == 62 || c == 44 || c == 32 { k = k + 1 }
+        else { return [] }
+    }
+    return [name, kind]
+}
+
+fn joinWith(items: list, sep: string) -> string {    val buf = orbit_cbuf_create_selfhost()
+    var i = 0
+    while i < items.len() {
+        if i != 0 { orbit_cbuf_append_selfhost(buf, sep) }
+        val s: string = items.get(i)
+        orbit_cbuf_append_selfhost(buf, s)
+        i = i + 1
+    }
+    return orbit_cbuf_build_selfhost(buf)
+}
+
+// `^\s*//\s*orbit-walk:\s*none\b.*$`
+fn isExempt(line: string) -> bool {
+    val t = trimText(line)
+    if !startsWith(t, "//") { return false }
+    var i = 2
+    val n = t.len()
+    while i < n {
+        if isSpace(ch(t, i)) { i = i + 1 } else { break }
+    }
+    if !matchesAt(t, n, i, "orbit-walk:") { return false }
+    i = i + 11
+    while i < n {
+        if isSpace(ch(t, i)) { i = i + 1 } else { break }
+    }
+    if !matchesAt(t, n, i, "none") { return false }
+    i = i + 4
+    if i < n {
+        if isWord(ch(t, i)) { return false }
+    }
+    return true
+}
+
+// `^\s*//\s*orbit-walk-misses:\s*(.*?)\s*$`, the value trimmed. The second
+// return says the line matched at all, because `none` and an absent line are
+// different answers.
+fn missesOn(line: string) -> list {
+    val t = trimText(line)
+    if !startsWith(t, "//") { return ["0", ""] }
+    var i = 2
+    val n = t.len()
+    while i < n {
+        if isSpace(ch(t, i)) { i = i + 1 } else { break }
+    }
+    if !matchesAt(t, n, i, "orbit-walk-misses:") { return ["0", ""] }
+    i = i + 18
+    return ["1", trimText(slice(t, i, n, n))]
+}
+
+fn modelOfVariant(variantNames: list, variantModels: list, variant: string) -> string {
+    val at = indexOfString(variantNames, variant)
+    if at < 0 { return "" }
+    return variantModels.get(at)
+}
+
+fn pushUnique(items: list, value: string) {
+    if indexOfString(items, value) < 0 { items.push(value) }
+}
+
+// The text of the fn starting on `i`: the lines after it, up to the next
+// `^fn \w+\(`.
+fn bodyOf(lines: list, i: int) -> list {
+    val body = []
+    var j = i + 1
+    while j < lines.len() {
+        val line: string = lines.get(j)
+        if startsWith(line, "fn ") {
+            var p = 3
+            val n = line.len()
+            while p < n {
+                if isWord(ch(line, p)) { p = p + 1 } else { break }
+            }
+            if p > 3 && p < n && ch(line, p) == 40 { break }
+        }
+        body.push(line)
+        j = j + 1
+    }
+    return body
+}
+
+// `\b<name>\s*\(` anywhere in `text`.
+fn recursesInto(text: string, name: string) -> bool {
+    val n = text.len()
+    val nl = name.len()
+    var i = 0
+    while i < n {
+        if isWord(ch(text, i)) {
+            var s = i
+            while s > 0 {
+                if isWord(ch(text, s - 1)) { s = s - 1 } else { break }
+            }
+            var e = i
+            while e < n {
+                if isWord(ch(text, e)) { e = e + 1 } else { break }
+            }
+            if s == i && e - s == nl {
+                if slice(text, s, e, n) == name {
+                    var q = e
+                    while q < n && isSpace(ch(text, q)) { q = q + 1 }
+                    if q < n && ch(text, q) == 40 { return true }
+                }
+            }
+            i = e
+        } else { i = i + 1 }
+    }
+    return false
+}
+
+// Everything after the first `match` in `text`.
+fn afterFirstMatch(text: string) -> string {
+    val n = text.len()
+    var i = 0
+    while i + 5 <= n {
+        if matchesAt(text, n, i, "match") { return slice(text, i + 5, n, n) }
+        i = i + 1
+    }
+    return ""
+}
+
+fn walkFile(root: string, path: string, childModels: list, variantNames: list,
+             variantModels: list) -> int {
+    val rel = relativeTo(root, path)
+    val lines = splitLines(orbit_file_read_selfhost(path))
+    var findings = 0
+    var i = 0
+    while i < lines.len() {
+        val line: string = lines.get(i)
+        val n = line.len()
+        var name = ""
+        if startsWith(line, "fn ") {
+            var p = 3
+            while p < n {
+                if isWord(ch(line, p)) { p = p + 1 } else { break }
+            }
+            if p > 3 && p < n && ch(line, p) == 40 {
+                name = slice(line, 3, p, n)
+            }
+        }
+        if name != "" {
+            val body = bodyOf(lines, i)
+            val text = joinWith(body, "\n")
+            var exempt = false
+            var declaredLine = false
+            var declaredValue = ""
+            var h = 0
+            val from = i - 3
+            if from > 0 { h = from } else { h = 0 }
+            val to = i + 4
+            while h < lines.len() && h < to {
+                val hline: string = lines.get(h)
+                if isExempt(hline) { exempt = true }
+                if !declaredLine {
+                    val m = missesOn(hline)
+                    val hit: string = m.get(0)
+                    if hit == "1" {
+                        declaredLine = true
+                        declaredValue = m.get(1)
+                    }
+                }
+                h = h + 1
+            }
+
+            val variants = []
+            var vi = 0
+            val tn = text.len()
+            while vi < tn {
+                if ch(text, vi) == 65 && matchesAt(text, tn, vi, "ASTNode.") {
+                    var p = vi + 8
+                    val vs = p
+                    while p < tn {
+                        if isLetter(ch(text, p)) { p = p + 1 } else { break }
+                    }
+                    if p > vs && p < tn && ch(text, p) == 40 {
+                        val variant = slice(text, vs, p, tn)
+                        pushUnique(variants, variant)
+                    }
+                    vi = p
+                } else { vi = vi + 1 }
+            }
+
+            if variants.len() > 0 {
+                val arms = []
+                var k = 0
+                while k < variants.len() {
+                    val v: string = variants.get(k)
+                    val owner = modelOfVariant(variantNames, variantModels, v)
+                    if owner != "" { pushUnique(arms, owner) }
+                    k = k + 1
+                }
+
+                var recurses = false
+                val tail = afterFirstMatch(text)
+                if tail.len() > 0 { recurses = recursesInto(tail, name) }
+
+                if recurses {
+                    val missingRaw = []
+                    var c = 0
+                    while c < childModels.len() {
+                        val owner: string = childModels.get(c)
+                        if indexOfString(arms, owner) < 0 { missingRaw.push(owner) }
+                        c = c + 1
+                    }
+                    val missing = sortedStrings(missingRaw)
+
+                    var tag = "UNDECLARED"
+                    val declared = []
+                    var hasDecl = false
+                    if declaredLine {
+                        hasDecl = true
+                        val v = declaredValue
+                        if v != "" && v != "none" {
+                            val parts = splitOn(v, ",")
+                            var pi = 0
+                            while pi < parts.len() {
+                                val part: string = parts.get(pi)
+                                val t = trimText(part)
+                                if t != "" { pushUnique(declared, t) }
+                                pi = pi + 1
+                            }
+                        }
+                    }
+                    if exempt { tag = "exempt" }
+                    else { if hasDecl { tag = "declared" } }
+
+                    print("WALK\t" + rel + ":"
+                        + orbit_int_to_string_selfhost(i + 1)
+                        + "\t" + name + "\t" + tag + "\t" + joinWith(missing, ","))
+
+                    if !exempt {
+                        if !hasDecl {
+                            findings = findings + 1
+                            print("FIND\tundeclared\t" + rel + ":"
+                                + orbit_int_to_string_selfhost(i + 1)
+                                + "\tfn " + name + " walks the AST and does not "
+                                + "declare what it skips. It has no arm of its own "
+                                + "for: " + orNothing(missing) + ". That is a "
+                                + "CANDIDATE, not a verdict: a walk can reach a "
+                                + "node by iterating its parent's list field "
+                                + "instead of arming it. doctorShadowStmt declares "
+                                + "MatchCaseNode as skipped and is wrong -- it "
+                                + "reaches every arm body through `m.cases`, and "
+                                + "D023 fires on a `val` shadowed in a match arm "
+                                + "and read after it. Declare the gap with "
+                                + "`// orbit-walk-misses: ...` if it is intended, "
+                                + "and treat the list as the work queue for "
+                                + "judging whether it is.")
+                        } else {
+                            if declaredDiffers(declared, missing) {
+                                findings = findings + 1
+                                print("FIND\tstale\t" + rel + ":"
+                                    + orbit_int_to_string_selfhost(i + 1)
+                                    + "\tfn " + name + " declares "
+                                    + "orbit-walk-misses: " + orNone(declared)
+                                    + ", but the arms leave " + orNothing(missing)
+                                    + " unvisited. A field was added to a model, "
+                                    + "or an arm to this walk, without the "
+                                    + "declaration following.")
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        } else { i = i + 1 }
+    }
+    return findings
+}
+
+fn orNothing(items: list) -> string {
+    if items.len() == 0 { return "nothing" }
+    return joinWith(items, ", ")
+}
+
+fn orNone(items: list) -> string {
+    if items.len() == 0 { return "none" }
+    val sorted = sortedStrings(items)
+    return joinWith(sorted, ", ")
+}
+
+fn declaredDiffers(declared: list, missing: list) -> bool {
+    if declared.len() != missing.len() { return true }
+    var i = 0
+    while i < declared.len() {
+        val d: string = declared.get(i)
+        if indexOfString(missing, d) < 0 { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn splitOn(text: string, sep: string) -> list {
+    val out = []
+    val n = text.len()
+    var start = 0
+    var i = 0
+    while i < n {
+        if matchesAt(text, n, i, sep) {
+            out.push(slice(text, start, i, n))
+            i = i + sep.len()
+            start = i
+        } else { i = i + 1 }
+    }
+    out.push(slice(text, start, n, n))
+    return out
+}
+
+fn analyse(root: string) {
+    val lines = splitLines(orbit_file_read_selfhost(root + "/compiler/front/ast.orb"))
+    val childModels = []
+    val variantNames = []
+    val variantModels = []
+    var li = 0
+    while li < lines.len() {
+        val line: string = lines.get(li)
+        if startsWith(line, "model ") {
+            val n = line.len()
+            var p = 6
+            while p < n {
+                if isWord(ch(line, p)) { p = p + 1 } else { break }
+            }
+            val name = slice(line, 6, p, n)
+            if name != "" && p + 2 == n && ch(line, p) == 32 && ch(line, p + 1) == 123 {
+                var hasNode = false
+                var fi = li + 1
+                while fi < lines.len() {
+                    val fline: string = lines.get(fi)
+                    if fline.len() > 0 && ch(fline, 0) == 125 { break }
+                    val field = parseField(fline)
+                    if field.len() == 2 {
+                        val kind: string = field.get(1)
+                        if kind == "ASTNode" { hasNode = true }
+                    }
+                    fi = fi + 1
+                }
+                if hasNode { childModels.push(name) }
+                li = fi
+            }
+        } else {
+            if startsWith(line, "type ") {
+                val n = line.len()
+                var p = 5
+                while p < n {
+                    if isWord(ch(line, p)) { p = p + 1 } else { break }
+                }
+                val uname = slice(line, 5, p, n)
+                if uname != "" && p + 1 < n && ch(line, p) == 32 && ch(line, p + 1) == 61 {
+                    val rest = slice(line, p + 2, n, n)
+                    val rn = rest.len()
+                    var i = 0
+                    while i < rn {
+                        if isWord(ch(rest, i)) {
+                            var s = i
+                            while i < rn {
+                                if isWord(ch(rest, i)) { i = i + 1 } else { break }
+                            }
+                            if i < rn && ch(rest, i) == 40 {
+                                val vname = slice(rest, s, i, rn)
+                                var j = i + 1
+                                val ms = j
+                                while j < rn {
+                                    if isWord(ch(rest, j)) { j = j + 1 } else { break }
+                                }
+                                if j > ms && j < rn && ch(rest, j) == 41 {
+                                    variantNames.push(vname)
+                                    variantModels.push(slice(rest, ms, j, rn))
+                                }
+                            }
+                        } else { i = i + 1 }
+                    }
+                }
+            }
+        }
+        li = li + 1
+    }
+
+    val files = orbFiles(root + "/compiler")
+    var findings = 0
+    var f = 0
+    while f < files.len() {
+        findings = findings + walkFile(root, files.get(f), childModels,
+                                       variantNames, variantModels)
+        f = f + 1
+    }
+    print("END\t" + orbit_int_to_string_selfhost(findings))
+}
+
+fn main() -> int {
+    val argc = orbit_os_argc_selfhost()
+    if argc < 2 {
+        print("END\t0")
+        return 0
+    }
+    analyse(orbit_os_argv_selfhost(1))
+    return 0
+}

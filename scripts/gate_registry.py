@@ -102,25 +102,29 @@ def _argv(script, *extra):
 
 
 GATES = [
-    # ---- T0: static, and the reason they are T0 is that they need no compiler.
-    # fmt is in the tier and not a row with an argv: dev.py runs it sharded per
-    # file, so its command line is not one subprocess (dev.py:535-655).
+    # ---- T0: static. Three of the six read text with no compiler; fmt, schema
+    # and walk all need the fixed point. fmt is in the tier and not a row with
+    # an argv: dev.py runs it sharded per file, so its command line is not one
+    # subprocess (dev.py:535-655).
     Gate("fmt", 0, "scripts/dev.py", None,
          why="`orbit fmt --check` over compiler/, tests/suite/, std/, tests/std/ "
              "and examples/, sharded per file; the files are listed by "
              "dev.py:535 fmt_check_files()"),
 
-    Gate("schema_conformance", 0, "scripts/static_gates.py", _argv("static_gates.py", "schema"),
-         why="`compiler/front/ast.orb` against the code that builds its nodes. "
-             "It belongs in T0 and not T1: it compares two files of text and "
-             "needs no compiler at all, so running it inside a tier that pays "
-             "for a bootstrap would be charging a second for the same check. It "
-             "is the cheapest gate in the repo and the one that catches a whole "
-             "class of silent wrong answers -- the schema declaring a field a "
-             "list when the parser hands it a node -- so it belongs where it "
-             "runs every time, including for a clean tree"),
-    Gate("walk_coverage", 0, "scripts/static_gates.py", _argv("static_gates.py", "walk"),
-         why="every AST walk declares the fields it skips (dev.py:720)"),
+    Gate("schema_conformance", 0, "scripts/static_gates.py",
+         _argv("static_gates.py", "schema", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="`compiler/front/ast.orb` against the code that builds its nodes, "
+             "as `scripts/schema_conformance.orb` since 2026-11-06. It belongs "
+             "in T0: it reads two files of text and catches a class of silent "
+             "wrong answers -- the schema declaring a field a list when the "
+             "parser hands it a node -- so it runs every time, including for a "
+             "clean tree. The driver compiles the probe with the fixed point "
+             "(measured: 1.4 s to build, 0.05 s to read the tree)"),
+    Gate("walk_coverage", 0, "scripts/static_gates.py",
+         _argv("static_gates.py", "walk", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="every AST walk declares the fields it skips, as "
+             "`scripts/walk_coverage.orb`; the driver compiles the probe with "
+             "the fixed point (dev.py:720)"),
     Gate("doc_counts", 0, "scripts/static_gates.py", _argv("static_gates.py", "counts"),
          why="a document's counted claim about the corpus still matching the "
              "tree it describes"),
@@ -264,8 +268,10 @@ GATES = [
 # labels invoke scripts/measure.py or scripts/trust.py with their
 # subcommand; no label, tier or verdict line moved)
 EXPECTED_ARGV = {
-    "schema_conformance": ["{script}static_gates.py", "schema"],
-    "walk_coverage": ["{script}static_gates.py", "walk"],
+    "schema_conformance": ["{script}static_gates.py", "schema", "--cc", "CC",
+                           "--compiler", "FP"],
+    "walk_coverage": ["{script}static_gates.py", "walk", "--cc", "CC",
+                      "--compiler", "FP"],
     "doc_counts": ["{script}static_gates.py", "counts"],
     "flag_coverage": ["{script}static_gates.py", "flags"],
     "cite_coverage": ["{script}static_gates.py", "cites"],

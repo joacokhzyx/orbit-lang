@@ -158,10 +158,11 @@ def registry(compiler, cc, work):
              "selected from the working tree",
              lambda: _script("dev.py", "list"),
              r"T\d:", 120, allow_rc=(0, 1)),
-        # The schema gate. It needs no compiler, which is the point: it compares
-        # two files of text, so it runs in a second where a doctor check would
-        # cost a bootstrap. `allow_rc=(0, 1)` because it is allowed to report a
-        # real disagreement -- that is a finding, not a broken tool.
+        # The schema gate. Its analysis is an Orbit probe now
+        # (`scripts/schema_conformance.orb`), compiled by the fixed point, so
+        # this row passes the compiler and needs one. `allow_rc=(0, 1)` because
+        # it is allowed to report a real disagreement -- that is a finding, not
+        # a broken tool.
         # The tier-0 family is one tool with five subcommands since the 2026-11-06
         # merge. Five rows for one file is deliberate: a row that only proved the
         # interpreter starts would not prove the analysis still runs, and each
@@ -169,8 +170,9 @@ def registry(compiler, cc, work):
         Tool("static_gates.py", "gate",
              "compiler/front/ast.orb against the code that builds nodes: arity, "
              "phantom models and variants, and a node read with a list operation",
-             lambda: _script("static_gates.py", "schema"),
-             r"Finished schema-conformance", 120, allow_rc=(0, 1)),
+             lambda: _script("static_gates.py", "schema", *comp()),
+             r"Finished schema-conformance", 120, allow_rc=(0, 1),
+             needs=("compiler",)),
         # The companion to the corpus: it does not measure visits, it checks that
         # every AST walk in the compiler DECLARES the fields it skips, and that
         # the declaration still matches the arms. A walk that silently stopped
@@ -178,8 +180,9 @@ def registry(compiler, cc, work):
         Tool("static_gates.py", "gate",
              "every AST walk in compiler/ declares the fields it skips, and "
              "every declaration matches the arms",
-             lambda: _script("static_gates.py", "walk"),
-             r"Finished walk-coverage", 120, allow_rc=(0, 1)),
+             lambda: _script("static_gates.py", "walk", *comp()),
+             r"Finished walk-coverage", 120, allow_rc=(0, 1),
+             needs=("compiler",)),
         # The companion to schema_conformance and walk_coverage for a different
         # kind of stale text: a document's counted claim about the corpus. It
         # reads the tree and the claim and fails when they disagree.
@@ -659,6 +662,12 @@ def _check_unknown_baseline(path):
 
 
 STATIC_ROWS = [
+    ("schema_conformance.orb", "the schema probe program: reads the tree as "
+     "text and prints the line protocol static_gates.py parses. The gate builds "
+     "and runs it every time, so a probe that stopped compiling fails its gate",
+     None),
+    ("walk_coverage.orb", "the walk probe program: the same protocol for the "
+     "declaration every AST walk carries", None),
     ("unknown_census.orb", "the census probe program. THIS is the file that "
      "rotted silently in D8: the F-0004 fix stopped it building and the only "
      "symptom was a line on stderr", None),

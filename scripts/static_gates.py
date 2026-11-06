@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """The five tier-0 static gates in one tool: schema, walk, counts, flags, cites.
 
-This file holds the five scripts that compare text to text -- 1,693 lines from
-`schema_conformance.py`, `walk_coverage.py`, `doc_counts.py`, `flag_coverage.py`
-and `cite_check.py`, by `wc -l` on 2026-11-05. Each is one section, in that
-order, and each section opens with the block comment that was its module
-docstring. That prose is the reason the gate exists -- the field declared a list
-that the parser handed over as a node, the `--list` that no line read -- so it
-moved with the code rather than into a commit message.
+This file is the entry point for the five, which were merged here on 2026-11-06
+-- 1,693 lines from `schema_conformance.py`, `walk_coverage.py`,
+`doc_counts.py`, `flag_coverage.py` and `cite_check.py`, by `wc -l` on
+2026-11-05. Two of the five now hold their analysis in Orbit probes, named where
+their sections start. Each is one section, in that order, and each section opens
+with the block comment that was its module docstring. That prose is the reason
+the gate exists -- the field declared a list that the parser handed over as a
+node, the `--list` that no line read -- so it moved with the code rather than
+into a commit message.
 
 Subcommand, old file, closing line:
 
@@ -27,10 +29,16 @@ Exit codes are unchanged: 0 on a clean tree, 1 on findings or a failed
 self-test, 2 where the old script used 2 (`schema` when ast.orb declares no
 model, and argparse misuse).
 
-The five belong together because they are the same kind of tool. No section
-imports the subprocess module, and none of the five needs a compiler -- the
-bargain AGENTS.md:75 prices at "about a second" for tier 0. Merging them removes
-five shebangs, five `argparse` preludes and two module-level `sys.path.insert`
+The five belong together because they answer the same question -- does a
+document still describe this tree -- and they are selected as one tier. Three of
+them (counts, flags, cites) compare text to text with no compiler and no
+subprocess, at about a second each. Two of them (schema, walk) are Orbit probes
+since 2026-11-06: `scripts/schema_conformance.orb` and
+`scripts/walk_coverage.orb` hold the analysis, and the subcommands below build
+one with the fixed point and parse its line protocol. Those two cost the build
+(measured: 1.4 s of compile and 0.05 s of work on the tree) and need a compiler;
+the trade and its cost are in AGENTS.md. Merging the five removed five
+shebangs, five `argparse` preludes and two module-level `sys.path.insert`
 guards. It changes no analysis: the gate labels in `scripts/gate_registry.py`
 stay `schema_conformance`, `walk_coverage`, `doc_counts`, `flag_coverage` and
 `cite_coverage`, so `python scripts/dev.py all --filter cite_coverage` still
@@ -52,7 +60,12 @@ import ast
 import os
 import pathlib
 import re
+import shutil
 import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _common  # noqa: E402
 
 # ROOT, AST, check, self_test and main are the same name in several of the five
 # files and are not the same value: cite_check.py built ROOT with os.path and
@@ -64,9 +77,8 @@ import sys
 # argparse block each old main() carried is now that subcommand's add_parser
 # call, so its help text and its flags are the ones the script accepted.
 # read_lines and fences turned out to be unique to cite_check.py and keep their
-# names, and so does parse_schema: walk_coverage.py imported it from
-# schema_conformance.py at module level, and the two sections now share the one
-# definition below.
+# names. The two Orbit probes bring their own helpers; nothing above the probes
+# in this file is shared with them.
 
 # The first line of each moved module docstring, kept as the subcommand's
 # description so `<subcommand> --help` says what the old script said.
@@ -128,261 +140,183 @@ _CITES_DESC = ("Citation gate: every `path:line` in the prose must point at the 
 
 
 _SC_ROOT = pathlib.Path(__file__).resolve().parent.parent
-_SC_AST = _SC_ROOT / "compiler" / "front" / "ast.orb"
-
-MODEL_RE = re.compile(r"^model (\w+) \{\s*\}", re.M)
-MODEL_BLOCK_RE = re.compile(r"^model (\w+) \{\n(.*?)^\}", re.S | re.M)
-FIELD_RE = re.compile(r"^(\w+):\s*([\w<>, ]+?)\s*$", re.M)
-UNION_RE = re.compile(r"^type (\w+) =(.*)$", re.M)
-VARIANT_RE = re.compile(r"(\w+)\((\w+)\)")
-
-# Operations that only exist on a list. Applied to a field declared `ASTNode`,
-# one of these is the bug this script exists for.
-LIST_OPS = ("len", "get", "push", "pop", "insert", "remove", "append")
+_SC_PROBE = _SC_ROOT / "scripts" / "schema_conformance.orb"
 
 
-def parse_schema(text: str) -> tuple:
-    """models: {name: [(field, type)]}, unions: {name: [(variant, model)]}."""
-    models = {}
-    for m in MODEL_BLOCK_RE.finditer(text):
-        fields = []
-        for line in m.group(2).split("\n"):
-            line = re.sub(r"//.*", "", line).strip()
-            fm = FIELD_RE.match(line)
-            if fm:
-                fields.append((fm.group(1), fm.group(2).strip()))
-        models[m.group(1)] = fields
-    # `model BreakNode {}` and friends: empty, one line, and not matched above.
-    for m in MODEL_RE.finditer(text):
-        models.setdefault(m.group(1), [])
+def probe_build(args, probe):
+    """Compile `probe` with the fixed point. Returns (exe, workdir) or (None, why).
 
-    unions = {}
-    for m in UNION_RE.finditer(text):
-        variants = [(v, mo) for v, mo in VARIANT_RE.findall(m.group(2))]
-        unions[m.group(1)] = variants
-    return models, unions
-
-
-def split_args(src: str, start: int) -> tuple:
-    """The argument list of a call whose '(' is at `start`.
-
-    Returns (count, index_after_the_closing_paren). Counts top-level commas
-    rather than splitting on text, because the arguments are themselves calls:
-    `CallNode(buildExpr(a), makeArgs(b, c))` is two arguments, not three.
+    The caller removes the workdir. A failed build comes back as text, because a
+    probe that stopped compiling is the failure this pair of gates can say least
+    about itself: the analysis is the file that would not build.
     """
-    depth, commas, i, in_str = 1, 0, start + 1, False
-    while i < len(src) and depth:
-        ch = src[i]
-        if in_str:
-            if ch == "\\":
-                i += 2
-                continue
-            if ch == '"':
-                in_str = False
-        elif ch == '"':
-            in_str = True
-        elif ch in "([{":
-            depth += 1
-        elif ch in ")]}":
-            depth -= 1
-        elif ch == "," and depth == 1:
-            commas += 1
-        i += 1
-    body = src[start + 1:i - 1].strip()
-    count = commas + 1 if body else 0
-    return count, i
+    cc = _common.resolve_cc(getattr(args, "cc", None))
+    compiler = getattr(args, "compiler", None) or _common.fixed_point(cc)
+    if not compiler:
+        return None, ("no fixed point: run `python scripts/dev.py fp` or pass "
+                      "--compiler")
+    work = tempfile.mkdtemp(prefix="orbit_static_probe_")
+    exe = os.path.join(work, probe.stem + (".exe" if os.name == "nt" else ""))
+    env = _common.build_env(work, cc=cc)
+    env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % (_SC_ROOT / "runtime")
+    rc, text = _common.run(
+        [compiler, "build", probe.relative_to(_SC_ROOT).as_posix(), "-o", exe],
+        cwd=str(_SC_ROOT), env=env, timeout=300, label="orbit build")
+    if rc != 0 or not os.path.isfile(exe):
+        shutil.rmtree(work, ignore_errors=True)
+        return None, "the probe did not build:\n" + _common.tail(text)
+    return exe, work
 
 
-def compiler_sources(root: pathlib.Path):
-    """Every compiler source, read once. Sites span lines, so line-by-line
-    would miss an argument list that wraps."""
-    for path in sorted((root / "compiler").rglob("*.orb")):
-        yield path, path.read_text(encoding="utf-8")
+def probe_call(exe, root):
+    """Run a built probe on `root` and parse its protocol, or None on failure."""
+    rc, text = _common.run([exe, str(root)], timeout=300,
+                           label=os.path.basename(exe))
+    if rc != 0:
+        print("Failed: the probe exited %d:\n%s" % (rc, _common.tail(text)),
+              file=sys.stderr)
+        return None
+    return probe_parse(text)
 
 
-def collect_constructions(models: dict, root: pathlib.Path) -> tuple:
-    """(constructed models, constructed variants, arity findings)."""
-    built_models, built_variants, findings = set(), set(), []
-    for path, src in compiler_sources(root):
-        rel = path.relative_to(root).as_posix()
-        src = path.read_text(encoding="utf-8")
-        rel = path.relative_to(root).as_posix()
-        for m in re.finditer(r"\b([A-Z]\w*Node)\(", src):
-            name = m.group(1)
-            if name not in models:
-                continue
-            count, _ = split_args(src, m.end() - 1)
-            want = len(models[name])
-            built_models.add(name)
-            if count != want:
-                line = src.count("\n", 0, m.start()) + 1
-                findings.append((
-                    f"{rel}:{line}", "arity",
-                    f"{name}(...) passes {count} argument(s), the model declares "
-                    f"{want}. A field added or reordered without the parser "
-                    f"following shifts every field after it.",
-                ))
-        for m in re.finditer(r"\bASTNode\.(\w+)\(\s*([A-Z]\w*Node)\s*\(", src):
-            built_variants.add(m.group(1))
-    return built_models, built_variants, findings
+def probe_parse(text):
+    """(facts, findings, walks) from the tab-separated records.
+
+    findings are (where, rule, message), in the order the Python implementation
+    printed them. walks are (loc, fn, tag, missing) for `walk --list`.
+    """
+    facts, findings, walks = {}, [], []
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if parts[0] == "SCHEMA" and len(parts) >= 4:
+            facts = {"models": int(parts[1]), "fields": int(parts[2]),
+                     "unions": int(parts[3])}
+        elif parts[0] == "WALK" and len(parts) >= 5:
+            walks.append((parts[1], parts[2], parts[3], parts[4]))
+        elif parts[0] == "FIND" and len(parts) >= 4:
+            findings.append((parts[2], parts[1], parts[3]))
+    return facts, findings, walks
 
 
-def collect_node_list_ops(models: dict, root: pathlib.Path) -> list:
-    """A field declared ASTNode, read with a list operation, inside the arm
-    that binds its model."""
-    findings = []
-    for path, src in compiler_sources(root):
-        rel = path.relative_to(root).as_posix()
-        for arm in re.finditer(r"ASTNode\.([A-Za-z]+)\((\w+)\)\s*=>\s*\{", src):
-            model, binding = arm.group(1), arm.group(2)
-            fields = dict(models.get(model + "Node", []))
-            # The arm body: to the matching close brace.
-            depth, i = 1, arm.end() - 1
-            while i < len(src) and depth:
-                if src[i] == "{":
-                    depth += 1
-                elif src[i] == "}":
-                    depth -= 1
-                i += 1
-            body = src[arm.end():i - 1]
-            for use in re.finditer(rf"\b{re.escape(binding)}\.(\w+)\.(\w+)\s*\(", body):
-                fname, op = use.group(1), use.group(2)
-                if fields.get(fname) == "ASTNode" and op in LIST_OPS:
-                    line = src.count("\n", 0, arm.end() + use.start()) + 1
-                    findings.append((
-                        f"{rel}:{line}", "node-list-op",
-                        f"{model}Node.{fname} is declared ASTNode and is read with "
-                        f"`.{op}(`, which only exists on a list. Reading a node as "
-                        f"a list header is how body.len() once returned "
-                        f"-1184889136.",
-                    ))
-    return findings
-
-
-def _sc_check(root: pathlib.Path) -> list:
-    """Every disagreement between the schema and the code that builds nodes."""
-    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text(encoding="utf-8"))
-    built_models, built_variants, findings = collect_constructions(models, root)
-    findings += collect_node_list_ops(models, root)
-
-    for name, fields in sorted(models.items()):
-        if fields and name not in built_models:
-            findings.append((
-                "compiler/front/ast.orb", "unbuilt-model",
-                f"model {name} declares {len(fields)} field(s) and nothing "
-                f"constructs it. Either it is schema for a node that cannot "
-                f"exist, or the parser stopped building it.",
-            ))
-    for union, variants in sorted(unions.items()):
-        for variant, model in variants:
-            if variant not in built_variants:
-                findings.append((
-                    f"compiler/front/ast.orb ({union})", "unbuilt-variant",
-                    f"{union} variant `{variant}` is declared and nothing ever "
-                    f"constructs it. ENGINEERING.md section 0 forbids this: "
-                    f"phantom schema is a contract with no implementation.",
-                ))
-    return findings
-
-
-NL = chr(10)
 SELF_TEST_SCHEMA = (
-    "model MNode {" + NL +
-    "    body: ASTNode" + NL +
-    "    names: list" + NL +
-    "}" + NL +
-    "model NNode {" + NL +
-    "    id: string" + NL +
-    "}" + NL +
-    "type ASTNode = M(MNode) | N(NNode)" + NL
+    "model MNode {\n"
+    "    body: ASTNode\n"
+    "    names: list\n"
+    "}\n"
+    "model NNode {\n"
+    "    id: string\n"
+    "}\n"
+    "type ASTNode = M(MNode) | N(NNode)\n"
 )
 
 # A tree that satisfies every rule: two models, both built, both in the union.
 SELF_TEST_SOURCE = (
-    "fn build(n: ASTNode) -> int {" + NL +
-    "    val m = ASTNode.M(MNode(n, []))" + NL +
-    "    val q = ASTNode.N(NNode(\"id\"))" + NL +
-    "    return 0" + NL +
-    "}" + NL
+    "fn build(n: ASTNode) -> int {\n"
+    "    val m = ASTNode.M(MNode(n, []))\n"
+    "    val q = ASTNode.N(NNode(\"id\"))\n"
+    "    return 0\n"
+    "}\n"
 )
 
-# One perturbation per rule. Each one adds exactly one violation to the clean
-# fixture above, so a rule that stays quiet is a rule that has stopped working
+# One perturbation per rule. Each adds a finding of its own rule to the clean
+# fixture above, so a rule that stays quiet is a rule that stopped working
 # rather than a rule that was already noisy.
 SELF_TEST_CASES = [
     ("arity",
-     SELF_TEST_SCHEMA, SELF_TEST_SOURCE + "val a = MNode(node)" + NL,
+     SELF_TEST_SCHEMA, SELF_TEST_SOURCE + "val a = MNode(node)\n",
      "a construction site passing one argument too few"),
     ("node-list-op",
      SELF_TEST_SCHEMA,
-     "fn bad(m: ASTNode) -> int {" + NL +
-     "    match m {" + NL +
-     "        ASTNode.M(v) => { val k = v.body.len() return 0 }" + NL +
-     "        _ => { return 0 }" + NL +
-     "    }" + NL +
-     "}" + NL,
+     "fn bad(m: ASTNode) -> int {\n"
+     "    match m {\n"
+     "        ASTNode.M(v) => { val k = v.body.len() return 0 }\n"
+     "        _ => { return 0 }\n"
+     "    }\n"
+     "}\n",
      "`v.body.len()` with `body` declared ASTNode"),
     ("unbuilt-model",
-     SELF_TEST_SCHEMA + "model OrphanNode {" + NL + "    x: int" + NL + "}" + NL,
+     SELF_TEST_SCHEMA + "model OrphanNode {\n    x: int\n}\n",
      SELF_TEST_SOURCE,
      "a model with fields that nothing constructs"),
     ("unbuilt-variant",
-     SELF_TEST_SCHEMA + "type More = P(PNode)" + NL,
+     SELF_TEST_SCHEMA + "type More = P(PNode)\n",
      SELF_TEST_SOURCE,
      "a union variant that nothing constructs"),
 ]
 
 
-def self_test_schema() -> int:
+def self_test_schema(args) -> int:
     """Assert every rule can still say no.
 
-    D8: a tool that cannot fail is not a tool. Each rule is fired on a tree built
-    to violate exactly that rule; a rule that stays quiet on its own violation
-    has stopped working, and that is the failure this catches.
+    D8: a tool that cannot fail is not a tool. The probe is built once and run
+    on one tree per case; a rule that stays quiet on its own violation has
+    stopped working, which is the failure this catches.
     """
-    import tempfile
+    exe, work = probe_build(args, _SC_PROBE)
+    if exe is None:
+        print(f"self-test FAILED: {work}")
+        return 1
+    try:
+        with tempfile.TemporaryDirectory(
+                prefix="schema_conformance_selftest_") as td:
+            root = pathlib.Path(td)
+            cdir = root / "compiler" / "front"
+            cdir.mkdir(parents=True)
 
-    with tempfile.TemporaryDirectory(prefix="schema_conformance_selftest_") as td:
-        root = pathlib.Path(td)
-        cdir = root / "compiler" / "front"
-        cdir.mkdir(parents=True)
+            def fixture(schema: str, body: str):
+                (cdir / "ast.orb").write_text(schema)
+                (cdir / "a.orb").write_text(body)
+                parsed = probe_call(exe, root)
+                if parsed is None:
+                    return None, None
+                facts, findings, _ = parsed
+                return facts, {f[1] for f in findings}
 
-        def fixture(schema: str, body: str) -> set:
-            (cdir / "ast.orb").write_text(schema)
-            (cdir / "a.orb").write_text(body)
-            return {f[1] for f in _sc_check(root)}
-
-        # The clean fixture must be clean. If it is not, every case below is
-        # measuring noise rather than the rule.
-        base = fixture(SELF_TEST_SCHEMA, SELF_TEST_SOURCE)
-        if base:
-            print(f"self-test FAILED: the clean fixture is not clean; it raised "
-                  f"{sorted(base)} before anything was perturbed")
-            return 1
-
-        # The parts the rules rest on.
-        models, unions = parse_schema(SELF_TEST_SCHEMA)
-        if len(models) != 2 or unions["ASTNode"] != [("M", "MNode"), ("N", "NNode")]:
-            print("self-test FAILED: the schema parser misreads models or unions")
-            return 1
-        if split_args("f(g(a, b), h(c, d))", 1)[0] != 2:
-            print("self-test FAILED: the argument splitter counts a nested comma")
-            return 1
-        if split_args("f()", 1)[0] != 0:
-            print("self-test FAILED: the argument splitter counts an empty call")
-            return 1
-
-        fired = 0
-        for rule, schema, body, what in SELF_TEST_CASES:
-            got = fixture(schema, body)
-            if rule not in got:
-                print(f"self-test FAILED: the {rule} rule stayed quiet on {what}")
+            # The clean fixture must be clean. If it is not, every case below is
+            # measuring noise rather than the rule.
+            facts, raised = fixture(SELF_TEST_SCHEMA, SELF_TEST_SOURCE)
+            if raised is None:
+                print("self-test FAILED: the probe did not run on the clean fixture")
                 return 1
-            fired += 1
+            if raised:
+                print(f"self-test FAILED: the clean fixture is not clean; it "
+                      f"raised {sorted(raised)} before anything was perturbed")
+                return 1
+            if facts != {"models": 2, "fields": 3, "unions": 1}:
+                print(f"self-test FAILED: the schema parser misreads the "
+                      f"fixture's models, fields or unions: {facts}")
+                return 1
+
+            # The argument counter reads a nested call as one argument: two
+            # top-level arguments here, not three, so the arity rule is silent.
+            facts, raised = fixture(
+                SELF_TEST_SCHEMA,
+                SELF_TEST_SOURCE
+                + "val z = MNode(buildExpr(a), makeArgs(b, c))\n")
+            if raised is None:
+                print("self-test FAILED: the probe did not run on the nested-call case")
+                return 1
+            if raised:
+                print(f"self-test FAILED: the argument counter reads a nested "
+                      f"comma as an argument boundary; it raised {sorted(raised)}")
+                return 1
+
+            fired = 0
+            for rule, schema, body, what in SELF_TEST_CASES:
+                facts, raised = fixture(schema, body)
+                if raised is None:
+                    print(f"self-test FAILED: the probe did not run on the {rule} case")
+                    return 1
+                if rule not in raised:
+                    print(f"self-test FAILED: the {rule} rule stayed quiet on {what}")
+                    return 1
+                fired += 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
     print(f"Finished schema-conformance self-test: {fired}/{fired} rules fired "
           f"on a tree built to violate them; the clean fixture is clean; the "
-          f"schema parser and the argument splitter read what they claim to.")
+          f"schema parser and the argument counter read what they claim to.")
     return 0
 
 
@@ -446,218 +380,95 @@ def self_test_schema() -> int:
 
 
 _WC_ROOT = pathlib.Path(__file__).resolve().parent.parent
-_WC_AST = _WC_ROOT / "compiler" / "front" / "ast.orb"
+_WC_PROBE = _WC_ROOT / "scripts" / "walk_coverage.orb"
 
-# re.M matters: `head` is a slice of several lines, and without it `^` and `$`
-# anchor to the whole slice, so an annotation on any line but the first and last
-# is invisible and every walk looks undeclared.
-# A reason is allowed after `none` and is encouraged: an exemption with no stated
-# reason is indistinguishable from an oversight, which is the thing this gate
-# exists to prevent.
-EXEMPT_RE = re.compile(r"^\s*//\s*orbit-walk:\s*none\b.*$", re.M)
-MISSES_RE = re.compile(r"^\s*//\s*orbit-walk-misses:\s*(.*?)\s*$", re.M)
+WALK_FIXTURE_SCHEMA = (
+    "model MNode {\n"
+    "    body: ASTNode\n"
+    "    names: list\n"
+    "}\n"
+    "type ASTNode = M(MNode)\n"
+)
+
+# A walk with an arm for the only child model and no declaration. It is the
+# positive control for three cases below.
+WALK_FIXTURE_SOURCE = (
+    "fn w(n: ASTNode) -> int {\n"
+    "    match n {\n"
+    "        ASTNode.M(v) => { w(v.body) return 0 }\n"
+    "        _ => { return 0 }\n"
+    "    }\n"
+    "}\n"
+)
 
 
-def child_models(models: dict) -> set:
-    """Models that can contain a node, i.e. the ones a walk has to descend into.
+def walk_list_line(loc: str, fn: str, tag: str, missing: str) -> str:
+    gap = ", ".join(m for m in missing.split(",") if m) or "-"
+    return f"{loc:<44} {fn:<28} {tag:<11} misses {gap}"
 
-    A field declared `list` counts only when the model also declares an ASTNode
-    field: `params: list` holds strings, and a walk that "missed" it would be
-    reporting a gap that cannot be closed.
+
+def self_test_walk(args) -> int:
+    """Assert the rules can say no, and that the exemption works.
+
+    The exemption case carries its own control: the same walk is undeclared
+    without the annotation and silent with it. The fixture this replaces never
+    recursed, so it was silent for a reason other than the annotation.
     """
-    out = set()
-    for name, fields in models.items():
-        types = {t for _, t in fields}
-        if "ASTNode" in types:
-            out.add(name)
-    return out
-
-
-def variant_to_model(unions: dict) -> dict:
-    """Variant name -> model name.
-
-    Needed because the two spaces have different names: the union declares
-    `Call(CallNode)`, so an arm reads `ASTNode.Call(` and the model is `CallNode`.
-    Comparing an arm's variant name against the set of model names intersects
-    nothing, and every walk comes out missing all 22 -- which is what the first
-    run of this script reported, for all thirty of them.
-    """
-    out = {}
-    for variants in unions.values():
-        for variant, model in variants:
-            out[variant] = model
-    return out
-
-
-def collect_walks(models: dict, unions: dict, root: pathlib.Path) -> list:
-    """One entry per function detected as a walk over ASTNode."""
-    kids = child_models(models)
-    v2m = variant_to_model(unions)
-    walks = []
-    for path in sorted((root / "compiler").rglob("*.orb")):
-        src = path.read_text(encoding="utf-8")
-        rel = path.relative_to(root).as_posix()
-        lines = src.split("\n")
-        for i, line in enumerate(lines):
-            m = re.match(r"^fn (\w+)\(", line)
-            if not m:
-                continue
-            name = m.group(1)
-            j, body = i + 1, []
-            while j < len(lines) and not re.match(r"^fn \w+\(", lines[j]):
-                body.append(lines[j])
-                j += 1
-            text = "\n".join(body)
-
-            # An annotation may sit above the fn or inside its first lines.
-            head = "\n".join(lines[max(0, i - 3):i + 4])
-            exempt = bool(EXEMPT_RE.search(head))
-            misses = None
-            mm = MISSES_RE.search(head)
-            if mm:
-                declared = mm.group(1).strip()
-                misses = set() if declared in ("", "none") else {
-                    d.strip() for d in declared.split(",") if d.strip()
-                }
-
-            variants = set(re.findall(r"ASTNode\.([A-Za-z]+)\(", text))
-            if not variants:
-                continue
-            arms = {v2m[v] for v in variants if v in v2m}
-            # A walker recurses into itself after the match. Everything else
-            # -- parsers, type queries, constructors -- does not.
-            post = text.split("match", 1)
-            recurses = len(post) > 1 and re.search(rf"\b{name}\s*\(", post[1]) is not None
-            if not recurses:
-                continue
-            walks.append({
-                "fn": name, "loc": f"{rel}:{i + 1}",
-                "missing": sorted(kids - arms),
-                "declared": misses, "exempt": exempt,
-            })
-    return walks
-
-
-def _wc_check(root: pathlib.Path) -> list:
-    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text(encoding="utf-8"))
-    findings = []
-    for w in collect_walks(models, unions, root):
-        if w["exempt"]:
-            continue
-        if w["declared"] is None:
-            findings.append((
-                w["loc"], "undeclared",
-                f"fn {w['fn']} walks the AST and does not declare what it skips. "
-                f"It has no arm of its own for: "
-                f"{', '.join(w['missing']) or 'nothing'}. That is a CANDIDATE, not "
-                f"a verdict: a walk can reach a node by iterating its parent's "
-                f"list field instead of arming it. doctorShadowStmt declares "
-                f"MatchCaseNode as skipped and is wrong -- it reaches every arm "
-                f"body through `m.cases`, and D023 fires on a `val` shadowed in "
-                f"a match arm and read after it. Declare the gap with "
-                f"`// orbit-walk-misses: ...` if it is intended, and treat the "
-                f"list as the work queue for judging whether it is.",
-            ))
-            continue
-        if declared_differs(w["declared"], w["missing"]):
-            findings.append((
-                w["loc"], "stale",
-                f"fn {w['fn']} declares orbit-walk-misses: "
-                f"{', '.join(sorted(w['declared'])) or 'none'}, but the arms leave "
-                f"{', '.join(w['missing']) or 'nothing'} unvisited. A field was added "
-                f"to a model, or an arm to this walk, without the declaration "
-                f"following.",
-            ))
-    return findings
-
-
-def declared_differs(declared: set, missing: list) -> bool:
-    return set(declared) != set(missing)
-
-
-def self_test_walk() -> int:
-    """Assert the rules can say no, and that the exemption works."""
-    import tempfile
-
-    schema = ("model MNode {\n    body: ASTNode\n    names: list\n}\n"
-              "type ASTNode = M(MNode)\n")
-
-    def tree(schema_text, source):
-        td = tempfile.TemporaryDirectory(prefix="walk_coverage_selftest_")
-        root = pathlib.Path(td.name)
-        (root / "compiler" / "front").mkdir(parents=True)
-        (root / "compiler" / "front" / "ast.orb").write_text(schema_text)
-        (root / "compiler" / "a.orb").write_text(source)
-        return root, td
-
-    # A walk with a gap and no declaration: undeclared.
-    root, td = tree(schema,
-                    "fn w(n: ASTNode) -> int {\n"
-                    "    match n {\n"
-                    "        ASTNode.M(v) => { w(v.body) return 0 }\n"
-                    "        _ => { return 0 }\n"
-                    "    }\n"
-                    "}\n")
-    got = {f[1] for f in _wc_check(root)}
-    td.cleanup()
-    if got != {"undeclared"}:
-        print(f"self-test FAILED: a walk with an undeclared gap should raise "
-              f"undeclared and raised {sorted(got) or 'nothing'}")
+    exe, work = probe_build(args, _WC_PROBE)
+    if exe is None:
+        print(f"self-test FAILED: {work}")
         return 1
+    try:
+        with tempfile.TemporaryDirectory(prefix="walk_coverage_selftest_") as td:
+            root = pathlib.Path(td)
+            (root / "compiler" / "front").mkdir(parents=True)
 
-    # The same walk with the declaration: silent.
-    root, td = tree(schema,
-                    "// orbit-walk-misses: none\n"
-                    "fn w(n: ASTNode) -> int {\n"
-                    "    match n {\n"
-                    "        ASTNode.M(v) => { w(v.body) return 0 }\n"
-                    "        _ => { return 0 }\n"
-                    "    }\n"
-                    "}\n")
-    got = {f[1] for f in _wc_check(root)}
-    td.cleanup()
-    if got:
-        print(f"self-test FAILED: an accurate declaration should be silent and "
-              f"raised {sorted(got)}")
-        return 1
+            def fixture(source: str):
+                (root / "compiler" / "front" / "ast.orb").write_text(
+                    WALK_FIXTURE_SCHEMA)
+                (root / "compiler" / "a.orb").write_text(source)
+                parsed = probe_call(exe, root)
+                if parsed is None:
+                    return None
+                _, findings, _ = parsed
+                return {f[1] for f in findings}
 
-    # A declaration that disagrees with the arms: stale.
-    root, td = tree(schema,
-                    "// orbit-walk-misses: Missing\n"
-                    "fn w(n: ASTNode) -> int {\n"
-                    "    match n {\n"
-                    "        ASTNode.M(v) => { w(v.body) return 0 }\n"
-                    "        _ => { return 0 }\n"
-                    "    }\n"
-                    "}\n")
-    got = {f[1] for f in _wc_check(root)}
-    td.cleanup()
-    if got != {"stale"}:
-        print(f"self-test FAILED: a declaration naming the wrong model should "
-              f"raise stale and raised {sorted(got) or 'nothing'}")
-        return 1
+            def raised(got) -> str:
+                return sorted(got) if got is not None else "nothing, the probe did not run"
 
-    # The exemption: a function the heuristic mistakes for a walk, opted out.
-    root, td = tree(schema,
-                    "// orbit-walk: none\n"
-                    "fn q(n: ASTNode) -> int {\n"
-                    "    match n {\n"
-                    "        ASTNode.M(v) => { return 0 }\n"
-                    "        _ => { return 1 }\n"
-                    "    }\n"
-                    "}\n"
-                    "fn w(n: ASTNode) -> int {\n"
-                    "    return q(n)\n"
-                    "}\n")
-    got = {f[1] for f in _wc_check(root)}
-    td.cleanup()
-    if got:
-        print(f"self-test FAILED: orbit-walk: none should exempt, and raised "
-              f"{sorted(got)}")
-        return 1
+            # A walk with a gap and no declaration: undeclared.
+            got = fixture(WALK_FIXTURE_SOURCE)
+            if got != {"undeclared"}:
+                print(f"self-test FAILED: a walk with an undeclared gap should "
+                      f"raise undeclared and raised {raised(got)}")
+                return 1
+
+            # The same walk with the declaration: silent.
+            got = fixture("// orbit-walk-misses: none\n" + WALK_FIXTURE_SOURCE)
+            if got:
+                print(f"self-test FAILED: an accurate declaration should be "
+                      f"silent and raised {raised(got)}")
+                return 1
+
+            # A declaration that disagrees with the arms: stale.
+            got = fixture("// orbit-walk-misses: Missing\n" + WALK_FIXTURE_SOURCE)
+            if got != {"stale"}:
+                print(f"self-test FAILED: a declaration naming the wrong model "
+                      f"should raise stale and raised {raised(got)}")
+                return 1
+
+            # The exemption suppresses a walk that is otherwise undeclared.
+            got = fixture("// orbit-walk: none\n" + WALK_FIXTURE_SOURCE)
+            if got:
+                print(f"self-test FAILED: orbit-walk: none should exempt, and "
+                      f"raised {raised(got)}")
+                return 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
     print("Finished walk-coverage self-test: 4/4 rules fired; an accurate "
-          "declaration is silent; `orbit-walk: none` exempts.")
+          "declaration is silent; `orbit-walk: none` exempts a walk that is "
+          "otherwise undeclared.")
     return 0
 
 
@@ -1611,16 +1422,25 @@ def self_test_cites():
 # as documented above.
 # --------------------------------------------------------------------------
 def _run_schema(args) -> int:
-    models, unions = parse_schema(_SC_AST.read_text(encoding="utf-8"))
-    if not models:
+    if args.self_test:
+        return self_test_schema(args)
+
+    exe, work = probe_build(args, _SC_PROBE)
+    if exe is None:
+        print(f"Failed: {work}", file=sys.stderr)
+        return 2
+    try:
+        parsed = probe_call(exe, _SC_ROOT)
+        if parsed is None:
+            return 2
+        facts, findings, _ = parsed
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    if not facts.get("models"):
         print("Failed: the schema parser found no models in ast.orb; the "
               "grammar changed and this script has not caught up.", file=sys.stderr)
         return 2
-
-    if args.self_test:
-        return self_test_schema()
-
-    findings = _sc_check(_SC_ROOT)
 
     if findings:
         for where, rule, message in findings:
@@ -1629,30 +1449,35 @@ def _run_schema(args) -> int:
               f"between compiler/front/ast.orb and the code that builds nodes.")
         return 1
 
-    total_fields = sum(len(f) for f in models.values())
-    print(f"Finished schema-conformance: {len(models)} models, {total_fields} "
-          f"fields, {len(unions)} union(s), every construction site's arity "
-          f"matches and no node is read as a list.")
+    print(f"Finished schema-conformance: {facts['models']} models, "
+          f"{facts['fields']} fields, {facts['unions']} union(s), every "
+          f"construction site's arity matches and no node is read as a list.")
     return 0
 
 
 def _run_walk(args) -> int:
     if args.self_test:
-        return self_test_walk()
+        return self_test_walk(args)
 
-    models, unions = parse_schema(_WC_AST.read_text(encoding="utf-8"))
+    exe, work = probe_build(args, _WC_PROBE)
+    if exe is None:
+        print(f"Failed: {work}", file=sys.stderr)
+        return 2
+    try:
+        parsed = probe_call(exe, _WC_ROOT)
+        if parsed is None:
+            return 2
+        _, findings, walks = parsed
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
     if args.list:
-        walks = collect_walks(models, unions, _WC_ROOT)
-        for w in sorted(walks, key=lambda x: -len(x["missing"])):
-            tag = "exempt" if w["exempt"] else (
-                "declared" if w["declared"] is not None else "UNDECLARED")
-            print(f"{w['loc']:<44} {w['fn']:<28} {tag:<11} "
-                  f"misses {', '.join(w['missing']) or '-'}")
+        for loc, fn, tag, missing in sorted(
+                walks, key=lambda w: -len([m for m in w[3].split(",") if m])):
+            print(walk_list_line(loc, fn, tag, missing))
         print(f"\n{len(walks)} walk(s) detected.")
         return 0
 
-    findings = _wc_check(_WC_ROOT)
     if findings:
         for where, rule, message in findings:
             print(f"{where} [{rule}] {message}")
@@ -1768,11 +1593,10 @@ def main() -> int:
     sub = ap.add_subparsers(dest="command", metavar="SUBCOMMAND", required=True)
 
     p = sub.add_parser("schema", help=_SCHEMA_DESC, description=_SCHEMA_DESC)
-    p.add_argument("--self-test", action="store_true",
-                   help="assert the rules can fail, and exit")
+    _common.add_gate_args(p, cc=True, compiler=True, selftest=True)
 
     p = sub.add_parser("walk", help=_WALK_DESC, description=_WALK_DESC)
-    p.add_argument("--self-test", action="store_true")
+    _common.add_gate_args(p, cc=True, compiler=True, selftest=True)
     p.add_argument("--list", action="store_true",
                    help="print each walk and its measured gap, unannotated")
 

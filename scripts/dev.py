@@ -713,7 +713,7 @@ def classify(changed: list) -> list:
     return sorted(set(range(1, highest + 1)))
 
 
-def fmt_gate(binary: pathlib.Path, changed: list):
+def fmt_gate(binary: pathlib.Path, cc: str, changed: list):
     """T0 static gates (no sharding here).
 
     fmt itself no longer lives in this list: it runs sharded per file via
@@ -722,12 +722,11 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     locally on a file an earlier commit left unformatted, so the full list
     wins: being stricter than CI is free, being looser is not.
     """
-    # The five rows live in scripts/gate_registry.py, with the reason each
-    # one is T0 -- two files of text compared, no compiler, the cheapest gate
-    # in the repo, and the only one that catches a schema declaring a field a
-    # list when the parser hands it a node. None of them takes a path, so the
-    # three placeholders the argv builder accepts are empty here on purpose.
-    return [(g.label, g.argv("", "", ""))
+    # The five rows live in scripts/gate_registry.py. Two of them -- schema and
+    # walk -- hold their analysis in an Orbit probe and take --cc/--compiler to
+    # build it, so this formats the placeholders instead of passing empties.
+    # The other three take no path and ignore them.
+    return [(g.label, g.argv(str(binary.resolve()), cc, str(ORBIT / "work")))
             for g in gate_registry.gates(0) if g.argv is not None]
 
 
@@ -1031,7 +1030,7 @@ def main() -> int:
         else:
             say(f"  shared chain: fallback (no valid snapshots: {shared_reason})")
 
-    static_plan = list(fmt_gate(binary, changed))
+    static_plan = list(fmt_gate(binary, cc, changed))
     plan: list = []
     run_fmt_files: list | None = None
     if args.target == "report":
