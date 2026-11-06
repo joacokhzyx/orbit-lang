@@ -166,12 +166,17 @@ to the file *and* everything it pulls in. A per-file cache key reported files
 clean that `orbit check` rejected, which is the worst thing a linter can do.
 
 ```sh
-ORBIT_DOCTOR_CACHE=0 orbit doctor .          # do not use or write the cache
-ORBIT_DOCTOR_CACHE=/tmp/mycache orbit doctor .
+orbit doctor .                                  # no cache: every file is checked
+ORBIT_DOCTOR_CACHE=/tmp/mycache orbit doctor .  # cache answers here
 ```
 
-The first run on a fresh clone pays for every file. Later runs on the same tree
-do not. One consequence is worth knowing: a cached answer does not reprint the
+The cache is opt-in. With a directory named, the first run on a fresh clone
+pays for every file and later runs on the same tree do not. It is off by
+default because its key is a file's source and import closure, which cannot see
+the compiler that answered: a directory written by an older build answered "ok"
+for a file the current compiler rejects on 2026-11-06, and the finding
+disappeared. Start from an empty directory after changing the compiler. One
+consequence is worth knowing either way: a cached answer does not reprint the
 compiler's diagnostic, so that finding points you at `orbit check <file>` for
 the detail instead of showing it above the line.
 

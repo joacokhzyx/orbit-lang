@@ -50,6 +50,7 @@ import gate_registry  # noqa: E402  the one table of gates, tiers and argv
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ORBIT = ROOT / ".orbit"
 FP_STAMP = ORBIT / "fp.stamp"
+DOCTOR_CACHE = ORBIT / "doctor-cache"
 CANONICAL_C = ROOT / "compiler" / "selfhost" / "stage3.exe.c"
 WITNESS_LOG = ORBIT / "last_run.log"
 
@@ -155,6 +156,12 @@ def child_env() -> dict:
     ccache.mkdir(parents=True, exist_ok=True)
     env = build_env(scratch_dir, ccache=ccache)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # The doctor's typecheck cache is opt-in since 2026-11-06: its key is a
+    # file's source, which cannot see the compiler that answered, so an entry
+    # from an older build can hide a new diagnostic. Gates share one compiler
+    # for a run, so they get it, and stamp_fp() clears the directory whenever a
+    # different compiler takes over.
+    env["ORBIT_DOCTOR_CACHE"] = str(DOCTOR_CACHE)
     # The dev loop drives the shard lane. Every large-TU compile in the
     # chain (bootstrap included) may shard when the unity cache misses;
     # any shard failure falls back to the unity path, and T3's equality
@@ -305,6 +312,20 @@ class _stdout_to_stderr:
         return False
 
 
+def stamp_fp(cc: str) -> None:
+    """Record the fingerprint the fixed point was built from.
+
+    A rebuild or an adopted copy means the next run's cache would describe a
+    different compiler, so the doctor's typecheck cache is cleared with it. Its
+    key is a file's source and import closure, which cannot see the compiler
+    that answered: measured 2026-11-06, an entry written 2026-10-11 answered
+    "ok" for a fixture the current compiler rejects, and D008 disappeared from
+    the doctor gate on one machine and not another.
+    """
+    FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+    shutil.rmtree(DOCTOR_CACHE, ignore_errors=True)
+
+
 def fp_is_fresh(cc: str) -> bool:
     binary, stamp = fp_path(), FP_STAMP
     if not binary.exists() or not stamp.exists():
@@ -347,7 +368,7 @@ def build_fp(cc: str) -> pathlib.Path:
     # so the thing that owns the binary is also the thing that makes it runnable.
     mode = binary.stat().st_mode
     binary.chmod(mode | 0o111)
-    FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+    stamp_fp(cc)
     # The manifest the chain just wrote describes a chain built from THESE
     # sources; stamping it with the driver's own key is what lets the next
     # `all` adopt the snapshots without re-deriving them (contract comment at
@@ -503,7 +524,7 @@ def ensure_fp_for_all(cc: str, allow_build: bool) -> pathlib.Path:
         shutil.copyfile(SHARED_CHAIN3_EXE, binary)
         mode = binary.stat().st_mode
         binary.chmod(mode | 0o111)
-        FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+        stamp_fp(cc)
         say(f"  fp: copied from {short(SHARED_CHAIN3_EXE)} "
             f"({time.monotonic() - started:.0f}s, no rebuild)")
         return binary

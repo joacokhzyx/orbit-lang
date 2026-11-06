@@ -4489,19 +4489,23 @@ fn doctorUsage() {
 
 /** @brief Where the typecheck cache lives, or "" when caching is off.
  *
- *  Follows the compiler's existing convention: ORBIT_DOCTOR_CACHE wins, then
- *  ORBIT_CCACHE_DIR (so one scratch dir serves the whole toolchain), then
- *  XDG_CACHE_HOME/orbit/doctor. ORBIT_DOCTOR_CACHE=0 disables it outright --
- *  a cache you cannot turn off is a cache you cannot debug. */
+ *  Opt-in: only ORBIT_DOCTOR_CACHE names a directory, and "0" or "" leaves the
+ *  cache off. The key is a file's source and its import closure, which cannot
+ *  see the compiler that answered. On 2026-11-06 a cache directory written on
+ *  2026-10-11 answered "ok" for a fixture the current compiler rejects, so D008
+ *  disappeared from the doctor gate and the row failed on one machine while
+ *  passing on another. A cache that outlives the compiler hides errors, which
+ *  is the direction this must never err in.
+ *
+ *  The cost of not caching is measured as zero on the trees this repo has:
+ *  `doctor compiler` is 7.0 s with the cache and 7.0 s without, and
+ *  `doctor tests/suite` is 0.15 s against 0.13 s. A caller that measures a win
+ *  names the directory; the gate's cache case does exactly that. */
 fn doctorCacheDir() -> string {
     val override = orbit_os_env_selfhost("ORBIT_DOCTOR_CACHE")
     if doctorTrimSpace(override) == "0" { return "" }
-    if override != "" { return override }
-    val shared = orbit_os_env_selfhost("ORBIT_CCACHE_DIR")
-    if shared != "" { return doctorJoinPath(shared, "doctor") }
-    val xdg = orbit_os_env_selfhost("XDG_CACHE_HOME")
-    if xdg == "" { return "" }
-    return doctorJoinPath(doctorJoinPath(xdg, "orbit"), "doctor")
+    if doctorTrimSpace(override) == "" { return "" }
+    return override
 }
 
 /** @brief Typecheck one file, reusing a previous answer for the same bytes.

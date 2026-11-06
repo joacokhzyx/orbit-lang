@@ -468,7 +468,11 @@ def run_case(compiler: str, case: pathlib.Path, env: dict) -> tuple:
         # and the exit code it asserts is the last command's.
         with tempfile.TemporaryDirectory(prefix="doctor_gate_") as work:
             stage_case(case, work)
-            combined = run_steps(compiler, case, work, env)
+            # The cache is opt-in since 2026-11-06, and the case that tests it
+            # has to ask: this directory is per case and thrown away with it.
+            steps_env = dict(env)
+            steps_env["ORBIT_DOCTOR_CACHE"] = os.path.join(work, "doctor_cache")
+            combined = run_steps(compiler, case, work, steps_env)
             if (case / "expect_crlf").exists():
                 bad = check_crlf(case, work)
                 if bad:
