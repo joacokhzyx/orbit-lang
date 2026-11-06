@@ -162,28 +162,32 @@ def registry(compiler, cc, work):
         # two files of text, so it runs in a second where a doctor check would
         # cost a bootstrap. `allow_rc=(0, 1)` because it is allowed to report a
         # real disagreement -- that is a finding, not a broken tool.
-        Tool("schema_conformance.py", "gate",
+        # The tier-0 family is one tool with five subcommands since the 2026-11-06
+        # merge. Five rows for one file is deliberate: a row that only proved the
+        # interpreter starts would not prove the analysis still runs, and each
+        # marker belongs to its own analysis.
+        Tool("static_gates.py", "gate",
              "compiler/front/ast.orb against the code that builds nodes: arity, "
              "phantom models and variants, and a node read with a list operation",
-             lambda: _script("schema_conformance.py"),
+             lambda: _script("static_gates.py", "schema"),
              r"Finished schema-conformance", 120, allow_rc=(0, 1)),
         # The companion to the corpus: it does not measure visits, it checks that
         # every AST walk in the compiler DECLARES the fields it skips, and that
         # the declaration still matches the arms. A walk that silently stopped
         # reaching a field is invisible everywhere else.
-        Tool("walk_coverage.py", "gate",
+        Tool("static_gates.py", "gate",
              "every AST walk in compiler/ declares the fields it skips, and "
              "every declaration matches the arms",
-             lambda: _script("walk_coverage.py"),
+             lambda: _script("static_gates.py", "walk"),
              r"Finished walk-coverage", 120, allow_rc=(0, 1)),
         # The companion to schema_conformance and walk_coverage for a different
         # kind of stale text: a document's counted claim about the corpus. It
         # reads the tree and the claim and fails when they disagree.
         # `allow_rc=(0, 1)` because a real disagreement is a finding, not a
         # broken tool.
-        Tool("doc_counts.py", "gate",
+        Tool("static_gates.py", "gate",
              "every counted claim about the corpus in the docs equals the tree",
-             lambda: _script("doc_counts.py"),
+             lambda: _script("static_gates.py", "counts"),
              r"Finished doc-counts", 120, allow_rc=(0, 1)),
         # The same bargain for the other kind of claim a document makes: a
         # location. Measured 2026-11-03, 125 of the 184 `path:line` cites in the
@@ -191,21 +195,21 @@ def registry(compiler, cc, work):
         # the arena split into nine members, c_backend.orb doubled, a pipeline
         # moved host, and every inserted line moved each cite after it. Nothing
         # in the gate set read a citation, so the drift was silent.
-        Tool("cite_check.py", "gate",
+        Tool("static_gates.py", "gate",
              "every `path:line` in the documents opens at the construct its "
              "sentence names; the self-test is the row that proves it can say "
              "so about a wrong one",
-             lambda: _script("cite_check.py", "--self-test"),
+             lambda: _script("static_gates.py", "cites", "--self-test"),
              r"Finished cite-coverage", 120, allow_rc=(0, 1)),
         # The companion to the three above for a claim one level out: a CLI flag
         # is a promise written in --help, and a promise nothing reads is the
         # quietest failure there is, because the run succeeds and the thing that
         # was asked for did not happen. It found this file's own `--list`, which
         # is why the listing mode above exists and why nothing caught it sooner.
-        Tool("flag_coverage.py", "gate",
+        Tool("static_gates.py", "gate",
              "every flag a script in scripts/ declares is read by the script "
              "that owns it, or carries a declared reason why not",
-             lambda: _script("flag_coverage.py"),
+             lambda: _script("static_gates.py", "flags"),
              r"Finished flag-coverage", 120, allow_rc=(0, 1)),
         # The gate table itself. It is a table today and `dev.py` still builds
         # its own argv; the row runs the table's `--self-test`, which compares

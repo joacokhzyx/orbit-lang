@@ -107,8 +107,7 @@ GATES = [
              "and examples/, sharded per file; the files are listed by "
              "dev.py:535 fmt_check_files()"),
 
-    Gate("schema_conformance", 0, "scripts/schema_conformance.py", _argv(
-        "schema_conformance.py"),
+    Gate("schema_conformance", 0, "scripts/static_gates.py", _argv("static_gates.py", "schema"),
          why="`compiler/front/ast.orb` against the code that builds its nodes. "
              "It belongs in T0 and not T1: it compares two files of text and "
              "needs no compiler at all, so running it inside a tier that pays "
@@ -117,18 +116,16 @@ GATES = [
              "class of silent wrong answers -- the schema declaring a field a "
              "list when the parser hands it a node -- so it belongs where it "
              "runs every time, including for a clean tree"),
-    Gate("walk_coverage", 0, "scripts/walk_coverage.py", _argv(
-        "walk_coverage.py"),
+    Gate("walk_coverage", 0, "scripts/static_gates.py", _argv("static_gates.py", "walk"),
          why="every AST walk declares the fields it skips (dev.py:720)"),
-    Gate("doc_counts", 0, "scripts/doc_counts.py", _argv("doc_counts.py"),
+    Gate("doc_counts", 0, "scripts/static_gates.py", _argv("static_gates.py", "counts"),
          why="a document's counted claim about the corpus still matching the "
              "tree it describes"),
-    Gate("flag_coverage", 0, "scripts/flag_coverage.py", _argv(
-        "flag_coverage.py"),
+    Gate("flag_coverage", 0, "scripts/static_gates.py", _argv("static_gates.py", "flags"),
          why="a CLI flag is a promise written in --help, and a promise nothing "
              "reads is invisible in every run because the run succeeds without "
              "doing what was asked"),
-    Gate("cite_coverage", 0, "scripts/cite_check.py", _argv("cite_check.py"),
+    Gate("cite_coverage", 0, "scripts/static_gates.py", _argv("static_gates.py", "cites"),
          why="a `path:line` in a document is the same kind of promise, and 125 "
              "of the 184 in the nine audited documents did not open at the "
              "construct their sentence named. Measured 2026-11-03"),
@@ -270,11 +267,11 @@ GATES = [
 # transcription made from dev.py's own literals, and EXPECTED_TIERS pins which
 # tier each label runs in, which is what a reviewer has to disagree with.
 EXPECTED_ARGV = {
-    "schema_conformance": ["{script}schema_conformance.py"],
-    "walk_coverage": ["{script}walk_coverage.py"],
-    "doc_counts": ["{script}doc_counts.py"],
-    "flag_coverage": ["{script}flag_coverage.py"],
-    "cite_coverage": ["{script}cite_check.py"],
+    "schema_conformance": ["{script}static_gates.py", "schema"],
+    "walk_coverage": ["{script}static_gates.py", "walk"],
+    "doc_counts": ["{script}static_gates.py", "counts"],
+    "flag_coverage": ["{script}static_gates.py", "flags"],
+    "cite_coverage": ["{script}static_gates.py", "cites"],
     "doctor_gate": ["{script}doctor_gate.py", "--compiler", "FP"],
     "doctor_scope": ["{script}doctor_gate.py", "--scope-only", "--compiler",
                      "FP"],
@@ -319,7 +316,9 @@ EXPECTED_ARGV = {
 }
 
 # The tier a label runs in, transcribed from dev.py's tier dict on 2026-11-05 and
-# from the baseline `dev.py list` printed before any of this work
+# from the baseline `dev.py list` printed before any of this work, amended by the
+# tier-0 merge of 2026-11-06: the five static labels now invoke
+# scripts/static_gates.py with their subcommand, and the fixture records that
 # (.orbit/specs/2026-11-05-baseline-gate-list.txt). Order is part of the pin:
 # ENGINEERING.md section 8 gives the sequence, and a gate moved sideways in the
 # list changes which gates a crash costs.
