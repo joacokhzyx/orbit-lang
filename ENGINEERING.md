@@ -774,8 +774,8 @@ besides `_common.py`, 24 accept `--cc`, 22 accept `--compiler`, 17 accept both
 and 13 accept neither (measured 2026-11-05: `add_argument` declarations plus the
 two files that inherit both flags from `add_common_args`). The sentence this
 replaced said twenty-one, fifteen and ten, and named `doctor_gate.py` as
-accepting `--cc` and ignoring it. `scripts/doctor_gate.py:510` declares
-`--compiler`, and no `--cc` appears in its parser: a declared flag nobody reads
+accepting `--cc` and ignoring it. `scripts/doctor_gates.py:2277` declares
+`--compiler`, and no `--cc` appears in the `doctor` parser: a declared flag nobody reads
 is the defect `flag_coverage.py` fails a run on, so the second half went stale
 when that gate landed and nothing re-dated the sentence.
 

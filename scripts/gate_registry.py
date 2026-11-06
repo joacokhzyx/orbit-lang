@@ -131,15 +131,15 @@ GATES = [
              "construct their sentence named. Measured 2026-11-03"),
 
     # ---- T1: an existing orbit binary, no fresh build.
-    Gate("doctor_gate", 1, "scripts/doctor_gate.py", _argv(
-        "doctor_gate.py", "--compiler", "{fp}"),
+    Gate("doctor_gate", 1, "scripts/doctor_gates.py", _argv(
+        "doctor_gates.py", "doctor", "--compiler", "{fp}"),
          why="the doctor goldens, run against the binary under test"),
-    Gate("doctor_scope", 1, "scripts/doctor_gate.py", _argv(
-        "doctor_gate.py", "--scope-only", "--compiler", "{fp}"),
+    Gate("doctor_scope", 1, "scripts/doctor_gates.py", _argv(
+        "doctor_gates.py", "doctor", "--scope-only", "--compiler", "{fp}"),
          why="the same binary's scope checks (D013, D021), in the gate whose "
              "row §7 names doctor_scope"),
-    Gate("cli_probe", 1, "scripts/cli_probe.py", _argv(
-        "cli_probe.py", "--compiler", "{fp}", "--work",
+    Gate("cli_probe", 1, "scripts/doctor_gates.py", _argv(
+        "doctor_gates.py", "cli-probe", "--compiler", "{fp}", "--work",
          "{work}" + os.sep + "cli"),
          why="the CLI contract. It runs the compiler with cwd set to its own "
              "work directory, which is why the fixed point handed to it must be "
@@ -150,8 +150,8 @@ GATES = [
              "-- no orbit binary, no bootstrap -- which is why it was forty "
              "lines of shell inside ci-gate.yml and the one gate nobody could "
              "run locally (dev.py:812-814)"),
-    Gate("ui_snapshots", 1, "scripts/ui_snapshots.py", _argv(
-        "ui_snapshots.py", "--compiler", "{fp}", "--cc", "{cc}", "--work",
+    Gate("ui_snapshots", 1, "scripts/doctor_gates.py", _argv(
+        "doctor_gates.py", "snapshots", "--compiler", "{fp}", "--cc", "{cc}", "--work",
          "{work}" + os.sep + "ui"),
          why="the rich and colour screens, byte for byte with their escapes, "
              "plus the interrupt probe (dev.py:816-818)"),
@@ -183,8 +183,8 @@ GATES = [
          why="tests/negative/ must fail with the text its header pins"),
     Gate("frontend", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "frontend", "--cc", "{cc}", "--compiler", "{fp}"),
          why="the TIR goldens the frontend prints"),
-    Gate("dispatch", 2, "scripts/dispatch_coverage.py", _argv(
-        "dispatch_coverage.py"),
+    Gate("dispatch", 2, "scripts/doctor_gates.py", _argv(
+        "doctor_gates.py", "dispatch"),
          why="the CLI dispatch table against what the dispatcher accepts"),
     Gate("parity", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "parity", "--cc", "{cc}", "--compiler", "{fp}"),
          why="the generated-C parity probes against their goldens"),
@@ -262,14 +262,14 @@ EXPECTED_ARGV = {
     "doc_counts": ["{script}static_gates.py", "counts"],
     "flag_coverage": ["{script}static_gates.py", "flags"],
     "cite_coverage": ["{script}static_gates.py", "cites"],
-    "doctor_gate": ["{script}doctor_gate.py", "--compiler", "FP"],
-    "doctor_scope": ["{script}doctor_gate.py", "--scope-only", "--compiler",
-                     "FP"],
-    "cli_probe": ["{script}cli_probe.py", "--compiler", "FP", "--work",
-                  "W" + os.sep + "cli"],
+    "doctor_gate": ["{script}doctor_gates.py", "doctor", "--compiler", "FP"],
+    "doctor_scope": ["{script}doctor_gates.py", "doctor", "--scope-only",
+                     "--compiler", "FP"],
+    "cli_probe": ["{script}doctor_gates.py", "cli-probe", "--compiler", "FP",
+                  "--work", "W" + os.sep + "cli"],
     "runtime_c": ["{script}runtime_c_tests.py", "--cc", "CC"],
-    "ui_snapshots": ["{script}ui_snapshots.py", "--compiler", "FP", "--cc",
-                     "CC", "--work", "W" + os.sep + "ui"],
+    "ui_snapshots": ["{script}doctor_gates.py", "snapshots", "--compiler", "FP",
+                     "--cc", "CC", "--work", "W" + os.sep + "ui"],
     "suite": ["{script}corpus_gates.py", "suite", "--cc", "CC", "--compiler", "FP"],
     "suite_std": ["{script}corpus_gates.py", "suite", "--cc", "CC", "--compiler", "FP",
                   "--dir", "tests/std"],
@@ -284,7 +284,7 @@ EXPECTED_ARGV = {
     "runtime_gen": ["{script}corpus_gates.py", "runtime_gen", "--cc", "CC", "--compiler", "FP"],
     "negative": ["{script}corpus_gates.py", "negative", "--cc", "CC", "--compiler", "FP"],
     "frontend": ["{script}corpus_gates.py", "frontend", "--cc", "CC", "--compiler", "FP"],
-    "dispatch": ["{script}dispatch_coverage.py"],
+    "dispatch": ["{script}doctor_gates.py", "dispatch"],
     "parity": ["{script}corpus_gates.py", "parity", "--cc", "CC", "--compiler", "FP"],
     "werror": ["{script}corpus_gates.py", "werror", "--cc", "CC", "--compiler", "FP"],
     "fuzz_frontend": ["{script}corpus_gates.py", "fuzz_frontend", "--compiler", "FP"],

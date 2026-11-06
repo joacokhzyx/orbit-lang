@@ -293,10 +293,10 @@ def registry(compiler, cc, work):
              r"Finished negative: \d+/\d+", 600, allow_rc=(0, 1), cost="cheap",
              witness=r"Finished negative: \d+/\d+ pass",
              needs=("compiler",)),
-        Tool("dispatch_coverage.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "every ASTNode variant has an arm in the one checker, and every "
              "arm returns -- so a check cannot silently stop running",
-             lambda: _script("dispatch_coverage.py"),
+             lambda: _script("doctor_gates.py", "dispatch"),
              r"Finished dispatch-coverage: OK", 60, allow_rc=(0, 1),
              cost="cheap", needs=()),
         Tool("corpus_gates.py", "gate",
@@ -347,17 +347,17 @@ def registry(compiler, cc, work):
              lambda: _script("corpus_gates.py", "werror", *comp()),
              witness=r"Finished werror: \d+/\d+ pass",
              marker=r"Finished werror: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
-        Tool("cli_probe.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "the orbit CLI contract, 50 cases",
-             lambda: _script("cli_probe.py", "--compiler", compiler,
+             lambda: _script("doctor_gates.py", "cli-probe", "--compiler", compiler,
                              "--work", _tmp(work, "cli")),
              r"Finished cli-probe: \d+/\d+", 600, allow_rc=(0, 1),
              witness=r"Finished cli-probe: \d+/\d+ pass",
              needs=("compiler",)),
-        Tool("ui_snapshots.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "the rich and color screens against tests/ui, and the cursor and "
              "style state after a build is interrupted",
-             lambda: _script("ui_snapshots.py", "--compiler", compiler, "--cc", cc,
+             lambda: _script("doctor_gates.py", "snapshots", "--compiler", compiler, "--cc", cc,
                              "--work", _tmp(work, "ui")),
              r"Finished ui-snapshots: \d+/\d+", 600, allow_rc=(0, 1),
              witness=r"Finished ui-snapshots: \d+/\d+ pass",
@@ -365,21 +365,21 @@ def registry(compiler, cc, work):
         # The scope gate: named directories must be clean. Not the whole repo --
         # tests/negative, tests/doctor and tests/parity are deliberately broken
         # fixtures, and examples/ is independent services whose routes collide
-        # when read as one program. A second row for doctor_gate.py on purpose:
-        # the goldens and the scope check are different code paths in one file.
+        # when read as one program. A second row for the doctor subcommand on
+        # purpose: the goldens and the scope check are different code paths of it.
         # Was scripts/doctor_scope_gate.py, folded in because the two shared
         # everything but the scan loop.
-        Tool("doctor_gate.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "scope-only mode: the directories that must have no doctor "
              "findings: compiler, std, tests/suite",
-             lambda: _script("doctor_gate.py", "--scope-only",
+             lambda: _script("doctor_gates.py", "doctor", "--scope-only",
                              "--compiler", compiler),
              r"Finished doctor_scope: \d+ director", 300, allow_rc=(0, 1),
              witness=r"Finished doctor_scope: \d+ director",
              needs=("compiler",)),
-        Tool("doctor_gate.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "doctor's exact output against the goldens in tests/doctor/golden/",
-             lambda: _script("doctor_gate.py", "--compiler", compiler),
+             lambda: _script("doctor_gates.py", "doctor", "--compiler", compiler),
              # 900, not 300: this gate used to SKIP the three cases that verify a
              # --fix by compiling the result, and now it runs them, because the
              # compiler in CI lives in RUNNER_TEMP and cannot otherwise reach the
@@ -516,13 +516,13 @@ def registry(compiler, cc, work):
              "comparison without a toolchain",
              lambda: _script("triangle.py", "--self-test"),
              r"Finished triangle self-test: \d+/\d+", 120, allow_rc=(0, 1)),
-        Tool("cli_probe.py", "measurement",
+        Tool("doctor_gates.py", "measurement",
              "the style specimen (--specimen): static examples of the output "
              "grammar, so tone can be reviewed without running a bootstrap. "
-             "A second row for cli_probe.py on purpose -- the probe and the "
+             "A second row for the cli-probe subcommand on purpose -- the probe "
              "specimen are different code paths in one file, and one row only "
              "proves one of them runs",
-             lambda: _script("cli_probe.py", "--specimen"),
+             lambda: _script("doctor_gates.py", "cli-probe", "--specimen"),
              r"--- suite -+", 60),
 
         # ---- report-only: this check is their only coverage -----------------
