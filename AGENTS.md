@@ -18,13 +18,23 @@ chmod +x /tmp/fp
 
 ```bash
 make dev      # gates proportionate to what the working tree touched (default)
+make static   # fmt plus the five static gates: all a docs or scripts change needs
 make check    # T0..T2 unconditionally
 make all      # T0..T3, including the root of trust
 make fp       # just the fixed-point compiler, and print its version
 make list     # show what dev would run, without running it
 ```
 
-`dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/**/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
+`dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/**/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`. When the
+diff is documents or `scripts/` only, `make static` is the honest tier: 6 gates in 12 to
+13 seconds, measured 2026-11-06, and it builds no compiler to answer a question about
+text.
+
+Which gate runs in which tier is declared once, in `scripts/gate_registry.py`, and
+`scripts/dev.py` reads that table. A gate label is a stable identifier: `--filter` takes
+it, a filter naming no label exits nonzero instead of printing `nothing to run` and
+returning 0, and the table's own `--self-test` fails if a row loses its checker row in
+`scripts/alive_check.py`.
 
 **A gate that fails only on windows-latest is a toolchain or harness difference, not a platform defect.** Both failures found on 2026-10-09 reproduced on a Windows development machine and were fixed without platform-specific code. `ENGINEERING.md` §7 `gate-sequence` holds the contract and the ruled-out lists; the dated record is in git history, in the retired `docs/WINDOWS.md`. The `0xC0000005` in `test_migrations` is gate-sequence(6): it has not recurred, and its mechanism is not proven. The runtime C tests are green on both platforms.
 
