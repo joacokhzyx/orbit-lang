@@ -45,6 +45,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _common import build_env, resolve_cc  # noqa: E402
+import gate_registry  # noqa: E402  the one table of gates, tiers and argv
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ORBIT = ROOT / ".orbit"
@@ -714,29 +715,13 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     locally on a file an earlier commit left unformatted, so the full list
     wins: being stricter than CI is free, being looser is not.
     """
-    py = sys.executable
-    s_dir = str(ROOT / "scripts")
-    # schema_conformance belongs in T0 and not T1: it compares two files of text
-    # and needs no compiler at all, so running it inside a tier that pays for a
-    # bootstrap would be charging a second for the same check. It is the cheapest
-    # gate in the repo and the one that catches a whole class of silent wrong
-    # answers -- the schema declaring a field a list when the parser hands it a
-    # node -- so it belongs where it runs every time, including for a clean tree.
-    # doc_counts is its sibling for a different kind of stale text: a document's
-    # counted claim about the corpus still matching the tree it describes.
-    # flag_coverage is the fourth of the family and the same bargain: a CLI flag
-    # is a promise written in --help, and a promise nothing reads is invisible in
-    # every run because the run succeeds without doing what was asked.
-    # cite_coverage is the fifth: a `path:line` in a document is the same kind of
-    # promise, and 125 of the 184 in the nine audited documents did not open at
-    # the construct their sentence named. Measured 2026-11-03.
-    return [
-        ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
-        ("walk_coverage", [py, f"{s_dir}/walk_coverage.py"]),
-        ("doc_counts", [py, f"{s_dir}/doc_counts.py"]),
-        ("flag_coverage", [py, f"{s_dir}/flag_coverage.py"]),
-        ("cite_coverage", [py, f"{s_dir}/cite_check.py"]),
-    ]
+    # The five rows live in scripts/gate_registry.py, with the reason each
+    # one is T0 -- two files of text compared, no compiler, the cheapest gate
+    # in the repo, and the only one that catches a schema declaring a field a
+    # list when the parser hands it a node. None of them takes a path, so the
+    # three placeholders the argv builder accepts are empty here on purpose.
+    return [(g.label, g.argv("", "", ""))
+            for g in gate_registry.gates(0) if g.argv is not None]
 
 
 def shard_split_argv(py: str, s_dir: str, fp: str, shards_dir: str, cc: str,
@@ -787,94 +772,26 @@ def bundle_header(bundle: pathlib.Path, canonical: pathlib.Path):
 def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
     """Every gate, in the order ENGINEERING.md section 8 gives.
 
-    Tier 0 needs the orbit binary for fmt, so the spec is built once the binary
-    exists and T0 is folded in by the caller. fmt itself is not in this spec:
-    it runs sharded (run_fmt_sharded) and `list` describes it as one line.
-
-    T3 patching lives in main(), not here: when `all` runs with a valid shared
-    dir, verify_seed gains `--shared-work <dir>` (if supported) and check_stale
-    becomes a byte compare with no subprocess. This spec stays the fallback
-    both show, so `list` never depends on whether the shared dir exists.
+    The rows are in scripts/gate_registry.py; this turns them into command
+    lines. Tier 0 is not in the result: fmt runs sharded (run_fmt_sharded) and
+    the five static gates come from fmt_gate, so `list` folds T0 as its own
+    line. T3 patching still lives in main(), not here: when `all` runs with a
+    valid shared dir, verify_seed gains `--shared-work <dir>` and check_stale
+    becomes a byte compare with no subprocess, and this stays the form `list`
+    shows so the listing never depends on whether the shared dir exists.
     """
-    py = sys.executable
-    s = str(ROOT / "scripts")
-    # Absolute, always. cli_probe.py runs the compiler with cwd=<its work dir>,
-    # so a relative path handed to it resolves against the wrong directory and
-    # the failure is FileNotFoundError on the gate's own argument.
     fp = str(binary.resolve())
-    return {
-        1: [
-            ("doctor_gate", [py, f"{s}/doctor_gate.py", "--compiler", fp]),
-            ("doctor_scope", [py, f"{s}/doctor_gate.py", "--scope-only",
-                             "--compiler", fp]),
-            ("cli_probe", [py, f"{s}/cli_probe.py", "--compiler", fp,
-                           "--work", str(work / "cli")]),
-            # Needs a C compiler and nothing else -- no orbit binary, no
-            # bootstrap. It was forty lines of shell inside ci-gate.yml, which
-            # is why it was the one gate nobody could run locally.
-            ("runtime_c", [py, f"{s}/runtime_c_tests.py", "--cc", cc]),
-            # The rich and color screens, byte for byte with their escapes, and
-            # the interrupt probe. Plain output has no snapshot: the doctor and
-            # CLI gates above hold it.
-            ("ui_snapshots", [py, f"{s}/ui_snapshots.py", "--compiler", fp,
-                              "--cc", cc, "--work", str(work / "ui")]),
-        ],
-        2: [
-            ("suite", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp]),
-            ("suite_std", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
-                           "--dir", "tests/std"]),
-            # The same two suites through R6 instead of the C compiler. They
-            # need ORBIT_R6 (an r6.exe); without it test_suite.py exits
-            # SKIP_RC and run_gate reports the gate as skipped, not passed.
-            ("suite_native", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
-                              "--backend", "native"]),
-            ("suite_std_native", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
-                                  "--dir", "tests/std", "--backend", "native"]),
-            # `orbit build --runtime-module` to an object, linked into a program.
-            # The native lane needs ORBIT_R6 (ir-protocol 3), else it skips.
-            ("runtime_module", [py, f"{s}/runtime_module_gate.py", "--cc", cc,
-                                "--compiler", fp]),
-            ("runtime_module_native", [py, f"{s}/runtime_module_gate.py", "--cc", cc,
-                                       "--compiler", fp, "--backend", "native"]),
-            # runtime/gen/*.c is committed C: it must equal what the compiler
-            # emits for runtime/orb/*.orb, byte for byte.
-            ("runtime_gen", [py, f"{s}/runtime_gen.py", "--cc", cc, "--compiler", fp]),
-            ("negative", [py, f"{s}/negative_gate.py", "--cc", cc, "--compiler", fp]),
-            ("frontend", [py, f"{s}/frontend_gate.py", "--cc", cc, "--compiler", fp]),
-            ("dispatch", [py, f"{s}/dispatch_coverage.py"]),
-            ("parity", [py, f"{s}/parity_selfhost.py", "--cc", cc, "--compiler", fp]),
-            ("werror", [py, f"{s}/werror_gate.py", "--cc", cc, "--compiler", fp]),
-            ("fuzz_frontend", [py, f"{s}/fuzz_frontend.py", "--compiler", fp]),
-            # The only gate that builds a service and runs it. It was the other
-            # shell block in CI, and being unable to run the gate that proves
-            # the compiler produces a working server is how a compiler ends up
-            # green on every unit test and broken in the way that matters.
-            ("kynx_live", [py, f"{s}/kynx_gate.py", "live", "--cc", cc,
-                           "--compiler", fp]),
-            # D7's one-way ratchet, the reader the baseline never had in this
-            # sequence. It was a hard CI step until f001308 folded CI into
-            # `dev.py all`, and alive_check's row for it is liveness only
-            # (rc 1 tolerated, marker matches both verdicts) -- so without
-            # this entry a tree that raised unknown_per_mille above the
-            # baseline shipped green. T2, like kynx_live: it measures the
-            # freshly built fp, and `report` keeps only the raw census.
-            ("unknown_ratchet", [py, f"{s}/unknown_ratchet.py",
-                                 "--compiler", fp, "--cc", cc]),
-        ],
-        3: [
-            ("check_stale", [py, f"{s}/build_selfhost.py", "--cc", cc, "--check-stale"]),
-            # E3 bundle for verify_seed below: emit the TU with the fp (its
-            # sibling header is what the split needs) and write the shards
-            # into a bundle only this run wrote. Split-only here -- gcc and
-            # the emission check belong to the shard lane's own tests and to
-            # the CI job, not to every `all`. main() swaps this for the
-            # hash-bound reuse form when a good header is already recorded.
-            ("shard_split", shard_split_argv(py, s, fp,
-                                             str(work / "shards"), cc)),
-            ("verify_seed", [py, f"{s}/verify_seed.py", "--cc", cc]),
-            ("alive_check", [py, f"{s}/alive_check.py", "--cc", cc, "--compiler", fp]),
-        ],
-    }
+    spec = {}
+    for g in gate_registry.gates():
+        if g.kind != "gate" or g.argv is None or g.tier == 0:
+            continue
+        # Absolute paths, always: cli_probe.py runs the compiler with cwd set to
+        # its own work directory, so a relative fixed point resolves against the
+        # wrong place and the failure is a FileNotFoundError on the gate's own
+        # argument.
+        spec.setdefault(g.tier, []).append(
+            (g.label, g.argv(fp, cc, str(work))))
+    return spec
 
 
 # A gate that cannot run on this machine (suite_native without ORBIT_R6) exits
@@ -1103,12 +1020,8 @@ def main() -> int:
     plan: list = []
     run_fmt_files: list | None = None
     if args.target == "report":
-        py, s = sys.executable, str(ROOT / "scripts")
-        plan = [
-            ("routes_probe", [py, f"{s}/routes_probe.py"]),
-            ("unknown_census", [py, f"{s}/unknown_census.py", "--cc", cc, "--compiler", str(binary.resolve())]),
-            ("diff_fuzz", [py, f"{s}/diff_fuzz.py", "--cc", cc, "--compiler", str(binary.resolve())]),
-        ]
+        plan = [(g.label, g.argv(str(binary.resolve()), cc, str(work)))
+                for g in gate_registry.gates(99)]
     else:
         plan = list(static_plan)
         # fmt runs sharded, not as directory gates. Filter parity with the old
@@ -1171,6 +1084,16 @@ def main() -> int:
         plan = _rewritten
 
     if not plan and run_fmt_files is None:
+        # Two different situations look the same here, and only one of them is
+        # benign. A filter naming a real gate that the selected tiers do not
+        # include is "nothing to run"; a filter naming nothing in the table is a
+        # label that moved or vanished, and passing that quietly is how a renamed
+        # gate stops being checked at all.
+        known = [g.label for g in gate_registry.gates()] + ["fmt"]
+        if args.filter and not any(args.filter in l for l in known):
+            say(f"  filter '{args.filter}' names no gate in "
+                "scripts/gate_registry.py; the label was renamed or removed")
+            return 1
         say("  nothing to run")
         return 0
 

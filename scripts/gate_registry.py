@@ -105,22 +105,29 @@ GATES = [
 
     Gate("schema_conformance", 0, "scripts/schema_conformance.py", _argv(
         "schema_conformance.py"),
-         why="`compiler/front/ast.orb` against the code that builds its nodes; "
-             "it is T0 and not T1 because it compares two files of text and "
-             "needs no compiler at all (dev.py:719)"),
+         why="`compiler/front/ast.orb` against the code that builds its nodes. "
+             "It belongs in T0 and not T1: it compares two files of text and "
+             "needs no compiler at all, so running it inside a tier that pays "
+             "for a bootstrap would be charging a second for the same check. It "
+             "is the cheapest gate in the repo and the one that catches a whole "
+             "class of silent wrong answers -- the schema declaring a field a "
+             "list when the parser hands it a node -- so it belongs where it "
+             "runs every time, including for a clean tree"),
     Gate("walk_coverage", 0, "scripts/walk_coverage.py", _argv(
         "walk_coverage.py"),
          why="every AST walk declares the fields it skips (dev.py:720)"),
     Gate("doc_counts", 0, "scripts/doc_counts.py", _argv("doc_counts.py"),
-         why="every counted claim about the corpus in the docs equals the tree "
-             "(dev.py:725)"),
+         why="a document's counted claim about the corpus still matching the "
+             "tree it describes"),
     Gate("flag_coverage", 0, "scripts/flag_coverage.py", _argv(
         "flag_coverage.py"),
-         why="every CLI flag a script declares is read by the script that owns "
-             "it (dev.py:727)"),
+         why="a CLI flag is a promise written in --help, and a promise nothing "
+             "reads is invisible in every run because the run succeeds without "
+             "doing what was asked"),
     Gate("cite_coverage", 0, "scripts/cite_check.py", _argv("cite_check.py"),
-         why="every `path:line` in the documents opens at the construct its "
-             "sentence names (dev.py:730)"),
+         why="a `path:line` in a document is the same kind of promise, and 125 "
+             "of the 184 in the nine audited documents did not open at the "
+             "construct their sentence named. Measured 2026-11-03"),
 
     # ---- T1: an existing orbit binary, no fresh build.
     Gate("doctor_gate", 1, "scripts/doctor_gate.py", _argv(
@@ -252,10 +259,12 @@ GATES = [
 # Transcribed from `scripts/dev.py:734-738` and `:805-877` on 2026-11-05, with
 # the three paths replaced by FP, CC and W. This is what makes the table testable
 # rather than self-describing: `dev.py` still builds its own argv from its own
-# literals, so a row that drifts from the real sequence is caught here and not in
-# a green run. It is deleted in the commit that switches dev.py to reading this
-# table -- at which point the oracle becomes `dev.py list` against the recorded
-# baseline, which is the stronger check and does not live in this file.
+# literals, so a row that drifts from the real sequence was caught there and not
+# in a green run: 29 rows compared, no difference. dev.py now builds its argv
+# from this table, so that comparison would be the table against itself. Two
+# guards replace it, and both read a second source: EXPECTED_ARGV pins the
+# transcription made from dev.py's own literals, and EXPECTED_TIERS pins which
+# tier each label runs in, which is what a reviewer has to disagree with.
 EXPECTED_ARGV = {
     "schema_conformance": ["{script}schema_conformance.py"],
     "walk_coverage": ["{script}walk_coverage.py"],
@@ -303,6 +312,24 @@ EXPECTED_ARGV = {
     "unknown_census": ["{script}unknown_census.py", "--cc", "CC", "--compiler",
                        "FP"],
     "diff_fuzz": ["{script}diff_fuzz.py", "--cc", "CC", "--compiler", "FP"],
+}
+
+# The tier a label runs in, transcribed from dev.py's tier dict on 2026-11-05 and
+# from the baseline `dev.py list` printed before any of this work
+# (.orbit/specs/2026-11-05-baseline-gate-list.txt). Order is part of the pin:
+# ENGINEERING.md section 8 gives the sequence, and a gate moved sideways in the
+# list changes which gates a crash costs.
+EXPECTED_TIERS = {
+    0: ["fmt", "schema_conformance", "walk_coverage", "doc_counts",
+        "flag_coverage", "cite_coverage"],
+    1: ["doctor_gate", "doctor_scope", "cli_probe", "runtime_c",
+        "ui_snapshots"],
+    2: ["suite", "suite_std", "suite_native", "suite_std_native",
+        "runtime_module", "runtime_module_native", "runtime_gen", "negative",
+        "frontend", "dispatch", "parity", "werror", "fuzz_frontend",
+        "kynx_live", "unknown_ratchet"],
+    3: ["check_stale", "shard_split", "verify_seed", "alive_check"],
+    99: ["routes_probe", "unknown_census", "diff_fuzz"],
 }
 
 
@@ -358,6 +385,31 @@ def self_test() -> int:
         if g.kind == "gate" and g.argv is not None and g.label not in \
                 EXPECTED_ARGV:
             problems.append("%s has an argv with no expected form" % g.label)
+
+    for tier, want in EXPECTED_TIERS.items():
+        got = labels(tier)
+        if got != want:
+            problems.append("tier %s runs %r, expected %r -- a gate that moves "
+                            "tier changes what a run pays for and what it "
+                            "proves" % (tier, got, want))
+
+    # The other table that must agree: scripts/alive_check.py keeps one row per
+    # file in scripts/ and that is D8. A gate row whose script has no aliveness
+    # row is a gate nobody can prove still works, and the registry can be edited
+    # without noticing. This reads alive_check, so it is a second source and not
+    # a mirror.
+    import alive_check
+    rowed = {t.name for t in alive_check.registry("FP", "CC", "W")}
+    # `alive_check.py` itself is the one file in scripts/ with no row: a row that
+    # ran the checker from inside the checker recurses forever, and its own
+    # coverage is --self-test plus the D8 assertion. The exemption list is the
+    # authority for that, so it is read here rather than remembered.
+    rowed |= set(alive_check.COVERAGE_EXEMPT)
+    for g in GATES:
+        name = os.path.basename(g.script)
+        if name not in rowed:
+            problems.append("%s runs %s, which has no alive_check row"
+                            % (g.label, name))
 
     if problems:
         for p in problems:
