@@ -157,53 +157,41 @@ GATES = [
              "plus the interrupt probe (dev.py:816-818)"),
 
     # ---- T2: language behaviour against a freshly built fixed point.
-    Gate("suite", 2, "scripts/test_suite.py", _argv(
-        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("suite", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "suite", "--cc", "{cc}", "--compiler", "{fp}"),
          why="tests/suite/, built and run"),
-    Gate("suite_std", 2, "scripts/test_suite.py", _argv(
-        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}", "--dir",
+    Gate("suite_std", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "suite", "--cc", "{cc}", "--compiler", "{fp}", "--dir",
          "tests/std"),
          why="the same harness over tests/std/"),
-    Gate("suite_native", 2, "scripts/test_suite.py", _argv(
-        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}", "--backend",
+    Gate("suite_native", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "suite", "--cc", "{cc}", "--compiler", "{fp}", "--backend",
          "native"),
          why="suite through R6 instead of the C compiler. Without ORBIT_R6 it "
              "exits SKIP_RC and is reported skipped, not passed "
              "(dev.py:826-828)"),
-    Gate("suite_std_native", 2, "scripts/test_suite.py", _argv(
-        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}", "--dir",
+    Gate("suite_std_native", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "suite", "--cc", "{cc}", "--compiler", "{fp}", "--dir",
          "tests/std", "--backend", "native"),
          why="tests/std/ through R6, same skip rule"),
-    Gate("runtime_module", 2, "scripts/runtime_module_gate.py", _argv(
-        "runtime_module_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("runtime_module", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "runtime_module", "--cc", "{cc}", "--compiler", "{fp}"),
          why="`orbit build --runtime-module` to an object, linked into a "
              "program"),
-    Gate("runtime_module_native", 2, "scripts/runtime_module_gate.py", _argv(
-        "runtime_module_gate.py", "--cc", "{cc}", "--compiler", "{fp}",
+    Gate("runtime_module_native", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "runtime_module", "--cc", "{cc}", "--compiler", "{fp}",
          "--backend", "native"),
          why="the same module through R6 (ir-protocol 3), skipped without it"),
-    Gate("runtime_gen", 2, "scripts/runtime_gen.py", _argv(
-        "runtime_gen.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("runtime_gen", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "runtime_gen", "--cc", "{cc}", "--compiler", "{fp}"),
          why="committed runtime/gen/*.c must equal what the compiler emits for "
              "runtime/orb/*.orb, byte for byte (dev.py:839-840)"),
-    Gate("negative", 2, "scripts/negative_gate.py", _argv(
-        "negative_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("negative", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "negative", "--cc", "{cc}", "--compiler", "{fp}"),
          why="tests/negative/ must fail with the text its header pins"),
-    Gate("frontend", 2, "scripts/frontend_gate.py", _argv(
-        "frontend_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("frontend", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "frontend", "--cc", "{cc}", "--compiler", "{fp}"),
          why="the TIR goldens the frontend prints"),
     Gate("dispatch", 2, "scripts/dispatch_coverage.py", _argv(
         "dispatch_coverage.py"),
          why="the CLI dispatch table against what the dispatcher accepts"),
-    Gate("parity", 2, "scripts/parity_selfhost.py", _argv(
-        "parity_selfhost.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("parity", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "parity", "--cc", "{cc}", "--compiler", "{fp}"),
          why="the generated-C parity probes against their goldens"),
-    Gate("werror", 2, "scripts/werror_gate.py", _argv(
-        "werror_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("werror", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "werror", "--cc", "{cc}", "--compiler", "{fp}"),
          why="the -Wall -Werror probes: clean C from the emitter, not C that "
              "only one toolchain tolerates"),
-    Gate("fuzz_frontend", 2, "scripts/fuzz_frontend.py", _argv(
-        "fuzz_frontend.py", "--compiler", "{fp}"),
+    Gate("fuzz_frontend", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "fuzz_frontend", "--compiler", "{fp}"),
          why="the frontend fuzz driver, in the tier that has a binary to feed "
              "it"),
     Gate("kynx_live", 2, "scripts/kynx_gate.py", _argv(
@@ -266,6 +254,8 @@ GATES = [
 # guards replace it, and both read a second source: EXPECTED_ARGV pins the
 # transcription made from dev.py's own literals, and EXPECTED_TIERS pins which
 # tier each label runs in, which is what a reviewer has to disagree with.
+# (amended by the corpus merge of 2026-11-06: twelve labels invoke
+# scripts/corpus_gates.py with their gate name; the tiers did not move)
 EXPECTED_ARGV = {
     "schema_conformance": ["{script}static_gates.py", "schema"],
     "walk_coverage": ["{script}static_gates.py", "walk"],
@@ -280,24 +270,24 @@ EXPECTED_ARGV = {
     "runtime_c": ["{script}runtime_c_tests.py", "--cc", "CC"],
     "ui_snapshots": ["{script}ui_snapshots.py", "--compiler", "FP", "--cc",
                      "CC", "--work", "W" + os.sep + "ui"],
-    "suite": ["{script}test_suite.py", "--cc", "CC", "--compiler", "FP"],
-    "suite_std": ["{script}test_suite.py", "--cc", "CC", "--compiler", "FP",
+    "suite": ["{script}corpus_gates.py", "suite", "--cc", "CC", "--compiler", "FP"],
+    "suite_std": ["{script}corpus_gates.py", "suite", "--cc", "CC", "--compiler", "FP",
                   "--dir", "tests/std"],
-    "suite_native": ["{script}test_suite.py", "--cc", "CC", "--compiler", "FP",
+    "suite_native": ["{script}corpus_gates.py", "suite", "--cc", "CC", "--compiler", "FP",
                      "--backend", "native"],
-    "suite_std_native": ["{script}test_suite.py", "--cc", "CC", "--compiler",
+    "suite_std_native": ["{script}corpus_gates.py", "suite", "--cc", "CC", "--compiler",
                          "FP", "--dir", "tests/std", "--backend", "native"],
-    "runtime_module": ["{script}runtime_module_gate.py", "--cc", "CC",
+    "runtime_module": ["{script}corpus_gates.py", "runtime_module", "--cc", "CC",
                        "--compiler", "FP"],
-    "runtime_module_native": ["{script}runtime_module_gate.py", "--cc", "CC",
+    "runtime_module_native": ["{script}corpus_gates.py", "runtime_module", "--cc", "CC",
                               "--compiler", "FP", "--backend", "native"],
-    "runtime_gen": ["{script}runtime_gen.py", "--cc", "CC", "--compiler", "FP"],
-    "negative": ["{script}negative_gate.py", "--cc", "CC", "--compiler", "FP"],
-    "frontend": ["{script}frontend_gate.py", "--cc", "CC", "--compiler", "FP"],
+    "runtime_gen": ["{script}corpus_gates.py", "runtime_gen", "--cc", "CC", "--compiler", "FP"],
+    "negative": ["{script}corpus_gates.py", "negative", "--cc", "CC", "--compiler", "FP"],
+    "frontend": ["{script}corpus_gates.py", "frontend", "--cc", "CC", "--compiler", "FP"],
     "dispatch": ["{script}dispatch_coverage.py"],
-    "parity": ["{script}parity_selfhost.py", "--cc", "CC", "--compiler", "FP"],
-    "werror": ["{script}werror_gate.py", "--cc", "CC", "--compiler", "FP"],
-    "fuzz_frontend": ["{script}fuzz_frontend.py", "--compiler", "FP"],
+    "parity": ["{script}corpus_gates.py", "parity", "--cc", "CC", "--compiler", "FP"],
+    "werror": ["{script}corpus_gates.py", "werror", "--cc", "CC", "--compiler", "FP"],
+    "fuzz_frontend": ["{script}corpus_gates.py", "fuzz_frontend", "--compiler", "FP"],
     "kynx_live": ["{script}kynx_gate.py", "live", "--cc", "CC", "--compiler",
                   "FP"],
     "unknown_ratchet": ["{script}unknown_ratchet.py", "--compiler", "FP",

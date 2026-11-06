@@ -970,7 +970,7 @@ def main() -> int:
         # just promoted, so it is refreshed with the new fixed point.
         binary = ensure_fp(cc, allow_build=True)
         return subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "runtime_gen.py"),
+            [sys.executable, str(ROOT / "scripts" / "corpus_gates.py"), "runtime_gen",
              "--cc", cc, "--compiler", str(binary.resolve()), "--write"],
             cwd=str(ROOT), env=child_env(),
         ).returncode

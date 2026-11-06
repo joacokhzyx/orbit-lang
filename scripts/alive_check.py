@@ -280,12 +280,16 @@ def registry(compiler, cc, work):
         # two CI steps red and the second one tells nobody anything new -- which
         # is the "a tool that cannot fail is not a tool" argument run backwards
         # into "a check that cannot go green is not a check".
-        Tool("negative_gate.py", "gate",
+        # The corpus family: eight checkers, one entry point since the 2026-11-06
+        # merge. One row per checker is deliberate -- each marker names that gate's
+        # own verdict line, and a row that only proved the interpreter started would
+        # not prove the 128-program suite ran.
+        Tool("corpus_gates.py", "gate",
              "every program in tests/negative/ must NOT compile; a ratchet that "
              "fails on the fix. Exit 1 here means the corpus and the compiler "
              "disagree, which is the corpus's own hard CI step two dozen lines "
              "up reporting the same thing",
-             lambda: _script("negative_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "negative", *comp()),
              r"Finished negative: \d+/\d+", 600, allow_rc=(0, 1), cost="cheap",
              witness=r"Finished negative: \d+/\d+ pass",
              needs=("compiler",)),
@@ -295,16 +299,16 @@ def registry(compiler, cc, work):
              lambda: _script("dispatch_coverage.py"),
              r"Finished dispatch-coverage: OK", 60, allow_rc=(0, 1),
              cost="cheap", needs=()),
-        Tool("frontend_gate.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "`orbit frontend` vs tests/frontend/expected/",
-             lambda: _script("frontend_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "frontend", *comp()),
              r"Finished frontend: \d+/\d+", 300, allow_rc=(0, 1),
              witness=r"Finished frontend: \d+/\d+ pass",
              needs=("compiler",)),
-        Tool("test_suite.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "the language behavior suite (this run covers the std subset; the "
              "full suite is the same runner over tests/suite)",
-             lambda: _script("test_suite.py", *comp("--dir", "tests/std")),
+             lambda: _script("corpus_gates.py", "suite", *comp("--dir", "tests/std")),
              witness=r"Finished suite: \d+/\d+ pass",
              marker=r"Finished suite: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         # The native lane has two honest outcomes: it runs the std subset
@@ -313,34 +317,34 @@ def registry(compiler, cc, work):
         # sentence. On 2026-11-04 a second skip sentence appeared, and the
         # first one, pinned whole, called a correct skip a dead gate.
         # What it must never do is exit 0 with neither line.
-        Tool("test_suite.py:native", "gate",
+        Tool("corpus_gates.py", "gate",
              "test_suite.py --backend native: the std subset through R6, or "
              "a loud skip (exit 77) naming why this host cannot run it",
-             lambda: _script("test_suite.py",
+             lambda: _script("corpus_gates.py", "suite",
                              *comp("--dir", "tests/std", "--backend", "native")),
              marker=r"Skipped suite_native: \S|Finished suite_native: \d+/\d+",
              timeout=900, allow_rc=(0, 1, 77), needs=("compiler",)),
-        Tool("runtime_module_gate.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "orbit build --runtime-module: an object linked into a program, "
              "and a file with main refused",
-             lambda: _script("runtime_module_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "runtime_module", *comp()),
              witness=r"Finished runtime_module: \d+/\d+ pass",
              marker=r"Finished runtime_module: \d+/\d+", timeout=900,
              allow_rc=(0, 1), needs=("compiler",)),
-        Tool("runtime_gen.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "runtime/gen/*.c equals the C the compiler emits for runtime/orb/*.orb",
-             lambda: _script("runtime_gen.py", *comp()),
+             lambda: _script("corpus_gates.py", "runtime_gen", *comp()),
              witness=r"Finished runtime_gen: \d+/\d+ pass",
              marker=r"Finished runtime_gen: \d+/\d+", timeout=900,
              allow_rc=(0, 1), needs=("compiler",)),
-        Tool("parity_selfhost.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "32 stability goldens, CLI path vs in-process path",
-             lambda: _script("parity_selfhost.py", *comp()),
+             lambda: _script("corpus_gates.py", "parity", *comp()),
              witness=r"Finished parity: \d+/\d+ pass",
              marker=r"Finished parity: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
-        Tool("werror_gate.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "generated C must compile clean under -Werror",
-             lambda: _script("werror_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "werror", *comp()),
              witness=r"Finished werror: \d+/\d+ pass",
              marker=r"Finished werror: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("cli_probe.py", "gate",
@@ -522,11 +526,11 @@ def registry(compiler, cc, work):
              r"--- suite -+", 60),
 
         # ---- report-only: this check is their only coverage -----------------
-        Tool("fuzz_frontend.py", "report",
+        Tool("corpus_gates.py", "report",
              "crash-only fuzzer, in NO CI step at all. Three iterations is "
              "enough: this asserts the runner works, not that the compiler is "
              "crash-free (scripts/diff_fuzz.py is the one hunting wrong values)",
-             lambda: _script("fuzz_frontend.py", "--compiler", compiler,
+             lambda: _script("corpus_gates.py", "fuzz_frontend", "--compiler", compiler,
                              "--iterations", "3"),
              r"^Fuzzed 3 iterations: ", 600, needs=("compiler",)),
         Tool("diff_fuzz.py", "report",

@@ -57,7 +57,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
 import _common
-import test_suite as suite
+import corpus_gates as suite
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
