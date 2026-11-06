@@ -207,6 +207,16 @@ def registry(compiler, cc, work):
              "that owns it, or carries a declared reason why not",
              lambda: _script("flag_coverage.py"),
              r"Finished flag-coverage", 120, allow_rc=(0, 1)),
+        # The gate table itself. It is a table today and `dev.py` still builds
+        # its own argv; the row runs the table's `--self-test`, which compares
+        # every row against what dev.py actually constructs, so the two cannot
+        # drift apart while the second copy still exists. Cheap: no compiler,
+        # no build, and it is in the quick set for that reason.
+        Tool("gate_registry.py", "gate",
+             "the gate table can fail on a duplicated label, a missing script, "
+             "an empty tier, or an argv that no longer equals dev.py's",
+             lambda: _script("gate_registry.py", "--self-test"),
+             r"Finished gate-registry", 60, cost="cheap"),
         # This one exists to be read, not to fail. It diffs the canonical with
         # the generated register numbering flattened, so a reviewer can see what
         # a promote did without reading 20 000 lines of renumbering. Its

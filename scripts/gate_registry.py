@@ -1,0 +1,392 @@
+"""One table: which gate runs, in which tier, with what command line.
+
+Before this file, that answer lived in five places that could disagree:
+
+1. `scripts/dev.py:734-738` -- the tier-0 literal inside `fmt_gate`;
+2. `scripts/dev.py:787-877` -- `gate_spec`, tiers 1 to 3, with the comments that
+   say why each row sits where it sits;
+3. the root `Makefile:19-73` -- eleven pass-throughs plus five single-gate
+   recipes that rebuild each gate's argv by hand and reach the fixed point with
+   `$(shell $(DEV) fp-path)`, five times;
+4. `.github/workflows/ci-gate.yml` -- 18 distinct `scripts/<name>.py` paths in
+   37 steps;
+5. `ENGINEERING.md:747-762` -- the sequence written out again as prose.
+
+`ENGINEERING.md` §7 row `gate-sequence` records the disagreement this caused and
+the one fix already applied (CI calling `make all`). This module is the second
+half of that fix: the table has one owner, and the four readers read it.
+
+What is NOT here yet: the liveness fields (`timeout`, `marker`, `allow_rc`) that
+`scripts/alive_check.py` keeps per tool in its rows at `:145-602`. They arrive in
+the commit that makes `alive_check.py` a reader of this table, and until then the
+fields below stay `None` rather than holding a second copy of a number nobody
+recomputes.
+
+A gate label is a stable identifier. `python scripts/dev.py all --filter <label>`,
+§7, §8 and the people working here name gates by it, so renaming one is a change
+to a contract, not a rename. The liveness of this table is checked by
+`--self-test`: a duplicated label, a row whose script file is gone, an empty tier,
+or an argv that no longer matches what `dev.py` builds today each make it fail.
+"""
+
+import argparse
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS = os.path.join(ROOT, "scripts")
+
+# The two forms of the shard step's argv, transcribed from dev.py:742-758. The
+# reuse form is chosen by dev.py's main() only when a bundle header is bound to
+# the canonical's exact bytes; the table keeps the emission form, which is what
+# `list` shows and what a cold run executes.
+SHARD_EMIT = ["--name", "emit_verify", "--emit-with", "FP", "--no-build",
+              "--fresh"]
+SHARD_REUSE = ["--name", "emit_verify", "--tu", "CANONICAL", "--header",
+               "HEADER", "--no-build"]
+
+
+class Gate:
+    """One row of the table.
+
+    `argv` is a function of the three paths a run needs -- the fixed point, the
+    C compiler, the work directory -- because that is exactly what `dev.py`
+    interpolates today. `None` means the gate is not a subprocess of a script:
+    only `fmt` is in that case, and it runs sharded through
+    `dev.py:567-618`.
+    """
+
+    def __init__(self, label, tier, script, argv, kind="gate", why="",
+                 timeout=None, marker=None, allow_rc=None, self_test=None):
+        self.label = label
+        self.tier = tier
+        self.script = script
+        self.argv = argv
+        self.kind = kind
+        self.why = why
+        self.timeout = timeout
+        self.marker = marker
+        self.allow_rc = allow_rc
+        self.self_test = self_test
+
+    @property
+    def script_path(self):
+        return os.path.join("scripts", os.path.basename(self.script))
+
+
+def _py():
+    return sys.executable
+
+
+def _argv(script, *extra):
+    """The argv form dev.py uses: an interpreter, a script path joined with a
+    forward slash, then the flags.
+
+    The separator is written, not computed. `dev.py:800` sets `s = str(ROOT /
+    "scripts")` and then builds `f"{s}/gate.py"`, so on Windows its argv holds a
+    mixed-separator path and a `os.path.join` version of the same file is a
+    different string. Windows opens both, so nothing would fail -- and the point
+    of this table is that the two forms can be compared exactly. Keeping the
+    separator identical is what makes that comparison mean anything.
+    """
+    path = SCRIPTS + "/" + script
+    return lambda fp, cc, work: [_py(), path] + [
+        a.format(fp=fp, cc=cc, work=work) for a in extra]
+
+
+GATES = [
+    # ---- T0: static, and the reason they are T0 is that they need no compiler.
+    # fmt is in the tier and not a row with an argv: dev.py runs it sharded per
+    # file, so its command line is not one subprocess (dev.py:535-655).
+    Gate("fmt", 0, "scripts/dev.py", None,
+         why="`orbit fmt --check` over compiler/, tests/suite/, std/, tests/std/ "
+             "and examples/, sharded per file; the files are listed by "
+             "dev.py:535 fmt_check_files()"),
+
+    Gate("schema_conformance", 0, "scripts/schema_conformance.py", _argv(
+        "schema_conformance.py"),
+         why="`compiler/front/ast.orb` against the code that builds its nodes; "
+             "it is T0 and not T1 because it compares two files of text and "
+             "needs no compiler at all (dev.py:719)"),
+    Gate("walk_coverage", 0, "scripts/walk_coverage.py", _argv(
+        "walk_coverage.py"),
+         why="every AST walk declares the fields it skips (dev.py:720)"),
+    Gate("doc_counts", 0, "scripts/doc_counts.py", _argv("doc_counts.py"),
+         why="every counted claim about the corpus in the docs equals the tree "
+             "(dev.py:725)"),
+    Gate("flag_coverage", 0, "scripts/flag_coverage.py", _argv(
+        "flag_coverage.py"),
+         why="every CLI flag a script declares is read by the script that owns "
+             "it (dev.py:727)"),
+    Gate("cite_coverage", 0, "scripts/cite_check.py", _argv("cite_check.py"),
+         why="every `path:line` in the documents opens at the construct its "
+             "sentence names (dev.py:730)"),
+
+    # ---- T1: an existing orbit binary, no fresh build.
+    Gate("doctor_gate", 1, "scripts/doctor_gate.py", _argv(
+        "doctor_gate.py", "--compiler", "{fp}"),
+         why="the doctor goldens, run against the binary under test"),
+    Gate("doctor_scope", 1, "scripts/doctor_gate.py", _argv(
+        "doctor_gate.py", "--scope-only", "--compiler", "{fp}"),
+         why="the same binary's scope checks (D013, D021), in the gate whose "
+             "row §7 names doctor_scope"),
+    Gate("cli_probe", 1, "scripts/cli_probe.py", _argv(
+        "cli_probe.py", "--compiler", "{fp}", "--work",
+         "{work}" + os.sep + "cli"),
+         why="the CLI contract. It runs the compiler with cwd set to its own "
+             "work directory, which is why the fixed point handed to it must be "
+             "absolute (dev.py:801-803)"),
+    Gate("runtime_c", 1, "scripts/runtime_c_tests.py", _argv(
+        "runtime_c_tests.py", "--cc", "{cc}"),
+         why="the runtime C test programs. Needs a C compiler and nothing else "
+             "-- no orbit binary, no bootstrap -- which is why it was forty "
+             "lines of shell inside ci-gate.yml and the one gate nobody could "
+             "run locally (dev.py:812-814)"),
+    Gate("ui_snapshots", 1, "scripts/ui_snapshots.py", _argv(
+        "ui_snapshots.py", "--compiler", "{fp}", "--cc", "{cc}", "--work",
+         "{work}" + os.sep + "ui"),
+         why="the rich and colour screens, byte for byte with their escapes, "
+             "plus the interrupt probe (dev.py:816-818)"),
+
+    # ---- T2: language behaviour against a freshly built fixed point.
+    Gate("suite", 2, "scripts/test_suite.py", _argv(
+        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="tests/suite/, built and run"),
+    Gate("suite_std", 2, "scripts/test_suite.py", _argv(
+        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}", "--dir",
+         "tests/std"),
+         why="the same harness over tests/std/"),
+    Gate("suite_native", 2, "scripts/test_suite.py", _argv(
+        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}", "--backend",
+         "native"),
+         why="suite through R6 instead of the C compiler. Without ORBIT_R6 it "
+             "exits SKIP_RC and is reported skipped, not passed "
+             "(dev.py:826-828)"),
+    Gate("suite_std_native", 2, "scripts/test_suite.py", _argv(
+        "test_suite.py", "--cc", "{cc}", "--compiler", "{fp}", "--dir",
+         "tests/std", "--backend", "native"),
+         why="tests/std/ through R6, same skip rule"),
+    Gate("runtime_module", 2, "scripts/runtime_module_gate.py", _argv(
+        "runtime_module_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="`orbit build --runtime-module` to an object, linked into a "
+             "program"),
+    Gate("runtime_module_native", 2, "scripts/runtime_module_gate.py", _argv(
+        "runtime_module_gate.py", "--cc", "{cc}", "--compiler", "{fp}",
+         "--backend", "native"),
+         why="the same module through R6 (ir-protocol 3), skipped without it"),
+    Gate("runtime_gen", 2, "scripts/runtime_gen.py", _argv(
+        "runtime_gen.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="committed runtime/gen/*.c must equal what the compiler emits for "
+             "runtime/orb/*.orb, byte for byte (dev.py:839-840)"),
+    Gate("negative", 2, "scripts/negative_gate.py", _argv(
+        "negative_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="tests/negative/ must fail with the text its header pins"),
+    Gate("frontend", 2, "scripts/frontend_gate.py", _argv(
+        "frontend_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="the TIR goldens the frontend prints"),
+    Gate("dispatch", 2, "scripts/dispatch_coverage.py", _argv(
+        "dispatch_coverage.py"),
+         why="the CLI dispatch table against what the dispatcher accepts"),
+    Gate("parity", 2, "scripts/parity_selfhost.py", _argv(
+        "parity_selfhost.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="the generated-C parity probes against their goldens"),
+    Gate("werror", 2, "scripts/werror_gate.py", _argv(
+        "werror_gate.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="the -Wall -Werror probes: clean C from the emitter, not C that "
+             "only one toolchain tolerates"),
+    Gate("fuzz_frontend", 2, "scripts/fuzz_frontend.py", _argv(
+        "fuzz_frontend.py", "--compiler", "{fp}"),
+         why="the frontend fuzz driver, in the tier that has a binary to feed "
+             "it"),
+    Gate("kynx_live", 2, "scripts/kynx_gate.py", _argv(
+        "kynx_gate.py", "live", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="the only gate that builds a service and runs it. It was the other "
+             "shell block in CI, and being unable to run the gate that proves "
+             "the compiler produces a working server is how a compiler ends up "
+             "green on every unit test and broken in the way that matters "
+             "(dev.py:848-851)"),
+    Gate("unknown_ratchet", 2, "scripts/unknown_ratchet.py", _argv(
+        "unknown_ratchet.py", "--compiler", "{fp}", "--cc", "{cc}"),
+         why="D7's one-way ratchet, the reader the baseline never had in this "
+             "sequence. It was a hard CI step until f001308 folded CI into "
+             "`dev.py all`, and alive_check's row for it is liveness only (rc 1 "
+             "tolerated, marker matches both verdicts) -- so without this entry "
+             "a tree that raised unknown_per_mille above the baseline shipped "
+             "green. T2, like kynx_live: it measures the freshly built fp, and "
+             "`report` keeps only the raw census (dev.py:854-860)"),
+
+    # ---- T3: the root of trust.
+    Gate("check_stale", 3, "scripts/build_selfhost.py", _argv(
+        "build_selfhost.py", "--cc", "{cc}", "--check-stale"),
+         why="the committed canonical still describes these sources"),
+    Gate("shard_split", 3, "scripts/shard_selfhost.py", _argv(
+        "shard_selfhost.py", "--name", "emit_verify", "--emit-with", "{fp}",
+         "--no-build", "--fresh", "--shards-dir",
+         "{work}" + os.sep + "shards", "--cc", "{cc}"),
+         why="the T3 split step in its emission form; dev.py's main() swaps in "
+             "the reuse form (dev.py:752-755) when a bundle header is bound to "
+             "the canonical's exact bytes, so `list` shows the emission argv "
+             "either way (dev.py:794-797)"),
+    Gate("verify_seed", 3, "scripts/verify_seed.py", _argv(
+        "verify_seed.py", "--cc", "{cc}"),
+         why="the seed chain reproduces the canonical bit for bit"),
+    Gate("alive_check", 3, "scripts/alive_check.py", _argv(
+        "alive_check.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         why="D8: every tool in scripts/ proves it can still fail"),
+
+    # ---- report tier: measured, printed, and never able to fail the build.
+    Gate("routes_probe", 99, "scripts/routes_probe.py", _argv(
+        "routes_probe.py"), kind="report",
+         why="the routes CLI probe, run by `dev.py report` (dev.py:1108)"),
+    Gate("unknown_census", 99, "scripts/unknown_census.py", _argv(
+        "unknown_census.py", "--cc", "{cc}", "--compiler", "{fp}"),
+         kind="report",
+         why="the raw census behind the D7 ratchet; the ratchet is the gate, "
+             "the census is the measurement (dev.py:1109)"),
+    Gate("diff_fuzz", 99, "scripts/diff_fuzz.py", _argv(
+        "diff_fuzz.py", "--cc", "{cc}", "--compiler", "{fp}"), kind="report",
+         why="the differential fuzzer, report-only by design since the D9 "
+             "ratchet retired (dev.py:1110)"),
+]
+
+# Transcribed from `scripts/dev.py:734-738` and `:805-877` on 2026-11-05, with
+# the three paths replaced by FP, CC and W. This is what makes the table testable
+# rather than self-describing: `dev.py` still builds its own argv from its own
+# literals, so a row that drifts from the real sequence is caught here and not in
+# a green run. It is deleted in the commit that switches dev.py to reading this
+# table -- at which point the oracle becomes `dev.py list` against the recorded
+# baseline, which is the stronger check and does not live in this file.
+EXPECTED_ARGV = {
+    "schema_conformance": ["{script}schema_conformance.py"],
+    "walk_coverage": ["{script}walk_coverage.py"],
+    "doc_counts": ["{script}doc_counts.py"],
+    "flag_coverage": ["{script}flag_coverage.py"],
+    "cite_coverage": ["{script}cite_check.py"],
+    "doctor_gate": ["{script}doctor_gate.py", "--compiler", "FP"],
+    "doctor_scope": ["{script}doctor_gate.py", "--scope-only", "--compiler",
+                     "FP"],
+    "cli_probe": ["{script}cli_probe.py", "--compiler", "FP", "--work",
+                  "W" + os.sep + "cli"],
+    "runtime_c": ["{script}runtime_c_tests.py", "--cc", "CC"],
+    "ui_snapshots": ["{script}ui_snapshots.py", "--compiler", "FP", "--cc",
+                     "CC", "--work", "W" + os.sep + "ui"],
+    "suite": ["{script}test_suite.py", "--cc", "CC", "--compiler", "FP"],
+    "suite_std": ["{script}test_suite.py", "--cc", "CC", "--compiler", "FP",
+                  "--dir", "tests/std"],
+    "suite_native": ["{script}test_suite.py", "--cc", "CC", "--compiler", "FP",
+                     "--backend", "native"],
+    "suite_std_native": ["{script}test_suite.py", "--cc", "CC", "--compiler",
+                         "FP", "--dir", "tests/std", "--backend", "native"],
+    "runtime_module": ["{script}runtime_module_gate.py", "--cc", "CC",
+                       "--compiler", "FP"],
+    "runtime_module_native": ["{script}runtime_module_gate.py", "--cc", "CC",
+                              "--compiler", "FP", "--backend", "native"],
+    "runtime_gen": ["{script}runtime_gen.py", "--cc", "CC", "--compiler", "FP"],
+    "negative": ["{script}negative_gate.py", "--cc", "CC", "--compiler", "FP"],
+    "frontend": ["{script}frontend_gate.py", "--cc", "CC", "--compiler", "FP"],
+    "dispatch": ["{script}dispatch_coverage.py"],
+    "parity": ["{script}parity_selfhost.py", "--cc", "CC", "--compiler", "FP"],
+    "werror": ["{script}werror_gate.py", "--cc", "CC", "--compiler", "FP"],
+    "fuzz_frontend": ["{script}fuzz_frontend.py", "--compiler", "FP"],
+    "kynx_live": ["{script}kynx_gate.py", "live", "--cc", "CC", "--compiler",
+                  "FP"],
+    "unknown_ratchet": ["{script}unknown_ratchet.py", "--compiler", "FP",
+                        "--cc", "CC"],
+    "check_stale": ["{script}build_selfhost.py", "--cc", "CC",
+                    "--check-stale"],
+    "shard_split": ["{script}shard_selfhost.py", "--name", "emit_verify",
+                    "--emit-with", "FP", "--no-build", "--fresh",
+                    "--shards-dir", "W" + os.sep + "shards", "--cc", "CC"],
+    "verify_seed": ["{script}verify_seed.py", "--cc", "CC"],
+    "alive_check": ["{script}alive_check.py", "--cc", "CC", "--compiler", "FP"],
+    "routes_probe": ["{script}routes_probe.py"],
+    "unknown_census": ["{script}unknown_census.py", "--cc", "CC", "--compiler",
+                       "FP"],
+    "diff_fuzz": ["{script}diff_fuzz.py", "--cc", "CC", "--compiler", "FP"],
+}
+
+
+def gates(tier=None):
+    """The rows, optionally narrowed to one tier. Tier 99 is the report tier."""
+    if tier is None:
+        return list(GATES)
+    return [g for g in GATES if g.tier == tier]
+
+
+def labels(tier=None):
+    return [g.label for g in gates(tier)]
+
+
+def self_test() -> int:
+    """The table has to be able to say no, four ways.
+
+    A duplicated label, a row naming a script that is gone, a tier that lost
+    every row, and an argv that no longer equals what `dev.py` builds. The last
+    one is the point of this file: without it, a transcription error in a table
+    whose whole job is describing commands is invisible until a gate runs the
+    wrong thing.
+    """
+    problems = []
+    seen = {}
+    for g in GATES:
+        if g.label in seen:
+            problems.append("label %s is declared twice" % g.label)
+        seen[g.label] = g
+        if not os.path.isfile(os.path.join(ROOT, g.script)):
+            problems.append("%s names a script that is gone: %s"
+                            % (g.label, g.script))
+    for tier, name in ((0, "T0"), (1, "T1"), (2, "T2"), (3, "T3"),
+                       (99, "report")):
+        if not gates(tier):
+            problems.append("tier %s has no gate" % name)
+
+    for label, expected in EXPECTED_ARGV.items():
+        g = seen.get(label)
+        if g is None or g.argv is None:
+            problems.append("EXPECTED_ARGV names %s, the table has no argv row "
+                            "for it" % label)
+            continue
+        got = g.argv("FP", "CC", "W")
+        # The interpreter is sys.executable in both, so it is compared, not
+        # skipped: a row built with a bare "python" instead would run a
+        # different interpreter than the one that started the gate.
+        want = [_py()] + [e.format(script=SCRIPTS + "/") for e in expected]
+        if got != want:
+            problems.append("%s argv is %r, dev.py builds %r"
+                            % (label, got, want))
+    for g in GATES:
+        if g.kind == "gate" and g.argv is not None and g.label not in \
+                EXPECTED_ARGV:
+            problems.append("%s has an argv with no expected form" % g.label)
+
+    if problems:
+        for p in problems:
+            print("gate-registry: %s" % p)
+        return 1
+    print("Finished gate-registry: %d labels, %d with a command line matched to "
+          "dev.py's own argv, tiers T0-T3 and report non-empty, all scripts "
+          "present" % (len(GATES), len(EXPECTED_ARGV)))
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="The gate table: one source for what runs in which tier.")
+    ap.add_argument("--self-test", action="store_true",
+                    help="prove this table can still fail")
+    ap.add_argument("--list", action="store_true",
+                    help="print the labels per tier and exit")
+    args = ap.parse_args()
+    if args.self_test:
+        return self_test()
+    if args.list:
+        for tier, name in ((0, "T0"), (1, "T1"), (2, "T2"), (3, "T3"),
+                           (99, "report")):
+            print("%s: %s" % (name, ", ".join(labels(tier))))
+        return 0
+    ap.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
