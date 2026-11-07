@@ -16,7 +16,6 @@ complete map; the second names the document that decides each topic.
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
 | How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
 | What is experimental? | [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Compiler research, with no plan attached |
-| What do error codes mean? | [`ERROR_CODES.md`](ERROR_CODES.md) | Compiler diagnostics by code |
 | What do the doctor checks mean? | [`DOCTOR.md`](DOCTOR.md) | The check catalogue and its fixes |
 | How does `orbit cluster` work? | [`CLUSTER.md`](CLUSTER.md) | Single-host process orchestration |
 | How is the compiler bootstrapped? | [`internals/SELF_HOSTING.md`](internals/SELF_HOSTING.md) | Why and how the compiler compiles itself |
@@ -24,7 +23,6 @@ complete map; the second names the document that decides each topic.
 | How fast does it build and run? | [`internals/PERF.md`](internals/PERF.md) | Method and measured performance |
 | How do I measure resource use? | [`internals/ENERGY.md`](internals/ENERGY.md) | CPU, memory, energy method and the ledger |
 | How large is the generated C? | [`internals/CODEGEN_BUDGET.md`](internals/CODEGEN_BUDGET.md) | Emitted size and build cost per program |
-| How does formatting work? | [`FMT.md`](FMT.md) | The formatter, its corpus and its gate |
 | Which toolchain builds what? | [`TOOLCHAIN.md`](TOOLCHAIN.md) | Compiler policy per platform |
 | Which platforms are supported? | [`SUPPORT.md`](SUPPORT.md) | Operating systems, compilers and limits |
 | How is Orbit versioned? | [`VERSIONING.md`](VERSIONING.md) | Versions and compatibility |

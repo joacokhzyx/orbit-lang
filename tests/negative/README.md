@@ -190,7 +190,7 @@ case can be cited; the name after the underscore is what the gate prints.
 ## Where the codes are documented
 
 Every `E`-code the compiler emits and every `F`-finding the corpus was built
-from is catalogued in [docs/ERROR_CODES.md](../../docs/ERROR_CODES.md): what
+from is catalogued in [the diagnostics table](../../docs/LANGUAGE_REFERENCE.md#diagnostics): what
 each code means, where it fires, how to fix it, and which case pins it. When
 a ratchet fires and the header needs re-declaring, that catalog is where the
 new code (or the absence of one) gets looked up — never guessed.
@@ -199,7 +199,7 @@ new code (or the absence of one) gets looked up — never guessed.
 
 Write the smallest program that exhibits the defect. If `orbit check` accepts
 it, it is a `known-defect` case and it needs a reference — an `F` finding from
-the index in `docs/ERROR_CODES.md` if one exists, otherwise the name of the
+the index in `docs/LANGUAGE_REFERENCE.md` if one exists, otherwise the name of the
 check that is missing. If `orbit check`
 rejects it, put the real diagnostic substring in the header. Do not invent a
 diagnostic: a case that cannot pass because the compiler is wrong is a finding,

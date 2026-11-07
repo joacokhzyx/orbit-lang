@@ -477,7 +477,7 @@ def self_test_walk(args) -> int:
 #
 # Three times in one week a document kept a number the tree had left behind. The
 # behavior suite stayed at 71 runnable files after the 72nd landed; `std/` was
-# described as 14 modules after `bitwise` returned and made it 19; docs/FMT.md
+# described as 14 modules after `bitwise` returned and made it 19; docs/LANGUAGE_REFERENCE.md
 # still described a corpus of 107 files while `dev.py fmt_check_files` holds 154;
 # and ENGINEERING.md put the runtime C program table at 20 files while the table
 # in `scripts/runtime_c_tests.py` holds 21 rows. None of those was a lie: each was
@@ -501,7 +501,7 @@ def self_test_walk(args) -> int:
 #
 # Scope. Present-tense counts of the test corpus and the standard library, in the
 # documents that describe the tree as it is today: docs/KNOWN_LIMITATIONS.md,
-# docs/ARCHITECTURE.md, docs/IR_SPEC.md, docs/FMT.md, ENGINEERING.md (the section
+# docs/ARCHITECTURE.md, docs/IR_SPEC.md, docs/LANGUAGE_REFERENCE.md, ENGINEERING.md (the section
 # 6 row and the section 8 command list), and the README of the two corpora that
 # count themselves.
 #
@@ -659,14 +659,14 @@ CLAIMS = [
      ["std_modules", "std_quarantined"],
      "designated corpus: std modules and quarantine"),
 
-    # docs/FMT.md -- the corpus the fmt gate verifies.
-    ("docs/FMT.md", r"under `compiler/` \({N} files\), `tests/suite/` \({N}\),",
+    # docs/LANGUAGE_REFERENCE.md -- the corpus the fmt gate verifies.
+    ("docs/LANGUAGE_REFERENCE.md", r"under `compiler/` \({N} files\), `tests/suite/` \({N}\),",
      ["fmt_compiler", "fmt_suite"], "fmt corpus, source trees"),
-    ("docs/FMT.md", r"`std/` \({N}\) and `tests/std/` \({N}\), plus",
+    ("docs/LANGUAGE_REFERENCE.md", r"`std/` \({N}\) and `tests/std/` \({N}\), plus",
      ["std_modules", "std_tests"], "fmt corpus, library trees"),
-    ("docs/FMT.md", r"`examples/\*\.orb` \({N}, minus",
+    ("docs/LANGUAGE_REFERENCE.md", r"`examples/\*\.orb` \({N}, minus",
      ["fmt_examples"], "fmt corpus, examples"),
-    ("docs/FMT.md", r"\. {N} files -- the exact list",
+    ("docs/LANGUAGE_REFERENCE.md", r"\. {N} files -- the exact list",
      ["fmt_files"], "fmt corpus, total"),
 
     # ENGINEERING.md, section 6 (the debt table) and section 8 (the commands).
@@ -751,7 +751,7 @@ def _dc_check(root: pathlib.Path) -> list:
     counts = measure(root)
     findings = evaluate(root, counts, CLAIMS)
     if root == _DC_ROOT:
-        # docs/FMT.md's total is a claim about dev.py's list, not about a glob
+        # docs/LANGUAGE_REFERENCE.md's total is a claim about dev.py's list, not about a glob
         # this script invented. If the two rules diverge, one of them moved and
         # the claim is measuring the wrong thing.
         sys.path.insert(0, str(_DC_ROOT / "scripts"))
@@ -762,7 +762,7 @@ def _dc_check(root: pathlib.Path) -> list:
             findings.append((
                 "scripts/dev.py", 0, "fmt_files",
                 f"fmt_check_files() holds {fmt} files and this gate counted "
-                f"{counts['fmt_files']}; docs/FMT.md rests on dev.py's list, so "
+                f"{counts['fmt_files']}; docs/LANGUAGE_REFERENCE.md rests on dev.py's list, so "
                 f"the two rules have to agree",
             ))
     return findings
@@ -1120,7 +1120,6 @@ TARGETS = (
     "ENGINEERING.md",
     "docs/KNOWN_LIMITATIONS.md",
     "docs/ARCHITECTURE.md",
-    "docs/ERROR_CODES.md",
     "docs/IR_SPEC.md",
     "docs/internals/ARENA.md",
     "docs/LANGUAGE_REFERENCE.md",

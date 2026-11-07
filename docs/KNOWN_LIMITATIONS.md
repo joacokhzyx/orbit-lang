@@ -168,7 +168,7 @@ time, which is the only place a coin flip is not allowed to land.
 Where the shared derivations live, and why that file exists: `literal.orb` is a
 leaf module importing nothing, so `builder.orb`, `sema.orb` and `parser.orb` can
 all depend on it and the import graph stays a DAG. It was created for exactly
-this reason ([F-0004](ERROR_CODES.md#f-code-index)). A helper in the wrong side of the graph was an unresolved
+this reason ([F-0004](internals/DEFECTS.md#f-code-index)). A helper in the wrong side of the graph was an unresolved
 call, which is not an error: `orbit check` stayed clean and the C compiler
 rejected the output with a name it had never been given.
 
@@ -180,22 +180,22 @@ What replaced the list, in the order the work was done:
 | what used to happen | what happens now |
 |---|---|
 | `.at()` on a list read a byte of the list pointer and answered 0 | `.at()` and `.get()` both do the right thing, on ints and on strings |
-| a call argument's type was never compared with the parameter's | [`E1005`](ERROR_CODES.md#e1005--call-argument-type-mismatch), naming the parameter and both types |
+| a call argument's type was never compared with the parameter's | [`E1005`](LANGUAGE_REFERENCE.md#e1005--call-argument-type-mismatch), naming the parameter and both types |
 | an undeclared identifier printed a stack address | *Undeclared identifier: nothing in scope declares it* |
 | a call with the wrong arity dropped the extra arguments | *Wrong number of arguments to f: it takes 1, got 3* |
-| a model constructor accepted the wrong argument types | [`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity), naming the field and both types |
+| a model constructor accepted the wrong argument types | [`E1003`](LANGUAGE_REFERENCE.md#e1003--bad-member-read-bad-construction-bad-print-arity), naming the field and both types |
 | `1e2` was the integer `1`, `0b101` was the integer `0` | both are literal values; an exponent is always a float |
 | `(0-7)/2` was `-4` and `(0-7)/3` was `1431655763` | `-3` and `-2`, C semantics, pinned by `div_mod_signed.orb` |
 | `9223372036854775808` silently became `-9223372036854775808` | *integer literal does not fit an orbit_int* |
-| `s.at(99)` answered 0, which is the NUL byte | [`E1002`](ERROR_CODES.md#e1002--literal-index-out-of-range), naming the index and the length |
-| `val v: widget = 3` was ignored | [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch), and a capitalised unknown type is refused too |
-| `val n: Int = 1` reached gcc as `Int*` | [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch), with the note that types are lower case or declared |
-| `m.nonexistent`, `s.radius`, `n.nothing` died in the C step | [`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity), and the receiver's own members are the only ones |
+| `s.at(99)` answered 0, which is the NUL byte | [`E1002`](LANGUAGE_REFERENCE.md#e1002--literal-index-out-of-range), naming the index and the length |
+| `val v: widget = 3` was ignored | [`E1006`](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch), and a capitalised unknown type is refused too |
+| `val n: Int = 1` reached gcc as `Int*` | [`E1006`](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch), with the note that types are lower case or declared |
+| `m.nonexistent`, `s.radius`, `n.nothing` died in the C step | [`E1003`](LANGUAGE_REFERENCE.md#e1003--bad-member-read-bad-construction-bad-print-arity), and the receiver's own members are the only ones |
 
 Two of those deserve a note about *how*, because both were the same mistake
 wearing different clothes.
 
-**A check that only knows one table is a check that guesses.** [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) refuses
+**A check that only knows one table is a check that guesses.** [`E1006`](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch) refuses
 a capitalised type name that nothing declares, which is what makes `val n: Int
 = 1` a diagnostic. Its first version asked the checker's two type registries,
 and those registries do not hold models. `checkModelDecl` fills
@@ -211,7 +211,7 @@ compiler, with an error naming a C symbol or a C struct member instead of the
 Orbit source. Those messages reached the user as `orbit build: couldn't finish
 the C step - this one is on me, not your code`, which is a sentence about the
 compiler's feelings, not about the program. Every one of them is now an
-[`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity) with a line and a column in the user's own file.
+[`E1003`](LANGUAGE_REFERENCE.md#e1003--bad-member-read-bad-construction-bad-print-arity) with a line and a column in the user's own file.
 
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
@@ -627,14 +627,14 @@ that only ever exists as `Box_int`.
 | you write | what happens |
 |---|---|
 | `Box { v: 1 }` | `Box_int`. The supported spelling. |
-| `Box(1)` | [E1003](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity). The positional form has an argument and no way to call it an int. (n47) |
+| `Box(1)` | [E1003](LANGUAGE_REFERENCE.md#e1003--bad-member-read-bad-construction-bad-print-arity). The positional form has an argument and no way to call it an int. (n47) |
 | `fn take(b: Box<int>)`, `-> Box<string>` | Supported. The written argument names (and creates) the instance. |
-| `fn take(b: Box)` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch). Nothing to infer from before the value exists; write the argument. (n51) |
+| `fn take(b: Box)` | [E1006](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch). Nothing to infer from before the value exists; write the argument. (n51) |
 | `model Box[T: int]` | Parser error. A constraint is a promise about an argument this language infers, so there is nothing to hold it to. (n53) |
-| `model Phantom[T] { id: int }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch): no field's declared type mentions `T`, so there is no value to take the argument from. `void*` would compile, and would be a lie about the model. (n52) |
-| `Same { a: 1, b: "s" }` where `model Same[T] { a: T, b: T }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch). `a` fixes `T` at `int` and `b` is then checked against it. (n50) |
+| `model Phantom[T] { id: int }` | [E1006](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch): no field's declared type mentions `T`, so there is no value to take the argument from. `void*` would compile, and would be a lie about the model. (n52) |
+| `Same { a: 1, b: "s" }` where `model Same[T] { a: T, b: T }` | [E1006](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch). `a` fixes `T` at `int` and `b` is then checked against it. (n50) |
 | `model Box[T] { v: list<list<T>> }` | `T` is not determined. Only a field declared `T`, or a `list<T>` whose value is a list literal, fixes an argument. |
-| `Option.None` where no position writes a type | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch): `'Option.None' carries no payload, so nothing in this expression says which instantiation of 'Option' it is and no position writes a type for it either.` (n118) |
+| `Option.None` where no position writes a type | [E1006](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch): `'Option.None' carries no payload, so nothing in this expression says which instantiation of 'Option' it is and no position writes a type for it either.` (n118) |
 
 Two parameters work, and two instantiations of one model in one program
 are two structs:
@@ -677,7 +677,7 @@ programs that would have collided link and run, which is what the name is for.
 
 What is refused is the case with no owner to read. `val p = Body(3)` with both
 unions in scope answers
-[E1011](ERROR_CODES.md#e1011--variant-name-belongs-to-more-than-one-union),
+[E1011](LANGUAGE_REFERENCE.md#e1011--variant-name-belongs-to-more-than-one-union),
 which names both owners, and `tests/negative/n121` pins the text. There is no
 expected type to infer an owner from -- `checkNode` takes none -- and the guess
 was the half of the old defect that said nothing.
@@ -799,7 +799,7 @@ names what the standard library does not provide.
 This entry used to be a description of a hole: eight programs that segfaulted
 or silently misbehaved. The hole is closed for the receivers the checker can
 name. Annotations, literals, pushes and reads are all compared while compiling
-([`E1005`](ERROR_CODES.md#e1005--call-argument-type-mismatch) at calls, [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) at pushes, reads and bindings). An empty `[]` plus
+([`E1005`](LANGUAGE_REFERENCE.md#e1005--call-argument-type-mismatch) at calls, [`E1006`](LANGUAGE_REFERENCE.md#e1006--bad-type-name-or-binding-mismatch) at pushes, reads and bindings). An empty `[]` plus
 pushes is typed by first-push-wins. `int` widens into `list<float>`, but the
 reverse is refused. The before/after table was the fix's own evidence and now
 lives in git history with it. What is left is a different and smaller hole:
@@ -812,7 +812,7 @@ lives in git history with it. What is left is a different and smaller hole:
   without breaking code that works. The build names no element kind for that
   parameter either: `xs.get(i)` through it emits `list_get` with `elemKind` 0 and
   a `void*` destination register (measured 2026-11-05). The crash it used to hide is closed
-  ([F-0009](ERROR_CODES.md#f-code-index), fixed): generic functions fix the
+  ([F-0009](internals/DEFECTS.md#f-code-index), fixed): generic functions fix the
   element per call site and `tests/negative/n39_list_parameter_has_no_element_type.orb`
   pins that the incoherent call is refused. A model field is no longer in this bullet:
   `model Bag { xs: list<string> }` parses, because `parseModelDecl` reads a field
@@ -883,11 +883,11 @@ the same change; the absolute count rose with the denominator, 275 to 307.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
-the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 126 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 51), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
-(unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 15) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
+(unknown identifier, 126 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 51), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
+(unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
+(member read, 15) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
 (call result, 115). Their sum, 307, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:876`, `:889`, `:897`, `:921` and `:1023`, and
 each sits on the branch that emits the instruction.
@@ -974,7 +974,7 @@ same run printed E2004=4,821 and E2005=6,756 in its own diagnostic table.
 The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
-Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
+Separately, [E3001](LANGUAGE_REFERENCE.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
 <node>", with the two named refusals the `if` and `match` rules added, fired 270
 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type. On this run the two tallies
