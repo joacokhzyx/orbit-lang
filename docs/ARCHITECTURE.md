@@ -177,7 +177,7 @@ directory. Run the compiler from the repository root, or from a directory where
 you have arranged one, or the C step fails with
 `fatal error: socket_compat.h: No such file or directory`. This is the same
 family of assumption as the `std/` lookup described in
-[Libraries](LIBRARIES.md). The tree layout is part of the contract, and nothing
+[imports and visibility](LANGUAGE_REFERENCE.md#imports-and-visibility). The tree layout is part of the contract, and nothing
 checks it at install time.
 
 ### The value model: one machine word, no tag
@@ -228,7 +228,7 @@ argument types is the whole workaround.
 
 For a user, the summary is: **annotate your bindings, and treat a value that
 crosses a `string` boundary as the one place the compiler will not help you.**
-`docs/KNOWN_LIMITATIONS.md` records what this costs. `docs/LIBRARIES.md`
+`docs/KNOWN_LIMITATIONS.md` records what this costs. `docs/LANGUAGE_REFERENCE.md#imports-and-visibility`
 covers the other place the same missing types bite, at import boundaries.
 
 ---
@@ -463,7 +463,7 @@ served the request (see [PERF.md](internals/PERF.md), "Arena telemetry is a fold
 no consumer left, the predictor is gone, and with it the TLS branch the
 allocator carried on every allocation. The predictive pre-reservation design is
 in the history rather than the tree: `git log -- runtime/oracle.c`.
-See [ARENA.md](ARENA.md).
+See [internals/ARENA.md](internals/ARENA.md).
 
 ---
 

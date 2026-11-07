@@ -14,10 +14,8 @@ complete map; the second names the document that decides each topic.
 | How do I write Orbit? | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | The user-visible language, with limits stated |
 | What is missing or surprising? | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | The measured limits, with workarounds |
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
-| How does memory management work? | [`ARENA.md`](ARENA.md) | The arena allocator and its retention policy |
 | How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
 | What is experimental? | [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Compiler research, with no plan attached |
-| How do I write a library? | [`LIBRARIES.md`](LIBRARIES.md) | Imports, the flat namespace and visibility |
 | What do error codes mean? | [`ERROR_CODES.md`](ERROR_CODES.md) | Compiler diagnostics by code |
 | What do the doctor checks mean? | [`DOCTOR.md`](DOCTOR.md) | The check catalogue and its fixes |
 | How does `orbit cluster` work? | [`CLUSTER.md`](CLUSTER.md) | Single-host process orchestration |

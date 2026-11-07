@@ -105,7 +105,7 @@ Until the release ships `std/` (or the resolver grows a search-path
 environment variable), a release check that does not exercise a `std/` import
 from outside the source tree is not verifying the artifact. The rule and the
 workaround are written up in [Writing a library others can
-import](LIBRARIES.md#4-std-resolves-against-three-roots-and-that-is-the-install-trap).
+import](LANGUAGE_REFERENCE.md#4-std-resolves-against-three-roots-and-that-is-the-install-trap).
 
 ## Consumer Verification
 

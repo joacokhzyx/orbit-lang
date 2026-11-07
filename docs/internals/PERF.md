@@ -440,7 +440,7 @@ a fresh zero page. The request-serving runtime was audited for that: all 100
 `orbit_alloc` call sites either zero the block (`collections.c` map buckets,
 `http.c` `OrbitRequest`, `admission.c` lease) or write it fully before reading it. The
 pages under the floor were already unzeroed before this change, so this widens an
-existing rule rather than introducing one. `docs/ARENA.md` does not promise zeroed
+existing rule rather than introducing one. `docs/internals/ARENA.md` does not promise zeroed
 memory and now says so where it used to pin the constant.
 
 ## Follow-up (2026-10): the C cache keyed everything except the headers

@@ -1122,7 +1122,7 @@ TARGETS = (
     "docs/ARCHITECTURE.md",
     "docs/ERROR_CODES.md",
     "docs/IR_SPEC.md",
-    "docs/ARENA.md",
+    "docs/internals/ARENA.md",
     "docs/LANGUAGE_REFERENCE.md",
     "docs/COMMANDS.md",
     "docs/DOCTOR.md",
