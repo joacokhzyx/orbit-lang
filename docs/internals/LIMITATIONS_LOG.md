@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,242
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,474
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 90 | **0.1%** |
+| instructions the front end types `unknown` | 74 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -906,16 +906,20 @@ answer. The count fell to 96 over 148,271 instructions, E2005 from 54 to 37 and
 E2001 from 36 to 33. A `try` binding reads the same annotation helper as any
 other `val`, so `val o: object = try parse(t) catch { ... }` binds `object` and
 `val xs: list<int> = try ...` binds the whole list. The count fell to 90 over
-148,242 instructions.
+148,242 instructions. A bare variant names its union: `Circle(5)` with no type
+before the dot is a construction of the one type that declares `Circle`, and
+`NoInt =>` in a match arm is a tag test rather than a load of a name nothing
+declares. A name two unions share is not guessed at. The count fell to 74 over
+148,474 instructions, E2001 from 28 to 17 and E2005 from 36 to 31.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 28 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 17 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 12), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 14) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 36). Their sum, 90, is the whole unknown count. The five
+(call result, 31). Their sum, 74, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:881`, `:894`, `:902`, `:926` and `:1028`, and
 each sits on the branch that emits the instruction.
 
@@ -1009,7 +1013,7 @@ per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 arms that bind a payload.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:770`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:775`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been

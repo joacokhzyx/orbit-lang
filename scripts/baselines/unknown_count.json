@@ -2,13 +2,13 @@
   "schema": 1,
   "note": "Ratchet baseline for the unknown-type count. Every number in totals may only go down. Written by scripts/measure.py ratchet --write-baseline. Do not hand-edit a number up; that is what the gate is for.",
   "totals": {
-    "unknown_per_mille": 1,
+    "unknown_per_mille": 0,
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 148242,
+  "instructions": 148474,
   "context": {
-    "unknown_instructions": 90,
+    "unknown_instructions": 74,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -212,14 +212,14 @@
     "tests/suite/ternary.orb": 0,
     "tests/suite/type_spellings.orb": 0,
     "tests/suite/unary_neg.orb": 0,
-    "tests/suite/union_bare_variant_pattern.orb": 4,
-    "tests/suite/union_match_exhaustive.orb": 9,
+    "tests/suite/union_bare_variant_pattern.orb": 0,
+    "tests/suite/union_match_exhaustive.orb": 1,
     "tests/suite/union_model_payload.orb": 0,
-    "tests/suite/union_multi_payload.orb": 3,
+    "tests/suite/union_multi_payload.orb": 0,
     "tests/suite/union_multi_payload_unit_variant.orb": 0,
     "tests/suite/union_nested_match.orb": 0,
     "tests/suite/union_payload_return.orb": 0,
-    "tests/suite/union_shared_variant_name.orb": 1,
+    "tests/suite/union_shared_variant_name.orb": 0,
     "tests/suite/union_variant_named_tag.orb": 0,
     "tests/suite/user_fn_named_check.orb": 0,
     "tests/suite/user_fn_named_find.orb": 0,

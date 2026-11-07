@@ -660,6 +660,11 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     val declared = declaredReturnType(module, l.text)
                     if declared != "" { return declared }
                     if declaresModelCtor(module, l.text) { return l.text }
+                    // `Circle(5)` with no type before the dot is a construction of
+                    // the one union that declares `Circle`. The name is not loaded
+                    // and the call answers that union's value.
+                    val variantOwner = declaredVariantOwner(module, l.text)
+                    if variantOwner != "" { return variantOwner }
                     // `ok` and `err` are the result constructors the checker
                     // accepts by name. Two other modules already give this answer --
                     // `compiler/ir/builder.orb:389` and
@@ -1000,6 +1005,12 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                         if calleeLiteral.text == "ok" || calleeLiteral.text == "err" {
                             modelCalleeName = calleeLiteral.text
                         }
+                        if modelCalleeName == "" {
+                            val variantOwner = declaredVariantOwner(module, calleeLiteral.text)
+                            if variantOwner != "" {
+                                modelCalleeName = variantOwner + "." + calleeLiteral.text
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -1235,6 +1246,30 @@ fn declaredVariantTag(module: TirModule, typeName: string, variant: string) -> s
     return ""
 }
 
+// The one type that declares a variant by this bare name, "" when none does or
+// when two do. `module.ctors` carries a model by its own name and a variant as
+// `Type.Variant`, so an entry ending `.<variant>` names its owner before the
+// dot. Two unions may share a variant name; the source wrote no type, and
+// picking one would read the tag from the wrong table.
+fn declaredVariantOwner(module: TirModule, variant: string) -> string {
+    var owner = ""
+    var i = 0
+    while i < module.ctors.len() {
+        val qualified = module.ctors.get(i)
+        if qualified.length > variant.length + 1 {
+            val tail = qualified.slice(qualified.length - variant.length, qualified.length)
+            val dot = qualified.slice(qualified.length - variant.length - 1, qualified.length - variant.length)
+            if tail == variant && dot == "." {
+                val found = qualified.slice(0, qualified.length - variant.length - 1)
+                if owner == "" { owner = found }
+                else if owner != found { return "" }
+            }
+        }
+        i = i + 1
+    }
+    return owner
+}
+
 // The payload type a union variant declares, "" when it declares none or when
 // this file declares neither the type nor that variant in it. A `match` arm that
 // binds the payload names this type, and the arm's body reads fields from it.
@@ -1298,7 +1333,7 @@ fn tirBindArmName(function: TirFunction, blockId: int, arg: ASTNode, typeName: s
 // Does any arm of this match test a variant? The tag is then read once, before the
 // first test, the way `buildMatchExpr` reads it into one register and compares that
 // register against every arm.
-fn matchTestsVariants(cases: list < ASTNode >) -> bool {
+fn matchTestsVariants(module: TirModule, scrutineeType: string, cases: list < ASTNode >) -> bool {
     var i = 0
     while i < cases.len() {
         match cases.get(i) {
@@ -1306,6 +1341,12 @@ fn matchTestsVariants(cases: list < ASTNode >) -> bool {
                 match c.pattern {
                     ASTNode.MemberAccess(member) => { return true }
                     ASTNode.Call(callPattern) => { return true }
+                    // A bare unit variant -- `NoInt => ...` -- names a variant of
+                    // the value switched on, and it is a tag test too: lowering it
+                    // as an expression loaded a name nothing declares.
+                    ASTNode.Literal(literal) => {
+                        if declaredVariantTag(module, scrutineeType, literal.text) != "" { return true }
+                    }
                     _ => {}
                 }
             }
@@ -1334,7 +1375,7 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
     val scrutineeType = typeOfExpression(module, bindings, m.expr)
     val scrutineeValue = lowerExpression(module, function, blockId, bindings, m.expr)
     var tagValue = -1
-    if matchTestsVariants(m.cases) {
+    if matchTestsVariants(module, scrutineeType, m.cases) {
         tagValue = tirEmit(function, blockId, "tag", "int", tirValue(scrutineeValue))
     }
     val mergeBlock = tirCreateBlock(function)
@@ -1368,9 +1409,19 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
         var bodyBindings = copyBindings(bindings)
         match pattern {
             ASTNode.Literal(l) => {
-                val patternValue = lowerExpression(module, function, testBlock, copyBindings(bindings), pattern)
-                val compared = tirEmit(function, testBlock, "==", "bool", tirValue(scrutineeValue) + " " + tirValue(patternValue))
-                tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+                // `NoInt => ...` on a union is one of its variants, so the arm
+                // tests the tag read once above. Any other literal -- `0 =>` on an
+                // int -- is the value it compares the whole scrutinee with.
+                val bareTag = declaredVariantTag(module, scrutineeType, l.text)
+                if bareTag != "" {
+                    val tagNumber = tirEmit(function, testBlock, "const", "int", bareTag)
+                    val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
+                    tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+                } else {
+                    val patternValue = lowerExpression(module, function, testBlock, copyBindings(bindings), pattern)
+                    val compared = tirEmit(function, testBlock, "==", "bool", tirValue(scrutineeValue) + " " + tirValue(patternValue))
+                    tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+                }
             }
             ASTNode.MemberAccess(member) => {
                 val tagName = declaredVariantTag(module, scrutineeType, member.field)
