@@ -278,6 +278,11 @@ fn runRun() {
     var spawnPath = "\"" + outputPath + "\""
     if osName == "Windows_NT" || winDir != "" {
         spawnPath = "\"" + shellPath(outputPath) + "\""
+    } else if orbit_string_char_at_selfhost(outputPath, 0) != 47 {
+        // A POSIX shell resolves a command with no slash through PATH, and the
+        // current directory is not on it: `hello.orb.run` is not found where
+        // `./hello.orb.run` is. The Windows branch quotes for cmd.exe instead.
+        spawnPath = "\"./" + outputPath + "\""
     }
     val code = orbit_os_spawn_selfhost(spawnPath)
     orbit_os_exit_selfhost(code)
