@@ -9,7 +9,7 @@ fn takesStr(s: string) -> int { return s.len() }
 fn takesInt(x: int) -> int { return x }
 fn takesFloat(f: float) -> int { return 1 }
 fn takesBool(b: bool) -> int { return 2 }
-fn takesList(l: list) -> int { return l.len() }
+fn takesList(l: list < int >) -> int { return l.len() }
 
 // A model is a first-class parameter, not a special case.
 model Box { v: int }

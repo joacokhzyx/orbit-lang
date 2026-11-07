@@ -1009,7 +1009,12 @@ Integer literals are decimal, `0x` hexadecimal, and `_` is a digit separator
 ### Types
 
 The builtin types are `int` (64-bit), `float`, `string`, `bool`, `list`,
-`result`, and `void`. Annotate when the type is not inferable:
+`result`, and `void`. A written `list` names its element -- `list<string>`,
+`list<int>` -- and a bare `list` in a signature, a field or an annotation is
+refused ([E1012](#e1012---a-written-list-names-its-element)): every read from it
+would have no type to answer. The one bare `list` left is the value an empty
+literal builds, whose element the first push decides. Annotate when the type is
+not inferable:
 
 ```orbit
 fn classify(n: int) -> string {
@@ -1757,6 +1762,17 @@ one. The message names every union that declares the name. Pinned by
 Payloads and arity are read from the owner the program wrote, so `E1005` and
 `E1003` describe the union the construction names rather than whichever was
 declared first.
+
+### E1012 - a written list names its element
+
+Fires in `compiler/front/parser.orb`, `parseTypeName`, for a `list` or `List`
+written without `<...>` as a type: a parameter, a return type, a model field or
+an annotation. Nothing downstream could say what a read from it yields, so
+`xs.get(i)` reported E2005 and the C backend stored a `void*`. Fix hint: write
+the element, `list<string>`. A value built from an empty literal keeps a bare
+`list`, because nothing wrote its type and the first push decides the element;
+that value is not a declaration, and the rule does not fire on it. Pinned by
+`tests/negative/n127_list_type_needs_element.orb`.
 
 ### E2001 - unknown identifier (frontend)
 

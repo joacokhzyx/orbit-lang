@@ -41,7 +41,7 @@ model GenericParamNode {
 
 model DecoratorNode {
     name: string
-    arguments: list
+    arguments: list < ASTNode >
 }
 
 model FieldDeclNode {

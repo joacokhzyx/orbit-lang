@@ -52,6 +52,23 @@ Runtime and services:
 
 Language front end:
 
+- **A written `list` names its element.** `fn take(xs: list)` compiled, and
+  every read through `xs` answered `unknown`: `.get` reported E2005 and the C
+  backend stored a `void*`. The parser refuses a bare `list` (or `List`) in a
+  parameter, a return type, a model field or an annotation now, with E1012 and
+  the two ways out. The one bare list left is the value an empty literal builds,
+  whose element the first push decides. The compiler, `std/`, the suite, the
+  doctor fixtures and the three probe programs write the element: 8 sites in
+  `compiler/`, 8 in `std/` and 52 in `tests/`. Over the corpus the census reads
+  277 unknown over 146,974 instructions, down from 307 over 146,923: E2001 fell
+  126 to 111 and E2005 115 to 100, because 15 loads and 15 calls that read
+  through a written list now carry its element, and the silent count stays 0.
+  `tests/negative/n127_list_type_needs_element.orb` pins the refusal and
+  `n128_list_of_lists_is_not_a_list_of_strings.orb` pins that a list of lists is
+  not a list of strings. The verifier that compares a call's return type with
+  its destination accepts a bare `list` against `list<T>` first, in its own
+  commit, because the seed compiler has to accept the sources this writes.
+
 - **A `match` arm binds its payload in the typed frontend.** `orbit frontend` refused every arm that named a variant payload (`E3001`, "a match that binds a payload needs the data read this pass does not print") while `orbit build` compiled them, so the unknown-type census measured a path the command line does not build with. The pass reads the data word with `data <payload> <scrutinee>`, binds it, and for a multi-payload variant reads each field of the packed struct. The census grew from 111,537 instructions to 147,001 as the files that printed no TIR now print theirs, and the unknown rate fell from 2.46 to 2.09 per mille; 307 instructions remain unknown, none silent. The frontend gate is 59/59, with `variant_match_payload.tir` as the new golden and `variant_match_bindless.orb` as the refusal control.
 
 - **A `match` becomes a test chain, and the metric falls to 2 per mille.** `match s { … }` reached the expression reader and gave up: 310 sites, the largest class in the corpus, and the reason the give-up named was that the pass models no merge value. The merge value landed first (`8382183`), and this is the chain. The discriminator is read once with `tag int v0`; each arm's test is `const int <declared position>` against it, `== bool`, `branch` into the arm or into the next test; an arm that returns writes no jump, an arm that falls through jumps to the merge block, and a wildcard takes the block the last test fell through to instead of printing an empty one. The position is the number `compiler/emit/c_backend.orb:2082` defines as `<Type>_TAG_<Variant>`, so the frontend was not free to invent one. An arm that binds a payload is refused by name -- 258 sites -- because the data word has no instruction yet. Over the corpus: 275 unknown over 111,537 instructions, 0 silent, E3001 270 with `Match` down to 3, and the ratchet metric 3 to 2 per mille for the first time in the campaign. `compiler/emit/ir_emit.orb` came to 0 untyped instructions and `compiler/front/sema.orb` fell 12 to 7; two `tests/suite` programs gained a total of 3 where a reached arm asks what is not printed. `tests/frontend/variant_match_chain.orb` and its golden were written before the promote and matched on the first run; `tests/frontend/variant_match_payload.orb` pins the refusal. The frontend gate is 58/58.

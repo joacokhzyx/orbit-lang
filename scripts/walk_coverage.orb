@@ -54,7 +54,7 @@ fn stripCR(s: string) -> string {
     return s
 }
 
-fn splitLines(text: string) -> list {
+fn splitLines(text: string) -> list<string> {
     val out = []
     val n = text.len()
     var start = 0
@@ -105,7 +105,7 @@ fn matchesAt(s: string, n: int, at: int, what: string) -> bool {
     return true
 }
 
-fn indexOfString(items: list, value: string) -> int {
+fn indexOfString(items: list<string>, value: string) -> int {
     var i = 0
     while i < items.len() {
         val at: string = items.get(i)
@@ -115,7 +115,7 @@ fn indexOfString(items: list, value: string) -> int {
     return - 1
 }
 
-fn sortedStrings(items: list) -> list {
+fn sortedStrings(items: list<string>) -> list<string> {
     val out = []
     var i = 0
     while i < items.len() {
@@ -140,7 +140,7 @@ fn sortedStrings(items: list) -> list {
     return out
 }
 
-fn orbFiles(dir: string) -> list {
+fn orbFiles(dir: string) -> list<string> {
     val all = walk(dir)
     val out = []
     var i = 0
@@ -178,7 +178,7 @@ fn cutComment(s: string) -> string {
 }
 
 // One field line, `name: type`, as the two strings; empty when it is not one.
-fn parseField(line: string) -> list {
+fn parseField(line: string) -> list<string> {
     val text = trimText(cutComment(line))
     val n = text.len()
     var i = 0
@@ -199,7 +199,7 @@ fn parseField(line: string) -> list {
     return [name, kind]
 }
 
-fn joinWith(items: list, sep: string) -> string {    val buf = orbit_cbuf_create_selfhost()
+fn joinWith(items: list<string>, sep: string) -> string {    val buf = orbit_cbuf_create_selfhost()
     var i = 0
     while i < items.len() {
         if i != 0 { orbit_cbuf_append_selfhost(buf, sep) }
@@ -235,7 +235,7 @@ fn isExempt(line: string) -> bool {
 // `^\s*//\s*orbit-walk-misses:\s*(.*?)\s*$`, the value trimmed. The second
 // return says the line matched at all, because `none` and an absent line are
 // different answers.
-fn missesOn(line: string) -> list {
+fn missesOn(line: string) -> list<string> {
     val t = trimText(line)
     if !startsWith(t, "//") { return ["0", ""] }
     var i = 2
@@ -248,19 +248,19 @@ fn missesOn(line: string) -> list {
     return ["1", trimText(slice(t, i, n, n))]
 }
 
-fn modelOfVariant(variantNames: list, variantModels: list, variant: string) -> string {
+fn modelOfVariant(variantNames: list<string>, variantModels: list<string>, variant: string) -> string {
     val at = indexOfString(variantNames, variant)
     if at < 0 { return "" }
     return variantModels.get(at)
 }
 
-fn pushUnique(items: list, value: string) {
+fn pushUnique(items: list<string>, value: string) {
     if indexOfString(items, value) < 0 { items.push(value) }
 }
 
 // The text of the fn starting on `i`: the lines after it, up to the next
 // `^fn \w+\(`.
-fn bodyOf(lines: list, i: int) -> list {
+fn bodyOf(lines: list<string>, i: int) -> list<string> {
     val body = []
     var j = i + 1
     while j < lines.len() {
@@ -318,8 +318,8 @@ fn afterFirstMatch(text: string) -> string {
     return ""
 }
 
-fn walkFile(root: string, path: string, childModels: list, variantNames: list,
-             variantModels: list) -> int {
+fn walkFile(root: string, path: string, childModels: list<string>, variantNames: list<string>,
+             variantModels: list<string>) -> int {
     val rel = relativeTo(root, path)
     val lines = splitLines(orbit_file_read_selfhost(path))
     var findings = 0
@@ -467,18 +467,18 @@ fn walkFile(root: string, path: string, childModels: list, variantNames: list,
     return findings
 }
 
-fn orNothing(items: list) -> string {
+fn orNothing(items: list<string>) -> string {
     if items.len() == 0 { return "nothing" }
     return joinWith(items, ", ")
 }
 
-fn orNone(items: list) -> string {
+fn orNone(items: list<string>) -> string {
     if items.len() == 0 { return "none" }
     val sorted = sortedStrings(items)
     return joinWith(sorted, ", ")
 }
 
-fn declaredDiffers(declared: list, missing: list) -> bool {
+fn declaredDiffers(declared: list<string>, missing: list<string>) -> bool {
     if declared.len() != missing.len() { return true }
     var i = 0
     while i < declared.len() {
@@ -489,7 +489,7 @@ fn declaredDiffers(declared: list, missing: list) -> bool {
     return false
 }
 
-fn splitOn(text: string, sep: string) -> list {
+fn splitOn(text: string, sep: string) -> list<string> {
     val out = []
     val n = text.len()
     var start = 0

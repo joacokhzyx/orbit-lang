@@ -2178,7 +2178,8 @@ fn checkAnnotation(sema: Sema, name: string, declared: string, actual: string, l
     // registered as a model, a type or a generic? Then it is a typo or a type
     // from another module, and the C backend will say so in a way that names
     // generated code rather than the annotation.
-    if isCapitalised(declared) && !isDeclaredTypeName(sema, declared) {
+    val declaredBase = compatTypeBase(declared)
+    if isCapitalised(declaredBase) && !isDeclaredTypeName(sema, declaredBase) {
         reportErrorAt(sema, "E1006", "Types are written in lower case, or declared with `model` or `union`.", line, col, "Nothing declares a type named '" + declared + "'.")
         return
     }

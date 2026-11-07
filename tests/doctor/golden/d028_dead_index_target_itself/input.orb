@@ -1,4 +1,4 @@
-fn f(xs: list) -> int {
+fn f(xs: list<int>) -> int {
     var slot = 1
     xs[0] = 7
     return 0

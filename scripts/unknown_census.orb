@@ -63,7 +63,7 @@ fn firstWord(text: string) -> string {
 // with the real one and this probe stopped building. A report-only tool with
 // no gate behind it rotted without a single signal.
 
-fn findOpcodes(opcodes: list, opcode: string) -> int {
+fn findOpcodes(opcodes: list<string>, opcode: string) -> int {
     var i = 0
     while i < opcodes.len() {
         if opcodes.get(i) == opcode { return i }
@@ -72,7 +72,7 @@ fn findOpcodes(opcodes: list, opcode: string) -> int {
     return - 1
 }
 
-fn bump(counts: list, index: int) -> list {
+fn bump(counts: list<int>, index: int) -> list<int> {
     var out = []
     var i = 0
     while i < counts.len() {

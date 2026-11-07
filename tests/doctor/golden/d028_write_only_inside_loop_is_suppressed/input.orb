@@ -1,6 +1,6 @@
 extern fn sink(v: int)
 
-fn f(xs: list) -> int {
+fn f(xs: list<int>) -> int {
     var seen = 0
     for e in xs {
         sink(e)

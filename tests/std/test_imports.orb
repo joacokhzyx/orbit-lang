@@ -166,7 +166,7 @@ fn main() -> int {
     if assertTrue(regexMatch("^a+$", "aaa")) == false { return 24 }
 
     // sys/random/random.orb -- shape only, the bytes are random
-    val rnd: list = try randomBytes(4) catch { return 25 }
+    val rnd: list < int > = try randomBytes(4) catch { return 25 }
     if assertEqInt(rnd.len(), 4) == false { return 26 }
 
     // option/option.orb -- the union is declared in the module and the

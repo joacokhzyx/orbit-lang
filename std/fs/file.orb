@@ -9,7 +9,7 @@ extern fn orbit_file_read(path: string) -> result
 extern fn orbit_file_write(path: string, content: string) -> bool
 extern fn orbit_file_exists(path: string) -> bool
 extern fn orbit_file_delete(path: string) -> bool
-extern fn orbit_file_list_dir(path: string) -> list
+extern fn orbit_file_list_dir(path: string) -> list < string >
 extern fn orbit_path_is_dir(path: string) -> bool
 extern fn orbit_file_remove_dir(path: string) -> bool
 extern fn orbit_os_mkdir_p(path: string) -> bool
@@ -48,7 +48,7 @@ fn removeFile(path: string) -> bool {
     return orbit_file_delete(path)
 }
 
-fn listDir(path: string) -> list {
+fn listDir(path: string) -> list < string > {
     return orbit_file_list_dir(path)
 }
 
@@ -85,7 +85,7 @@ fn walk(dir: string) -> list < string > {
     return out
 }
 
-fn walkInto(dir: string, out: list, depth: int) {
+fn walkInto(dir: string, out: list < string >, depth: int) {
     if depth > WALK_MAX_DEPTH { return }
     // Annotated: listDir builds its list inside the runtime, so the
     // builder cannot see the element type and an untyped read would

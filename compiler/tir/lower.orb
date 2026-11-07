@@ -1213,7 +1213,7 @@ fn declaredVariantPayload(module: TirModule, typeName: string, variant: string) 
 
 // The payload types a variant declares, split on the tab sema joins them with.
 // "" for a unit variant, which has no entry at all.
-fn tirSplitPayloadTypes(joined: string) -> list {
+fn tirSplitPayloadTypes(joined: string) -> list < string > {
     val parts = []
     if joined == "" { return parts }
     val n = joined.len()

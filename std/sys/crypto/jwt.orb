@@ -177,7 +177,7 @@ fn verifyHs256(tokenStr: string, secret: string, nowUnix: int) -> bool {
     return true
 }
 
-fn verifyWithKeys(tokenStr: string, secrets: list, nowUnix: int) -> bool {
+fn verifyWithKeys(tokenStr: string, secrets: list < string >, nowUnix: int) -> bool {
     var i = 0
     while i < secrets.len() {
         if verifyHs256(tokenStr, secrets.get(i), nowUnix) { return true }

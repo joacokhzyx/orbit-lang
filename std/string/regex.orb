@@ -41,7 +41,7 @@ fn regexFind(pat: string, text: string) -> int {
 }
 
 // Split on top-level '|' (depth, escapes and classes respected).
-fn splitTop(pat: string) -> list {
+fn splitTop(pat: string) -> list < string > {
     val out = []
     var depth = 0
     var start = 0

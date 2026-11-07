@@ -3900,7 +3900,7 @@ fn doctorUsedInText(files: list < string >, sources: list < string >, fileLines:
             // The line list comes from the run, not from splitting here. This
             // function runs once per unused declaration over every file, so
             // splitting inside it made the search O(decls x files x bytes).
-            val lines: list = fileLines.get(i)
+            val lines: list < string > = fileLines.get(i)
             var ln = 1
             while ln <= lines.len() {
                 var isDeclLine = false
@@ -4632,7 +4632,7 @@ fn doctorMemoLookup(memo: list < string >, path: string) -> string {
 
 /** @brief Every import path in declaration order, which is resolution order. */
 // orbit-walk: none -- collects import statements from the top level
-fn doctorCollectImports(node: ASTNode, out: list) {
+fn doctorCollectImports(node: ASTNode, out: list < string >) {
     match node {
         ASTNode.Program(p) => {
             var i = 0
@@ -5079,7 +5079,7 @@ fn doctorRun(opts: DoctorOptions) {
             // "the rest of the loop": a total that wraps three phases is not a
             // measurement of any of them, and the budgets are per phase.
             val textStart = orbit_clock_ms()
-            val fplines: list = fileLines.get(i)
+            val fplines: list < string > = fileLines.get(i)
             doctorCollectRoutes(fplines, fp3, routes)
             doctorScanSystem(stats, fplines, fp3)
             doctorScanLiterals(stats, fplines, fp3)
@@ -5144,7 +5144,7 @@ fn doctorRun(opts: DoctorOptions) {
     while pi < parsedFiles.len() {
         val pfile: string = parsedFiles.get(pi)
         val psrc: string = parsedSources.get(pi)
-        val pimps: list = parsedImports.get(pi)
+        val pimps: list < string > = parsedImports.get(pi)
         val fingerprint = doctorClosureFingerprintReuse(pfile, psrc, pimps, parsedFiles, parsedImports, parsedSources, closureMemo)
         val okRes = doctorTypecheckByFingerprint(stats, pfile, psrc, fingerprint, cacheState)
         if okRes == false {

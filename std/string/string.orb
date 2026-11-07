@@ -141,7 +141,7 @@ fn toLower(s: string) -> string {
     return orbit_cbuf_build_selfhost(buf)
 }
 
-fn join(parts: list, sep: string) -> string {
+fn join(parts: list < string >, sep: string) -> string {
     // One growable buffer and one join, instead of `out = out + part` per
     // element. The old form copied the whole prefix on every iteration, so
     // joining n parts was quadratic in the total length -- and joining is on the
@@ -158,7 +158,7 @@ fn join(parts: list, sep: string) -> string {
     return orbit_cbuf_build_selfhost(buf)
 }
 
-fn split(s: string, sep: string) -> list {
+fn split(s: string, sep: string) -> list < string > {
     val parts = []
     if sep == "" {
         parts.push(s)

@@ -62,7 +62,7 @@ fn stripCR(s: string) -> string {
     return s
 }
 
-fn splitLines(text: string) -> list {
+fn splitLines(text: string) -> list<string> {
     val out = []
     val n = text.len()
     var start = 0
@@ -148,7 +148,7 @@ fn emptyBraces(line: string, start: int, n: int) -> bool {
 
 // One field line, `name: type`, as the two strings; empty when the line is not
 // a field. The type is restricted to [A-Za-z0-9_<>, ] exactly as the rule was.
-fn parseField(line: string) -> list {
+fn parseField(line: string) -> list<string> {
     val text = trimText(cutComment(line))
     val n = text.len()
     var i = 0
@@ -169,7 +169,7 @@ fn parseField(line: string) -> list {
     return [name, kind]
 }
 
-fn indexOfString(items: list, value: string) -> int {
+fn indexOfString(items: list<string>, value: string) -> int {
     var i = 0
     while i < items.len() {
         val at: string = items.get(i)
@@ -179,7 +179,7 @@ fn indexOfString(items: list, value: string) -> int {
     return - 1
 }
 
-fn sortedStrings(items: list) -> list {
+fn sortedStrings(items: list<string>) -> list<string> {
     val out = []
     var i = 0
     while i < items.len() {
@@ -206,7 +206,7 @@ fn sortedStrings(items: list) -> list {
 
 // Sorted indices into `names`, so the unbuilt checks report in the schema's
 // alphabetical order rather than the file's.
-fn sortedIndexes(names: list) -> list {
+fn sortedIndexes(names: list<string>) -> list<int> {
     val out = []
     var i = 0
     while i < names.len() {
@@ -233,7 +233,7 @@ fn sortedIndexes(names: list) -> list {
     return out
 }
 
-fn orbFiles(dir: string) -> list {
+fn orbFiles(dir: string) -> list<string> {
     val all = walk(dir)
     val out = []
     var i = 0
@@ -292,8 +292,8 @@ fn isNodeName(src: string, s: int, e: int) -> bool {
 // One pass over `src` for constructor calls, `SomeNode(args)`. The identifier
 // must start at its first character, because `\b` before an uppercase letter
 // does not match inside `parseNode`.
-fn scanArity(src: string, n: int, rel: string, modelNames: list,
-             modelCounts: list, modelBuilt: list) -> int {
+fn scanArity(src: string, n: int, rel: string, modelNames: list<string>,
+             modelCounts: list<int>, modelBuilt: list<int>) -> int {
     var findings = 0
     var i = 0
     while i < n {
@@ -334,7 +334,7 @@ fn scanArity(src: string, n: int, rel: string, modelNames: list,
 
 // A construction that names its union variant: `ASTNode.Name( SomeNode( ...`.
 // The spaces between the pieces are the ones the rule allowed.
-fn scanVariantsBuilt(src: string, n: int, variantNames: list, variantBuilt: list) -> int {
+fn scanVariantsBuilt(src: string, n: int, variantNames: list<string>, variantBuilt: list<int>) -> int {
     var i = 0
     while i < n {
         if ch(src, i) == 65 && matchesAt(src, n, i, "ASTNode.") {
@@ -388,7 +388,7 @@ fn matchBrace(src: string, n: int, open: int) -> int {
 
 // `binding.field.op(` inside one match arm body.
 fn listOpsIn(body: string, bn: int, modelName: string, binding: string,
-             astFields: list, rel: string, src: string, n: int,
+             astFields: list<string>, rel: string, src: string, n: int,
              bodyStart: int) -> int {
     var findings = 0
     val bl = binding.len()
@@ -450,7 +450,7 @@ fn listOpsIn(body: string, bn: int, modelName: string, binding: string,
 }
 
 // Every `ASTNode.Variant(binding) => { ... }` arm, and what it reads.
-fn scanListOps(src: string, n: int, rel: string, astFields: list) -> int {
+fn scanListOps(src: string, n: int, rel: string, astFields: list<string>) -> int {
     var findings = 0
     var i = 0
     while i < n {

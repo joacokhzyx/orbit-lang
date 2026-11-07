@@ -8,7 +8,7 @@
 import "../../compiler/tir/entry.orb"
 
 fn main() {
-    val source = "fn walk(xs: list) -> int { var s = 0 for x in xs { s = s + 1 } return s }"
+    val source = "fn walk() -> int { var xs = [] var s = 0 for x in xs { s = s + 1 } return s }"
     val output = compileFrontendSource("fixture", source)
     if output == "" {
         print("list iteration stays a give-up")

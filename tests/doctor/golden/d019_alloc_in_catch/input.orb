@@ -1,6 +1,6 @@
-extern fn list_create(cap: int) -> list
+extern fn list_create(cap: int) -> list<int>
 fn make_ok(n: int) -> int { return n }
-fn f(n: int) -> list {
+fn f(n: int) -> list<int> {
     val out = list_create(n)
     var i = 0
     while i < n {

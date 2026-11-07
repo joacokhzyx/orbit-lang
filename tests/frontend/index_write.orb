@@ -10,6 +10,6 @@
 import "../../compiler/tir/entry.orb"
 
 fn main() {
-    val source = "fn put(xs: list, i: int, v: int) { xs[i] = v }"
+    val source = "fn put(xs: list<int>, i: int, v: int) { xs[i] = v }"
     print(compileFrontendSource("fixture", source))
 }

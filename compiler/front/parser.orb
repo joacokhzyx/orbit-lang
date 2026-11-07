@@ -261,6 +261,14 @@ fn parseTypeName(parser: Parser) -> string {
             }
             consumeTypeCloser(parser)
             typeName = typeName + "<" + inner + ">"
+        } else if typeName == "list" || typeName == "List" {
+            // A written `list` names no element, so every read from it has no
+            // type to answer: `xs.get(i)` fell through to `unknown` and the C
+            // backend stored `void*`. A value built from an empty literal is
+            // the one honest bare list -- nothing wrote its type, and the
+            // first push decides the element -- but a type in a signature,
+            // a field or an annotation has to say what it holds.
+            parserError(parser, "A `list` type must name its element: write `list<string>`. A value built from an empty literal takes its element from the first push, and a written type has to say it.")
         }
         return typeName
     }

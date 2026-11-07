@@ -1,0 +1,13 @@
+// case: list-type-needs-element
+// what: a written `list` with no element. Every read from the name had no type
+//      to answer, so `xs.get(i)` reported E2005 and the C backend stored a
+//      `void*`; the element is what a read yields, and a written type has to say
+//      it. An empty literal keeps its bare `list` because nothing wrote it.
+// expect-error: A `list` type must name its element
+fn take(xs: list) -> int {
+    return xs.len()
+}
+
+fn main() -> int {
+    return take([])
+}

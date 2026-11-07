@@ -97,7 +97,7 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 116/116 pass (0 known defects still accepted)
+Finished negative: 118/118 pass (0 known defects still accepted)
 ```
 
 One hundred and twelve programs: every one must be rejected and is. The last one
@@ -867,28 +867,31 @@ that would remove the requirement.
 
 ## 0.2% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-06 over 214 files and 147,001
+`scripts/measure.py census`, run on 2026-11-07 over 214 files and 146,974
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 307 | **0.2%** |
+| instructions the front end types `unknown` | 277 | **0.2%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
 printed no TIR for one now print theirs, so the measured corpus grew from
 111,537 instructions to 147,001. The rate fell from 2.46 to 2.09 per mille in
 the same change; the absolute count rose with the denominator, 275 to 307.
+On 2026-11-07 a written `list` began to name its element, and the count fell
+to 277 over 146,974 instructions: 15 loads and 15 calls that read through such
+a list now carry the element's type.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 126 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 111 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 51), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 15) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 115). Their sum, 307, is the whole unknown count. The five
+(call result, 100). Their sum, 277, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:876`, `:889`, `:897`, `:921` and `:1023`, and
 each sits on the branch that emits the instruction.
 
@@ -904,20 +907,19 @@ body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
 `load int later` and `call int` instead of reporting E2001 and suppressing the
 file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
 the file named on the command line. 104 calls stay untyped, and the census names
-what each one called. 99 are a method on a receiver the pass cannot read: `.get`
-93 and `.pop` 2 want the element kind of a list the source wrote without one,
-and `unknown` is the answer there, not a gap. The build records no kind for that
-container either: measured 2026-11-05, `orbit build --emit-ir` on
+what each one called. The ones that remain are methods and callees on a receiver
+the pass cannot read, and `unknown` is the answer there, not a gap. The build
+records no kind for that container either: measured 2026-11-05,
+`orbit build --emit-ir` on
 `fn pick(xs: list, i: int) -> int { val v = xs.get(i) return v }` writes
 `list_get` with `elemKind` 0 and gives the read's register the type `void*`. So
-this pass is at parity with the build, not behind it. Typing those 93 is a
-decision about the language -- carry the caller's element kind into a
-non-generic parameter, or require the element to be written in the signature --
-and not a rule to copy. `.pop` was 26 until the typed
-receiver answered it, and 22 of those had a `list<T>` in front of them. A literal
-of `[1, 2]` writes that text itself since 2026-11-05, and 33 of those `.get`
-reads left with it. The last 5 name something no corpus file declares. The split adds up to the E2005 count, which is the check the table
-carries. E2005 said only "this call" until 2026-11-04, when the callee joined the
+this pass is at parity with the build, not behind it. Whether to type those
+reads was a decision about the language, and it was made on 2026-11-07: a
+written `list` names its element (E1012), so a signature can no longer write a
+parameter whose element nothing knows. A list built from an empty literal stays
+bare until the first push decides, and a read through it still answers `unknown`.
+The census sorts the rest by callee, and the split adds up to the E2005 count,
+which is the check the table carries. E2005 said only "this call" until 2026-11-04, when the callee joined the
 message: a method is not a missing declaration, and the two are not the same work.
 Reading them named the largest one -- `.push`, 375 of them -- and a list write
 answers `void`, the type the build already gives it, so the call class fell 621 to
