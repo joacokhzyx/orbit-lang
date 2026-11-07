@@ -104,7 +104,7 @@ route, and 5 runs per level. The emitted unit was built at each level
 run noise on both routes. Build wall cost, `examples/hello.orb` and
 `w1d_busy.orb`, 5 rounds each: `-O0` 2.44 / 2.45 s, `-O1` 4.22 / 4.20 s
 (+73 %), `-O2` 6.70 / 6.97 s (+2.5 s more). The trivial route (`/ready`) is
-flat at every level: its cost is the access log and Kynx admission, not the
+flat at every level: its cost is the access log and admission, not the
 handler. So `-O2` is opt-in for a workload that measured a gain, not the
 default, and the strict-aliasing sites `-O2` enables on generated C are why it
 is opt-in rather than default.
@@ -182,7 +182,7 @@ the per-request work removed here is small next to an ~770 us loopback round
 trip dominated by the client, worker `select`, and the per-request access log.
 There was no end-to-end regression in any run, and service RSS did not move.
 That gap between a component win and a user-visible win is the finding
-for this cycle, and it is the reason the access log and the generated Kynx
+for this cycle, and it is the reason the access log and the generated admission
 policy path are called out below as the real costs.
 
 ## What was deliberately NOT changed
@@ -190,7 +190,7 @@ policy path are called out below as the real costs.
 Each of these was tried or analysed and left alone. The reasoning is the
 durable part.
 
-- **Kynx repeat-hit fast path** (per-shard last-IP cache, lock-free CAS
+- **admission repeat-hit fast path** (per-shard last-IP cache, lock-free CAS
   accounting). Measured *slower* both for the hit path and for inserts: at
   `-O0` the probe costs more than the uncontended spinlock it skips. Dropped
   without landing. This is the clearest example in the codebase of a
@@ -203,7 +203,7 @@ durable part.
 - **DB pragma and sync policy.** Not compiled into a net-only service, so
   nothing here is measurable against it. Deferred to a database-backed
   service rather than guessed at.
-- **Per-request access `printf` in generated code**, and the Kynx
+- **Per-request access `printf` in generated code**, and the admission
   policy and address lookups in generated code. These are the two largest
   per-request costs and they live in the compiler's output, not in the
   runtime. Fixing them is a codegen change, not a runtime change. The
@@ -317,7 +317,7 @@ the handler, not CPU that came back. Emitted log bytes are identical. A hard
 crash can lose at most the lines of the last pass. The remaining half is the
 line's own construction, dominated by the msvcrt `printf` format walk.
 
-## Kynx route-limit live gate
+## admission route-limit live gate
 
 `scripts/kynx_gate.py route-limit` runs three phases against a live server and
 is the gate that checks the admission-control path:
@@ -438,7 +438,7 @@ same +16.3 MB, and the third row above is where that cost actually appears.
 retained page before writing it now reads the previous request's data instead of
 a fresh zero page. The request-serving runtime was audited for that: all 100
 `orbit_alloc` call sites either zero the block (`collections.c` map buckets,
-`http.c` `OrbitRequest`, `kynx.c` lease) or write it fully before reading it. The
+`http.c` `OrbitRequest`, `admission.c` lease) or write it fully before reading it. The
 pages under the floor were already unzeroed before this change, so this widens an
 existing rule rather than introducing one. `docs/ARENA.md` does not promise zeroed
 memory and now says so where it used to pin the constant.

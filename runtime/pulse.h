@@ -8,7 +8,7 @@
 #include "arena.h"
 
 #include "performance.h"
-#include "kynx.h"
+#include "admission.h"
 #include "arena_pool.h"
 #include <stdio.h>
 #include <inttypes.h>

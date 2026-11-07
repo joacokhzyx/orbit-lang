@@ -36,7 +36,7 @@ thread-local storage. tcc 0.9.27 on Windows has none of the three:
 | Need | Under tcc 0.9.27 | Appears in |
 |---|---|---|
 | `__atomic_load_n` / `__atomic_store_n` | undeclared, hard compile error | `thread_pool.c` acceptor/worker rings |
-| `InterlockedIncrement64` / `InterlockedExchangeAdd64` | declared by tcc's `winbase.h`, missing from its `kernel32.def`: `undefined symbol` at link | `performance.h` counters, `arena_pool.c`, `kynx.c` |
+| `InterlockedIncrement64` / `InterlockedExchangeAdd64` | declared by tcc's `winbase.h`, missing from its `kernel32.def`: `undefined symbol` at link | `performance.h` counters, `arena_pool.c`, `admission.c` |
 | `__thread` / `__declspec(thread)` | rejected by the parser | `ORBIT_THREAD_LOCAL` (`performance.h`), `crt_compat.h` env slot |
 | `pthread.h` | include not found | POSIX-only test helpers |
 

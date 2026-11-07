@@ -43,7 +43,7 @@ N = 8 shards. Header guard is `ORBIT_SHARD_COMMON_H`.
    shard would not compile), `#ifdef _WIN32` `void __main(void);`
    `#endif` (declarations. Shard0 defines the arena and `__main`).
 4. Baked router flags `#define ORBIT_LOGS_ACTIVE X` /
-   `#define ORBIT_KYNX_ACTIVE X` (same env read as the TU body, §4 R7).
+   `#define ORBIT_ADMISSION_ACTIVE X` (same env read as the TU body, §4 R7).
 5. Global `#define`s (top-level `val`/`const`) + the three
    `#ifndef`-guarded fallback defines.
 6. `generateRouteTypeDecls` output verbatim: model/union forward
@@ -89,9 +89,9 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
   `#include "thread_pool.c"`,
   `#ifdef _WIN32` `void __main(void) {}` `#endif`, then the named
   preamble-helper bodies (`orbit_color_enabled`, plus for route programs
-  `orbit_print_kynx_gradient`, `orbit_render_server_banner`,
+  `orbit_print_admission_gradient`, `orbit_render_server_banner`,
   `orbit_worker_loop`, `orbit_ctrl_handler`/`orbit_term_handler`,
-  `orbit_kynx_register_limits`), then its balanced body group.
+  `orbit_admission_register_limits`), then its balanced body group.
   Every other shard starts with `#include "<base>.h"` only.
 - R6. Tail goes to the last shard (empty for the selfhost TU, measured).
 - R7. Remaining external-linkage bodies are dealt in TU order,
@@ -107,7 +107,7 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
   Windows. DB programs stay on the unity build (the lib errors on
   `ORBIT_WITH_DB` by design).
 - R9. `ORBIT_WITH_NET` is a `-D` flag, never baked: shards inherit the
-  TU's flag set. `ORBIT_LOGS_ACTIVE`/`ORBIT_KYNX_ACTIVE` are baked
+  TU's flag set. `ORBIT_LOGS_ACTIVE`/`ORBIT_ADMISSION_ACTIVE` are baked
   defines, present identically in header (§3.4) and router body.
 - R10. Verification, in order. (a) Partition `CAT IDENTICAL` on verbatim
   slices. (b) Coverage: every TU line lands in exactly one shard or the
@@ -121,7 +121,7 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
 |---|---|---|
 | `AST_VARIANTS_DEFINED` (`#ifndef` + self-`#define` + typedef + 1 inline body + macros + `#endif`) | stateful: defines the macro it tests | header owns the whole block verbatim (§3.7); no shard contains or re-tests it. Resolved by ownership. |
 | `ORBIT_WITH_NET` (`#ifdef` … `orbit_log_request_fmt` + `orbit_handle_request` + dispatch … `#endif`) | spans bodies | R4 wrap (2 bodies). Liveness comes from the inherited `-D` flag (R9). |
-| `ORBIT_LOGS_ACTIVE` / `ORBIT_KYNX_ACTIVE` (`#if`/`#define`) | values baked at emission | header carries the same baked values (§3.4); re-tests agree. |
+| `ORBIT_LOGS_ACTIVE` / `ORBIT_ADMISSION_ACTIVE` (`#if`/`#define`) | values baked at emission | header carries the same baked values (§3.4); re-tests agree. |
 
 ## 6. Known limits (stop conditions for the driver)
 

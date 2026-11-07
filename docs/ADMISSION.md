@@ -1,18 +1,18 @@
-# Kynx 0.1 - Admission Control
+# Admission control
 
-Kynx is Orbit's in-process admission-control and computational-budget layer.
-This document describes measured behavior of what's in `runtime/kynx.c` and wired into every generated server (`compiler/emit/route_runtime.orb`). If behavior and prose disagree, behavior wins and the prose is fixed.
+The admission layer is Orbit's in-process admission control and computational budget.
+This document describes measured behavior of what's in `runtime/admission.c` and wired into every generated server (`compiler/emit/route_runtime.orb`). If behavior and prose disagree, behavior wins and the prose is fixed.
 
 ---
 
-## What Kynx actually does today
+## What admission actually does today
 
 1. **Real client identity.** Every accepted connection resolves its peer via
    `getpeername()` inside the request handler. The IP string feeds the gate.
-   There are no anonymous requests under Kynx.
-2. **Admission gate on the hot path.** `orbit_kynx_check_route(ip, method, path)`
+   There are no anonymous requests under admission.
+2. **Admission gate on the hot path.** `orbit_admission_check_route(ip, method, path)`
    runs before any route lease is created (unannotated paths fall back to the
-   global `orbit_kynx_check`). Denied clients receive `429 Too Many Requests`
+   global `orbit_admission_check`). Denied clients receive `429 Too Many Requests`
    plus `Retry-After`, a log line, and connection close.
 3. **Per-IP sliding enforcement.** Each shard entry tracks a request window
    (`window_ms`) against `rate_limit`. Violations raise the suspicion score.
@@ -34,7 +34,7 @@ This document describes measured behavior of what's in `runtime/kynx.c` and wire
   the filter on the hot path. Every request must still be counted in the
   authoritative sharded table, otherwise new IPs could never reach the ban
   threshold. A negative-cache fast path would skip that mandatory bookkeeping
-  (see the NOTE at `orbit_kynx_check` in `runtime/kynx.c`). The sharded-table
+  (see the NOTE at `orbit_admission_check` in `runtime/admission.c`). The sharded-table
   lookup is the single decision point. The Bloom is maintained as a hook for
   future tooling, not as a gate.
 - **Clock:** monotonic nanoseconds (`QPC` / `clock_gettime`), immune to wall jumps.
@@ -50,7 +50,7 @@ This document describes measured behavior of what's in `runtime/kynx.c` and wire
 | GUARDED | 129..512 | 100 ms | 2 MB | 3 q / 10K steps | restricted |
 | SIEGE | >512 | 50 ms (critical only) | 512 KB | 2 q / 5K steps | non-critical routes rejected |
 
-Thresholds are fractions of `OrbitKynxConfig.pool_size` (SHAPED above pool/16,
+Thresholds are fractions of `OrbitAdmissionConfig.pool_size` (SHAPED above pool/16,
 GUARDED above pool/4, SIEGE above pool, with release at 3/4 of each entry level);
 the table shows pool 512 (the server default).
 Transitions are recomputed on lease create/destroy. Upward thresholds are
@@ -59,7 +59,7 @@ Transitions are recomputed on lease create/destroy. Upward thresholds are
 ## Configuration
 
 ```c
-OrbitKynxConfig cfg = {
+OrbitAdmissionConfig cfg = {
     .pool_size       = ...,  /* shard slot capacity          */
     .rate_limit      = ...,  /* tokens refilled per window   */
     .window_ms       = ...,  /* refill period in ms          */
@@ -70,7 +70,7 @@ OrbitKynxConfig cfg = {
     .ban_duration_s  = ...,  /* ban lifetime, seconds (0 = 300) */
     .enabled         = 1,
 };
-orbit_kynx_init(cfg);
+orbit_admission_init(cfg);
 ```
 
 Every `orbit build` service starts from the same generated defaults
@@ -82,23 +82,23 @@ only. The global gate keeps the defaults above.
 ## Runtime API
 
 ```c
-void             orbit_kynx_init(OrbitKynxConfig config);
-bool             orbit_kynx_check(const char* ip_str);
-bool             orbit_kynx_check_route(const char* ip_str, const char* method, const char* path);
-void             orbit_kynx_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
-int              orbit_kynx_last_retry_ms(void);
-OrbitKynxLease*  orbit_kynx_lease_create_for_route(const char* path,
+void             orbit_admission_init(OrbitAdmissionConfig config);
+bool             orbit_admission_check(const char* ip_str);
+bool             orbit_admission_check_route(const char* ip_str, const char* method, const char* path);
+void             orbit_admission_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
+int              orbit_admission_last_retry_ms(void);
+OrbitAdmissionLease*  orbit_admission_lease_create_for_route(const char* path,
                                                    const char* method,
                                                    OrbitArena* arena);
-bool             orbit_kynx_lease_check_limits(size_t additional_response_bytes);
-void             orbit_kynx_lease_abandon(void);
-void             orbit_kynx_lease_destroy(OrbitKynxLease* lease);
-double           orbit_kynx_lease_joules(const OrbitKynxLease* lease);
-uint64_t         orbit_kynx_lease_cycles(const OrbitKynxLease* lease);
-bool             orbit_kynx_is_siege_mode(void);
-int              orbit_kynx_get_suspicion(const char* ip_str);
-uint64_t         orbit_kynx_get_total_checks(void);
-uint64_t         orbit_kynx_get_total_blocked(void);
+bool             orbit_admission_lease_check_limits(size_t additional_response_bytes);
+void             orbit_admission_lease_abandon(void);
+void             orbit_admission_lease_destroy(OrbitAdmissionLease* lease);
+double           orbit_admission_lease_joules(const OrbitAdmissionLease* lease);
+uint64_t         orbit_admission_lease_cycles(const OrbitAdmissionLease* lease);
+bool             orbit_admission_is_siege_mode(void);
+int              orbit_admission_get_suspicion(const char* ip_str);
+uint64_t         orbit_admission_get_total_checks(void);
+uint64_t         orbit_admission_get_total_blocked(void);
 ```
 
 ## Request boundary
@@ -107,7 +107,7 @@ The arena cap is the one budget a request can exceed on its own, and exceeding
 it is answered rather than fatal. `orbit_alloc`'s OOM handler formats the
 refusal from the numbers it still has: the arena, its usage, and the lease's.
 It lands back in the generated router, which abandons the request's lease
-with `orbit_kynx_lease_abandon()` so the answer has room in the same arena.
+with `orbit_admission_lease_abandon()` so the answer has room in the same arena.
 The router then creates and sends:
 
 ```
@@ -127,8 +127,8 @@ arena line and exits 3 -- and so does a refusal where the reservation itself is
 gone, since an exhausted arena has no room to answer with. That case belongs to
 the reservation, not to this boundary.
 
-Before/after and the fixture are in `ENGINEERING.md` §7 row `kynx-lease-abort`.
-`python scripts/kynx_gate.py live` and `runtime/test_kynx.c` (T15) pin it.
+Before/after and the fixture are in `ENGINEERING.md` §7 row `admission-lease-abort`.
+`python scripts/kynx_gate.py live` and `runtime/test_admission.c` (T15) pin it.
 
 ## Verifying it yourself
 
@@ -139,7 +139,7 @@ python scripts/kynx_gate.py burst                            # burst -> expect 4
 ```
 
 `scripts/kynx_gate.py burst` hammers a running server past its configured
-`rate_limit` and asserts that Kynx answers 429 once the window budget is spent.
+`rate_limit` and asserts that admission answers 429 once the window budget is spent.
 It is manual-only (needs a live server on a chosen port): the same burst
 behavior is covered automatically by `scripts/kynx_gate.py route-limit`,
 which runs in CI (see `.github/workflows/ci-gate.yml`).
@@ -158,18 +158,18 @@ and `s` are 1000 ms, `ms` is 1 ms, and an omitted unit means a 1000 ms
 window. `burst` defaults to `rate` when omitted or zero.
 
 Codegen lives in `compiler/emit/c_backend.orb` `generateC` and
-`compiler/emit/route_runtime.orb` `serverMainText(hasKynxLimits)`. When at
+`compiler/emit/route_runtime.orb` `serverMainText(hasAdmissionLimits)`. When at
 least one route is annotated with rate `> 0`, the compiler emits
-`orbit_kynx_register_limits()`. That issues one
-`orbit_kynx_register_route_limit(method, path, rate, window_ms, burst)`
+`orbit_admission_register_limits()`. That issues one
+`orbit_admission_register_route_limit(method, path, rate, window_ms, burst)`
 call per annotated route. Generated `main` calls it once, right after
-`orbit_kynx_init`. Enforcement is a single admission-gate call in
+`orbit_admission_init`. Enforcement is a single admission-gate call in
 `orbit_handle_request`:
-`orbit_kynx_check_route(kynx_ip, req->method, req->path)`, one token per
+`orbit_admission_check_route(admission_ip, req->method, req->path)`, one token per
 request. The route handler body does not check again.
 
-Runtime (`runtime/kynx.c`): at most 32 route limits are kept. A 33rd
-registration is dropped and counted in `kynx_route_limit_drops`, and
+Runtime (`runtime/admission.c`): at most 32 route limits are kept. A 33rd
+registration is dropped and counted in `admission_route_limit_drops`, and
 re-registering the same method+path pair is ignored as idempotent. The
 method must
 match exactly. The path matches `:param` and `{name}` segments (one
@@ -178,30 +178,30 @@ Buckets (1024 slots across 16 lock shards) are per (IP, route) and
 separate from the global IP
 table. When a shard is full, the oldest entry is evicted. A route deny answers `429`
 with `Retry-After` only - it never raises the suspicion score or bans
-(see `runtime/test_kynx.c` T10, which asserts suspicion stays 0).
+(see `runtime/test_admission.c` T10, which asserts suspicion stays 0).
 Paths without an annotation fall back to the global gate. An annotated
 route that passes its own bucket still passes through the global gate.
 
 ## Built-in `/search` lease budget (intentional sample)
 
-`orbit_kynx_lease_create_for_route` carries one hardcoded override: a
+`orbit_admission_lease_create_for_route` carries one hardcoded override: a
 route literally named `/search` gets a 250 ms deadline, a 192 KB arena
 cap, a 1 MB response cap, and a 4-query / 50K-step DB budget
-(`runtime/kynx.c`). No example service uses that path today, so the
+(`runtime/admission.c`). No example service uses that path today, so the
 override is inert in practice. It stays as a visible sample of what
 per-route lease budgets look like until routes can declare their own
 budgets. Removing it changes no shipped behavior.
 
 ## Per-lease energy attribution
 
-Each `OrbitKynxLease` (`runtime/performance.h`) ends with four
+Each `OrbitAdmissionLease` (`runtime/performance.h`) ends with four
 attribution fields: `start_cycles` (`orbit_rdtsc()` at creation),
 `start_total_cycles` (completed-request cycles at creation),
 `start_joules` (attributable package joules at creation), and `joules`
 (the attributed ESTIMATE, set at destroy).
 
-`orbit_kynx_lease_create_for_route` snapshots all three baselines and
-zeroes `joules`. `orbit_kynx_lease_destroy` sets `joules` to the
+`orbit_admission_lease_create_for_route` snapshots all three baselines and
+zeroes `joules`. `orbit_admission_lease_destroy` sets `joules` to the
 package-joule delta over the lease lifetime times the lease's share of
 completed-request cycles in that window (own cycles included, so a lone
 request gets share 1), clamped to `[0, delta]`. Without a power sensor
@@ -209,8 +209,8 @@ every joules accessor reads exactly `0.0` and `orbit_energy_source()`
 reports `"cpu-proxy"` - cycles stay a proxy and are never converted to
 joules. With a sensor the source is `"rapl-estimate"`.
 
-Read it with `orbit_kynx_lease_joules(lease)` (`0.0` for `NULL`) and
-`orbit_kynx_lease_cycles(lease)` (live `orbit_rdtsc()` delta since
-creation, `0` for `NULL`). `runtime/test_kynx.c` T11 pins the
+Read it with `orbit_admission_lease_joules(lease)` (`0.0` for `NULL`) and
+`orbit_admission_lease_cycles(lease)` (live `orbit_rdtsc()` delta since
+creation, `0` for `NULL`). `runtime/test_admission.c` T11 pins the
 sensor-less behavior: `joules` reads exactly `0.0` before and after
 destroy.

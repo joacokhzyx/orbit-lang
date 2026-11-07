@@ -33,6 +33,23 @@ Native backend:
   refusals run on both hosts now, each against a stand-in r6 that never
   answers `--version` or answers `ir-protocol 99`.
 
+Runtime and services:
+
+- **The admission layer is named after what it does.** `Kynx` was the codename
+  of the lease and admission code: every server printed `- Secured by Kynx.`,
+  a blocked request answered `429 Too Many Requests - Kynx admission control`,
+  the C names were `orbit_kynx_*` and the build macro `ORBIT_KYNX_ACTIVE`.
+  The name is gone. The file is `runtime/admission.c`, the functions are
+  `orbit_admission_*`, the macro is `ORBIT_ADMISSION_ACTIVE`, the opt-out is
+  `ORBIT_ADMISSION=0`, the banner says `Admission control on`, and the 429
+  body says `429 Too Many Requests - admission control`. The gradient printer
+  the banner used is deleted with the word it coloured. A program that
+  declared `extern fn kynx_*` has to name the new functions. The gate label
+  `kynx_live` and `scripts/kynx_gate.py` keep their names until the gate
+  becomes an `orbit` subcommand. 468 lines in the runtime and 59 in the
+  compiler carried the old name; docs, tests and the parity goldens moved
+  with them.
+
 Language front end:
 
 - **A `match` arm binds its payload in the typed frontend.** `orbit frontend` refused every arm that named a variant payload (`E3001`, "a match that binds a payload needs the data read this pass does not print") while `orbit build` compiled them, so the unknown-type census measured a path the command line does not build with. The pass reads the data word with `data <payload> <scrutinee>`, binds it, and for a multi-payload variant reads each field of the packed struct. The census grew from 111,537 instructions to 147,001 as the files that printed no TIR now print theirs, and the unknown rate fell from 2.46 to 2.09 per mille; 307 instructions remain unknown, none silent. The frontend gate is 59/59, with `variant_match_payload.tir` as the new golden and `variant_match_bindless.orb` as the refusal control.
@@ -684,7 +701,7 @@ Developer commands and runtime hardening:
 
 - Behavior suite grown to 13+ programs; suite gate blocking
   in CI again.
-- Kynx 0.1: real identity admission, honest Bloom filter
+- admission 0.1: real identity admission, honest Bloom filter
   (negative cache, never authority).
 - Runtime fixes: slowloris timeouts, exec opt-in, seed
   credential removed, chunked-encoding 501, strict

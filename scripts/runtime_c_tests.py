@@ -87,7 +87,7 @@ PROGRAMS = [
     prog("params_decode", vendor=True),
     prog("latency_percentiles", vendor=True),
     prog("ledger_percentiles", vendor=True),
-    prog("kynx", vendor=True, defines=["-DORBIT_KYNX_TEST"]),
+    prog("admission", vendor=True, defines=["-DORBIT_ADMISSION_TEST"]),
     prog("json"),
     prog("crypto"),
     prog("float_format", warnings=True),
@@ -150,7 +150,7 @@ def compile_argv(cc: str, p: dict, out: pathlib.Path) -> list:
 def stage_sqlite(workdir: pathlib.Path) -> None:
     """Put sqlite3.dll beside the binaries on Windows.
 
-    The auth step and the Kynx step both did this; the runtime step linked
+    The auth step and the admission step both did this; the runtime step linked
     sqlite3.lib and did not, so the loader had to find it from whatever the
     runner's environment happened to offer. Copying it makes the step depend on
     the repository and not on PATH.

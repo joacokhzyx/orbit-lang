@@ -117,7 +117,7 @@ publishes a run with the hardware, the flags, the workload
 and the spread.
 
 **17. What does "stays fast under load" mean concretely?**
-Today: Kynx admission control sheds load (429s past budget)
+Today: admission control sheds load (429s past budget)
 and per-request arenas bound memory growth. With numbers and
 method attached - otherwise it's just words, and words
 are not evidence.

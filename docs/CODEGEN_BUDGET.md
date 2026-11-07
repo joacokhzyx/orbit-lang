@@ -54,7 +54,7 @@ What the `cc` child compiles is not the program. The runtime is source-included
 into every translation unit: `runtime.h` pulls in `types.h`, `arena.c`,
 `collections.c`, `json.c`, `file.c`, `os.c`, `builtins.c`, `crypto.c`,
 `selfhost.c`, `energy.c`, `ledger.c`, `database.c`, `auth.c`, and — under
-`-DORBIT_WITH_NET` — `http.c` and `kynx.c`. `gcc -s -O1`, 5 runs each, on this
+`-DORBIT_WITH_NET` — `http.c` and `admission.c`. `gcc -s -O1`, 5 runs each, on this
 box:
 
 | translation unit | wall time |
@@ -100,7 +100,7 @@ a change only moves the axis it is aimed at.
 ### The router block is not emitted for programs that have no routes
 
 The emitted C carries an HTTP entry point (`orbit_handle_request`) and the
-request-logging and Kynx-admission helpers it uses. They are reached only from
+request-logging and admission-admission helpers it uses. They are reached only from
 the worker loop that a program *with routes* emits. A program with no routes has
 no caller for any of it and links without it: the unit defines
 `ORBIT_CUSTOM_ROUTER`, so `runtime/http.c`'s fallback definition stays disabled,
@@ -137,7 +137,7 @@ time.
 **Falsifier, run before landing.** Stripping the block by hand from `hello.c`
 (lines 45–245) leaves a file that compiles, links and runs with the same
 output. Separately: no file in `runtime/` reads `ORBIT_LOGS_ACTIVE` or
-`ORBIT_KYNX_ACTIVE`, so the block's two `#define`s are not load-bearing
+`ORBIT_ADMISSION_ACTIVE`, so the block's two `#define`s are not load-bearing
 anywhere else — they only gate the block itself.
 
 **Cost.** The canonical had to be re-promoted (`make promote`): every `.orb`
@@ -158,7 +158,7 @@ None of them is a bug; they are the negative results that bound the win.
 
 - **Selecting the runtime by program (`-DORBIT_WITH_NET` only for programs that
   need it).** Every unit is compiled with `-DORBIT_WITH_NET`
-  (`compiler/host/pipeline.orb`), which pulls `http.c` (55,039 B) and `kynx.c`
+  (`compiler/host/pipeline.orb`), which pulls `http.c` (55,039 B) and `admission.c`
   (49,056 B) into every build. Dropping it for a program with no network use
   looks like the obvious build-time lever, and it is not one: `gcc -s -O1 -Wall`
   on `#include "runtime.h"`, 5 runs each, is 2.842 / 2.864 / 2.869 / 2.911 /

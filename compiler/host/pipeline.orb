@@ -1374,7 +1374,7 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     // 102.4 ms -> 13.8 ms (3.2x / 7.4x) for +1.77 s of build wall time, and
     // -O2 buys nothing measurable on either route (15.5 / 13.5 ms) while
     // adding a further +2.5 s. The trivial routes are unaffected at any level
-    // (their cost is the log and Kynx admission, not the handler). `-s` still
+    // (their cost is the log and admission, not the handler). `-s` still
     // strips the shipped binary. -O2 strict-aliasing on generated C is
     // pre-anticipated in the emitter, so it is opt-in, not the default:
     // `orbit build --release` selects it. ORBIT_CCFLAGS_EXTRA is appended

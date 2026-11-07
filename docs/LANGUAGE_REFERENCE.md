@@ -716,7 +716,7 @@ route GET "/heavy" limit 100/min burst 20 {
 capacity. When omitted (or zero) it defaults to the rate. The compiler
 rejects a `limit` whose rate is not `> 0`, whose window is not `> 0`, or
 whose burst is negative. Routes without `limit` fall back to the global
-gate only (see `docs/KYNX.md`). The runtime keeps at most 32 annotated
+gate only (see `docs/ADMISSION.md`). The runtime keeps at most 32 annotated
 routes. A further annotation is dropped at startup, while a repeated identical
 annotation is idempotent.
 

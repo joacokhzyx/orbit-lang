@@ -789,7 +789,7 @@ def cmd_build(args) -> int:
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by `trust.py build --promote`,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "9F47AD07A2B34D9EAFB6E196CE12ED0E852AA2B6B78E35CEDEA56E38F3C75B29"
+PUBLISHED_C = "946CB7120263C39015B2F3C58EEEE80E829605540EE8920C5652E6CFE96EF3C9"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says
@@ -1437,12 +1437,12 @@ N_SHARDS = 8
 # route programs carry the rest).
 PREAMBLE_HELPERS = (
     "orbit_color_enabled",
-    "orbit_print_kynx_gradient",
+    "orbit_print_admission_gradient",
     "orbit_render_server_banner",
     "orbit_worker_loop",
     "orbit_ctrl_handler",
     "orbit_term_handler",
-    "orbit_kynx_register_limits",
+    "orbit_admission_register_limits",
 )
 
 # R1: a definition starts at a column-0 line outside #/}/, ending with {,

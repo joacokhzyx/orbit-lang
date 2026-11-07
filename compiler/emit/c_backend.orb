@@ -215,13 +215,13 @@ fn generateC(backend: CBackend) -> string {
     var routeLimits = ""
     if hasRoutes {
         if routeHasAnyLimit(backend) {
-            routeLimits = routeLimits + "#if ORBIT_KYNX_ACTIVE\n"
-            routeLimits = routeLimits + "void orbit_kynx_register_limits(void) {\n"
+            routeLimits = routeLimits + "#if ORBIT_ADMISSION_ACTIVE\n"
+            routeLimits = routeLimits + "void orbit_admission_register_limits(void) {\n"
             var rli = 0
             while rli < backend.module.functions.len() {
                 val rf2: IRFunction = backend.module.functions.get(rli)
                 if rf2.routeMethod != "" && rf2.routeHasLimit && rf2.routeLimitRate > 0 {
-                    routeLimits = routeLimits + "    orbit_kynx_register_route_limit(\"" + rf2.routeMethod + "\", \"" + rf2.routePath + "\", " + orbit_int_to_string_selfhost(rf2.routeLimitRate) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitWindowMs) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitBurst) + ");\n"
+                    routeLimits = routeLimits + "    orbit_admission_register_route_limit(\"" + rf2.routeMethod + "\", \"" + rf2.routePath + "\", " + orbit_int_to_string_selfhost(rf2.routeLimitRate) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitWindowMs) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitBurst) + ");\n"
                 }
                 rli = rli + 1
             }
@@ -289,7 +289,7 @@ fn generateC(backend: CBackend) -> string {
         i = i + 1
     }
     // The router block is the HTTP entry point (`orbit_handle_request`) and
-    // the logging/Kynx helpers it calls. Those are reached only from the
+    // the logging/admission helpers it calls. Those are reached only from the
     // worker loop that route programs emit, so a program with no routes has
     // no caller for any of it and links without it. Emitting it anyway cost
     // ~9 KB of C that no program could reach: measured on examples/hello.orb
@@ -422,7 +422,7 @@ fn generateCHeader(backend: CBackend) -> string {
     orbit_cbuf_append_selfhost(cbH, "void __main(void);\n")
     orbit_cbuf_append_selfhost(cbH, "#endif\n")
     orbit_cbuf_append_selfhost(cbH, "#define ORBIT_LOGS_ACTIVE " + routerLogsActive() + "\n")
-    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_KYNX_ACTIVE " + routerKynxActive() + "\n")
+    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_ADMISSION_ACTIVE " + routerAdmissionActive() + "\n")
     var gi = 0
     while gi < backend.module.globals.len() {
         val g: IRGlobal = backend.module.globals.get(gi)
@@ -2239,7 +2239,7 @@ fn routeHasMultiParams(path: string) -> bool {
 fn generateRouteHandlerBody(func: IRFunction) -> string {
     var body = ""
     // Route limits are enforced once at the admission gate in
-    // orbit_handle_request (orbit_kynx_check_route with the live
+    // orbit_handle_request (orbit_admission_check_route with the live
     // req->method/req->path). Checking again here would spend a second
     // token per request on annotated routes.
     body = body + "            uint64_t _orbit_ls = orbit_rdtsc();\n"
@@ -2256,8 +2256,8 @@ fn generateRouteHandlerBody(func: IRFunction) -> string {
     body = body + "#if ORBIT_LOGS_ACTIVE\n"
     body = body + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 500), start);\n"
     body = body + "#endif\n"
-    body = body + "#if ORBIT_KYNX_ACTIVE\n"
-    body = body + "            if (lease) orbit_kynx_lease_destroy(lease);\n"
+    body = body + "#if ORBIT_ADMISSION_ACTIVE\n"
+    body = body + "            if (lease) orbit_admission_lease_destroy(lease);\n"
     body = body + "#endif\n"
     body = body + "            orbit_perf_end_request(start);\n"
     body = body + "            return keep_alive;\n"
@@ -2269,8 +2269,8 @@ fn routerLogsActive() -> string {
     return "1"
 }
 
-fn routerKynxActive() -> string {
-    if orbit_os_env_selfhost("ORBIT_KYNX") == "0" { return "0" }
+fn routerAdmissionActive() -> string {
+    if orbit_os_env_selfhost("ORBIT_ADMISSION") == "0" { return "0" }
     return "1"
 }
 
@@ -2289,8 +2289,8 @@ fn routeHasAnyLimit(backend: CBackend) -> bool {
 fn generateRouterBlock(backend: CBackend) -> string {
     var out = ""
     val logsActive = routerLogsActive()
-    val kynxActive = routerKynxActive()
-    out = out + routerPreText(logsActive, kynxActive)
+    val admissionActive = routerAdmissionActive()
+    out = out + routerPreText(logsActive, admissionActive)
     // One if/else-if chain for every route: static routes first so a static
     // path always wins over a param pattern covering it, then single-param
     // routes, then multi-capture routes, then the 404 else. No hash: the
@@ -5449,9 +5449,9 @@ fn moduleUsesAuth(module: IRModule) -> bool {
 // Which start-up pieces a module needs, from the callees in its IR. `what`:
 //   "args"    reads argv/argc (orbit_os_argc*, orbit_os_argv*);
 //   "console" writes to the console (print, orbit_os_write_std*);
-//   "net"     calls a function the network modules define (http.h, kynx.h,
+//   "net"     calls a function the network modules define (http.h, admission.h,
 //             pulse.h: orbit_http_*, orbit_response_*, orbit_route_*,
-//             orbit_send_*, orbit_kynx_*, orbit_pulse_*, orbit_ledger_*) or
+//             orbit_send_*, orbit_admission_*, orbit_pulse_*, orbit_ledger_*) or
 //             saves an upload. Routes themselves are moduleHasRoute.
 fn startupHasPrefix(name: string, prefix: string) -> bool {
     return name.len() >= prefix.len() && name.slice(0, prefix.len()) == prefix
@@ -5467,7 +5467,7 @@ fn startupCalleeMatches(name: string, what: string) -> bool {
     }
     if what == "net" {
         if name == "orbit_file_upload_save" { return true }
-        return startupHasPrefix(name, "orbit_http_") || startupHasPrefix(name, "orbit_response_") || startupHasPrefix(name, "orbit_route_") || startupHasPrefix(name, "orbit_send_") || startupHasPrefix(name, "orbit_kynx_") || startupHasPrefix(name, "orbit_pulse_") || startupHasPrefix(name, "orbit_ledger_")
+        return startupHasPrefix(name, "orbit_http_") || startupHasPrefix(name, "orbit_response_") || startupHasPrefix(name, "orbit_route_") || startupHasPrefix(name, "orbit_send_") || startupHasPrefix(name, "orbit_admission_") || startupHasPrefix(name, "orbit_pulse_") || startupHasPrefix(name, "orbit_ledger_")
     }
     return false
 }
@@ -5500,7 +5500,7 @@ fn moduleCallsStartup(module: IRModule, what: string) -> bool {
 
 // A program links the network runtime (and imports ws2_32) when it has routes
 // or calls the HTTP client; a database program does too, because the SQLite
-// progress handler lives in the Kynx module.
+// progress handler lives in the admission module.
 fn moduleUsesNetwork(backend: CBackend) -> bool {
     if moduleHasRoute(backend) { return true }
     if moduleUsesDatabase(backend.module) { return true }

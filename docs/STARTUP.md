@@ -12,7 +12,7 @@ the interface) and a source (`<m>.c`, the implementation).
 | Group | Modules |
 |---|---|
 | Core | `perf`, `types`, `console`, `crash`, `arena`, `arena_alloc`, `arena_oom`, `arena_reset`, `arena_checkpoint`, `arena_child`, `arena_stats`, `arena_global`, `arena_pool`, `collections`, `json`, `file`, `os`, `builtins`, `crypto`, `selfhost`, `energy`, `ledger` |
-| Network | `http`, `kynx`, `pulse` |
+| Network | `http`, `admission`, `pulse` |
 | Database | `database`, `auth` |
 
 Two builds use the same sources:
@@ -23,13 +23,13 @@ Two builds use the same sources:
 - **Separate.** `scripts/mklib_runtime.py` compiles each `<m>.c` on its own with
   `-DORBIT_RUNTIME_MODULE` (`ORBIT_XLINK` expands to nothing) and writes one
   archive member per module. `ld` takes a member only when a symbol it defines
-  is referenced, so a program that never names Kynx does not link the Kynx
+  is referenced, so a program that never names admission does not link the admission
   tables, and a program with no network does not import `ws2_32`.
 
 A module header includes the headers of the modules it names, never a `.c`.
 Module state lives in the module that owns it: `perf.c` owns the performance
-counters and the Kynx lease pointer, `os.c` owns `_orbit_argv`, `ledger.c` owns
-the route table, `kynx.c` owns the shard table.
+counters and the admission lease pointer, `os.c` owns `_orbit_argv`, `ledger.c` owns
+the route table, `admission.c` owns the shard table.
 
 `runtime/orbit_api.h` stays the declaration set a program sees when it is
 compiled with `-DORBIT_SEPARATE_COMPILATION`. It is a copy of the interface
@@ -72,7 +72,7 @@ request accessor (`orbit_http_client_fetch`, `orbit_http_param_get`,
 `orbit_http_body_get`, `orbit_http_query_get`, `orbit_http_query_get_all`,
 `orbit_http_header_get`, `orbit_file_upload_save`), or uses the database. A
 database program links the network modules because the SQLite progress handler
-lives in `kynx.c`.
+lives in `admission.c`.
 
 ## What R6 must mirror
 

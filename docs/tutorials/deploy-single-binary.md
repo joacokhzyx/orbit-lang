@@ -53,7 +53,7 @@ Orbit 0.1.0
 
 - Local: http://localhost:8080
 - Workers: 8
-- Secured by Kynx.
+- Secured by admission.
 
 ✓ Starting...
 ✓ Ready in 4.8 ms

@@ -49,9 +49,9 @@
  * Shared state: the performance counters (orbit_perf_stats,
  * orbit_perf_lat_hist in performance.h) are owned by the library TU
  * (ORBIT_PERF_IMPL) and bound via extern from a separate user TU, so both
- * modes count into the same object -- the same shape the Kynx lease pointer
+ * modes count into the same object -- the same shape the admission lease pointer
  * (current_lease) already used. Every other runtime state (ledger, arenas,
- * Kynx, energy, clock) lives behind library functions in both modes.
+ * admission, energy, clock) lives behind library functions in both modes.
  *
  * orbit_string_intern is intentionally absent: it is a static inline helper
  * with no caller in any emitted TU surveyed. DB/auth symbols are absent too:
@@ -775,7 +775,7 @@ void orbit_http_cleanup(void);
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed);
 #endif
 
-/* ── External functions: Kynx (canonical: runtime/kynx.c) ────────────── */
+/* ── External functions: admission (canonical: runtime/admission.c) ────────────── */
 typedef struct {
     int   pool_size;
     int   rate_limit;
@@ -786,30 +786,30 @@ typedef struct {
     int   score_decay;
     int   ban_duration_s;
     bool  enabled;
-} OrbitKynxConfig;
+} OrbitAdmissionConfig;
 
-uint64_t orbit_kynx_now_ns(void);
-void orbit_kynx_add_trusted_proxy(const char* cidr);
-bool orbit_kynx_is_trusted_proxy(const char* ip_str);
-bool orbit_kynx_has_trusted_proxies(void);
-void orbit_kynx_effective_ip(const char* peer, const char* xff, char* out, size_t out_len);
-void orbit_kynx_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
-bool orbit_kynx_check(const char* ip_str);
-bool orbit_kynx_check_route(const char* ip_str, const char* method, const char* path);
-void orbit_kynx_init(OrbitKynxConfig config);
-void orbit_kynx_cleanup(void);
-void orbit_kynx_reset(void);
-OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
-void orbit_kynx_lease_destroy(OrbitKynxLease* lease);
-void orbit_kynx_lease_abandon(void);
-bool orbit_kynx_lease_check_limits(size_t additional_response_bytes);
-uint64_t orbit_kynx_get_total_checks(void);
-uint64_t orbit_kynx_get_total_blocked(void);
-bool orbit_kynx_is_siege_mode(void);
-int orbit_kynx_get_suspicion(const char* ip_str);
-int orbit_kynx_last_retry_ms(void);
-double orbit_kynx_lease_joules(const OrbitKynxLease* lease);
-uint64_t orbit_kynx_lease_cycles(const OrbitKynxLease* lease);
+uint64_t orbit_admission_now_ns(void);
+void orbit_admission_add_trusted_proxy(const char* cidr);
+bool orbit_admission_is_trusted_proxy(const char* ip_str);
+bool orbit_admission_has_trusted_proxies(void);
+void orbit_admission_effective_ip(const char* peer, const char* xff, char* out, size_t out_len);
+void orbit_admission_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
+bool orbit_admission_check(const char* ip_str);
+bool orbit_admission_check_route(const char* ip_str, const char* method, const char* path);
+void orbit_admission_init(OrbitAdmissionConfig config);
+void orbit_admission_cleanup(void);
+void orbit_admission_reset(void);
+OrbitAdmissionLease* orbit_admission_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
+void orbit_admission_lease_destroy(OrbitAdmissionLease* lease);
+void orbit_admission_lease_abandon(void);
+bool orbit_admission_lease_check_limits(size_t additional_response_bytes);
+uint64_t orbit_admission_get_total_checks(void);
+uint64_t orbit_admission_get_total_blocked(void);
+bool orbit_admission_is_siege_mode(void);
+int orbit_admission_get_suspicion(const char* ip_str);
+int orbit_admission_last_retry_ms(void);
+double orbit_admission_lease_joules(const OrbitAdmissionLease* lease);
+uint64_t orbit_admission_lease_cycles(const OrbitAdmissionLease* lease);
 
 /* ── External data: Pulse dashboard (canonical: runtime/pulse.c) ─────── */
 orbit_string orbit_pulse_get_stats_json(OrbitArena* arena);

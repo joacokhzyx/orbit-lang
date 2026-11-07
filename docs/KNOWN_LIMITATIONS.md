@@ -463,7 +463,7 @@ Draining works on Windows. The emitted loop that finishes adopted and
 queued connections before exiting is not platform-guarded
 (`compiler/emit/route_runtime.orb:442`), and a Windows server registers a
 console handler that requests the stop on `CTRL_C_EVENT` and
-`CTRL_BREAK_EVENT` (`compiler/emit/route_runtime.orb:625-632`, registered at
+`CTRL_BREAK_EVENT` (`compiler/emit/route_runtime.orb:607-614`, registered at
 `:758`). Ctrl-C on a console `orbit run` therefore drains there as it does
 elsewhere.
 
@@ -493,7 +493,7 @@ Measured through the CLI in three steps: **193 ms** before the wait below was
 fixed, and the service was terminated; **1074 ms** with the wait fixed and no
 channel, and the service was still terminated; **1108 ms** with the channel, and
 the service's own output ends with `Server stopped.` -- the printf that runs only
-after the workers join (`compiler/emit/route_runtime.orb:816`). `cluster down`
+after the workers join (`compiler/emit/route_runtime.orb:796`). `cluster down`
 on one node measures 5.1 s and its `node-0.log` ends with that line too: the
 wait loop steps in whole seconds, so a drain that is over in 1.1 s is noticed on
 the next tick.
@@ -738,7 +738,7 @@ each was a function that returned a value and was not computing it:
 
 | deleted | why it had to go |
 |---|---|
-| `std/sys/crypto/hash.orb` | `fnv1aHash` was `1469598103 + data.len()`, so `fnv1aHash("hello") == fnv1aHash("hellp")` was **true**. `generateKynxToken("user42")` derived a security token from the *length* of the seed. |
+| `std/sys/crypto/hash.orb` | `fnv1aHash` was `1469598103 + data.len()`, so `fnv1aHash("hello") == fnv1aHash("hellp")` was **true**. `generateAdmissionToken("user42")` derived a security token from the *length* of the seed. |
 | `std/sys/bytes/buffer.orb` | `appendByte` stored nothing, and `readAt` returned 1/0 and never returned the byte. `writeU16LE`/`writeU32LE` cannot be repaired either: a NUL byte vanishes from a string, measured — `from_char(65) + from_char(0) + from_char(66)` is length 2. `std/bytes/bytes.orb` already owns a working version. |
 | `std/sys/net/socket.orb` | No `extern fn` in `std/` reaches a socket, so an Orbit program could not open one. `bindAddress` returned `true` for a valid port on a socket whose `fd` is 0, i.e. stdin. |
 | `std/sys/io/io_threading.orb` | No `extern fn` in `std/` reaches a thread, so an Orbit program could not start one. `createPool` set `is_active: true` and `dispatch` incremented a counter. |

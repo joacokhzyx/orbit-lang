@@ -8,7 +8,7 @@
 #include "os.h"
 #include "selfhost.h"
 #include "energy.h"
-#include "kynx.h"
+#include "admission.h"
 #ifdef __TINYC__
 #ifndef ORBIT_TINYC_SHIM
 #ifndef __ATOMIC_RELAXED

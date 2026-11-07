@@ -60,7 +60,7 @@ builds already do (`runtime/vendor/README.md`).
 |---|---|---|
 | Any Winsock name outside the 29 | `undefined symbol` at link (the `.def` is the closed set) | new uses must be added deliberately, header + `.def` + re-verify |
 | Multithreaded server (`thread_pool.c`) | `__atomic_load_n` undeclared; `__thread` / `__declspec(thread)` rejected | tcc 0.9.27 has no `__atomic` builtins and no TLS on Windows |
-| 64-bit interlocked (`performance.h`, `arena_pool.c`, `kynx.c` hot paths) | `undefined symbol '_InterlockedExchangeAdd64'` etc. (missing from tcc's `kernel32.def`) | needs a forked import lib; not worth it for a fast-build lane |
+| 64-bit interlocked (`performance.h`, `arena_pool.c`, `admission.c` hot paths) | `undefined symbol '_InterlockedExchangeAdd64'` etc. (missing from tcc's `kernel32.def`) | needs a forked import lib; not worth it for a fast-build lane |
 | `pthread.h` test helpers | include not found | POSIX-only shape; out of lane scope |
 | Benchmarks / perf / energy numbers from a tcc binary | nonsensical by construction (`Sleep(0)` spins, 32-bit clock wraps, unoptimised codegen) | forbidden by rule, see `docs/TOOLCHAIN.md` |
 

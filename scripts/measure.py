@@ -2144,7 +2144,7 @@ def cmd_diff_fuzz(args) -> int:
 #
 # Under Git Bash on a Windows runner, MSYS2 rewrites any argument that looks
 # like an absolute POSIX path into a Windows path before a native program sees
-# it. That broke the Kynx live gate with
+# it. That broke the admission live gate with
 #
 #     Phase B failed: unexpected status "err:URL can't contain control
 #     characters. '/Program Files/Git/gate-burst' (found at least ' ')"

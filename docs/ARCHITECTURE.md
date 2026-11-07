@@ -54,7 +54,7 @@ flowchart TD
         ARN["arena.c\nEpoch virtual-memory allocator"]
         HTTP["http.c\nHTTP parser + router"]
         DB["database.c\nSQLite integration"]
-        KYN["kynx.c\nComputational leases"]
+        KYN["admission.c\nComputational leases"]
         PLS["pulse.c\nPerformance counters"]
         COL["collections.c\nDynamic arrays, hash maps"]
         TYP["types.h\nOrbit type system"]
@@ -277,7 +277,7 @@ per-object free.
 
 **Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
 generated connection loop calls `orbit_arena_reset(thread_arena)` at
-`compiler/emit/route_runtime.orb:558`, and handles the request at `:568`, so each
+`compiler/emit/route_runtime.orb:538`, and handles the request at `:568`, so each
 request starts from a reset arena. `orbit_arena_reset` is not O(1) and not a
 rewind: it releases the chained overflow segments and decommits every page past
 the hot retention watermark `ORBIT_ARENA_HOT_RETENTION_LIMIT`
@@ -315,18 +315,18 @@ See [ARENA.md](ARENA.md).
 
 ---
 
-### Orbit Kynx (computational leases)
-File: `runtime/kynx.c`
+### Admission control (computational leases)
+File: `runtime/admission.c`
 
 Each route handler gets a **lease**: a budget of CPU time, arena memory,
 DB queries, and response size.
-If the handler exceeds its budget, Kynx rejects the request with HTTP 429 before writing the response.
+If the handler exceeds its budget, admission rejects the request with HTTP 429 before writing the response.
 Under pressure the admission state machine (STABLE / SHAPED / GUARDED / SIEGE)
 tightens budgets. In **SIEGE** only critical routes (`/health`, `/auth`, `/`)
-keep an emergency budget, and the rest are rejected. See [KYNX.md](KYNX.md).
+keep an emergency budget, and the rest are rejected. See [ADMISSION.md](ADMISSION.md).
 
-The lease and admission API lives in `runtime/kynx.c`. The unit tests are
-`runtime/test_kynx.c`, built with `-DORBIT_KYNX_TEST`. A live route-limit gate
+The lease and admission API lives in `runtime/admission.c`. The unit tests are
+`runtime/test_admission.c`, built with `-DORBIT_ADMISSION_TEST`. A live route-limit gate
 runs against a real server: `scripts/kynx_gate.py route-limit`.
 
 ---
@@ -380,7 +380,7 @@ missing final newline, and files that do not compile). See
 
 There is no compiled-binary cache keyed on a source hash: every build runs the
 pipeline. There is no project config file: the output name,
-port, and the arena/Kynx/logging knobs are not read from any config
+port, and the arena/admission/logging knobs are not read from any config
 file. `scripts/orbit_ccache.py` caches C compilations for the **gates** -- the
 self-host chain and the runtime C tests. It does not cache user builds, and it
 is not part of the compiler.
@@ -415,8 +415,8 @@ accept (acceptor thread, server socket)
   -> lock-free accept queue, one per worker (orbit_accept_q)
   -> worker resets its own per-thread arena (orbit_arena_reset before each orbit_handle_request)
   -> no pool acquire/release on the request path (the pool serves startup only)
-  -> Kynx admission check + per-route lease
-     (orbit_kynx_check_route, orbit_kynx_lease_create_for_route;
+  -> admission check + per-route lease
+     (orbit_admission_check_route, orbit_admission_lease_create_for_route;
       over-budget -> HTTP 429; SIEGE admits only /health, /auth, /)
   -> router dispatches to the generated handler (orbit_handle_request)
   -> handler runs (SQLite via runtime/database.c when models are present;
@@ -428,7 +428,7 @@ The connection loop that brackets each request with `orbit_arena_reset`
 followed by `orbit_handle_request` is emitted by
 `compiler/emit/route_runtime.orb`. The arena pool lives in `runtime/arena_pool.c`
 (startup scratch work, not the request path). Leases and admission live in
-`runtime/kynx.c`, and persistence in `runtime/database.c`.
+`runtime/admission.c`, and persistence in `runtime/database.c`.
 
 ---
 
@@ -485,14 +485,14 @@ followed by `orbit_handle_request` is emitted by
 | `runtime/database.c` | SQLite bindings and model persistence |
 | `runtime/auth.c` | JWT and session auth |
 | `runtime/http.c` | HTTP server, request parser, router |
-| `runtime/kynx.c` | Computational leases and admission control |
+| `runtime/admission.c` | Computational leases and admission control |
 | `runtime/pulse.c` | Performance counters |
 | `runtime/thread_pool.c` | Worker thread pool |
 | `runtime/inline.h`, `performance.h`, `socket_compat.h` | Shared headers |
 | `runtime/vendor/` | SQLite: `sqlite3.h` and the `win-x64` import library and DLL |
 | `runtime/test_arena.c` | Arena unit tests, including cross-request isolation |
 | `runtime/test_http_parse.c` | HTTP parser unit tests |
-| `runtime/test_kynx.c` | Kynx unit tests (needs `-DORBIT_KYNX_TEST`) |
+| `runtime/test_admission.c` | admission unit tests (needs `-DORBIT_ADMISSION_TEST`) |
 
 ### Standard library and wrappers
 
@@ -520,7 +520,7 @@ symbol, the dependent module imports the owning module.
 | `scripts/static_gates.py` | The five T0 text gates, one entry: `schema`, `walk`, `counts`, `flags`, `cites` |
 | `scripts/doctor_gates.py` | The doctor goldens (`doctor`, and `--scope-only` for the clean-directory check), the CLI subcommand, help and exit-code contract (`cli-probe`), the rich and colour screens (`snapshots`), the checker's dispatch arms (`dispatch`) |
 | `scripts/measure.py routes` | Route argument normalisation |
-| `scripts/kynx_gate.py` | Live Kynx gate (live/route-limit/burst) + stdlib load generator (load) |
+| `scripts/kynx_gate.py` | Live admission gate (live/route-limit/burst) + stdlib load generator (load) |
 | `scripts/trust.py amalgamate` | Inline the project includes into `dist/orbit_bootstrap.c` |
 | `scripts/orbit_ccache.py` | Content-addressed C compile cache for the bootstrap gates |
 | `scripts/orbit_routes.py` | Path normalisation shared by gates and the server |
@@ -540,7 +540,7 @@ symbol, the dependent module imports the owning module.
 | Standard library | `tests/std/` | `scripts/corpus_gates.py suite --dir tests/std` | Same convention. |
 | Parity | `tests/parity/probes/` + `tests/parity/golden/` | `scripts/corpus_gates.py parity` | For an exit-0 probe, the SHA-256 of the generated C matches the golden. For a non-zero probe, the normalised diagnostics match. |
 | Frontend TIR | `tests/frontend/` + `expected/` | `orbit frontend` | The emitted canonical TIR matches the expected file. |
-| Runtime C | `runtime/test_arena.c`, `test_file.c`, `test_oom.c`, `test_http_parse.c`, `test_kynx.c` | compiled and run directly | The C harness's own assertions. |
+| Runtime C | `runtime/test_arena.c`, `test_file.c`, `test_oom.c`, `test_http_parse.c`, `test_admission.c` | compiled and run directly | The C harness's own assertions. |
 | Auth | `tests/auth/auth_harness.c` | compiled and run directly | Bearer token, role, and `has_role` behaviour against the real runtime. |
 | Doctor | `tests/doctor/` | `orbit doctor tests/doctor` (manual) | Exactly one `D002`, no finding for two methods sharing a path, exit code 1. |
 

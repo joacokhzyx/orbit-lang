@@ -6,7 +6,7 @@
 #include "types.h"
 #include "arena.h"
 #include "ledger.h"
-#include "kynx.h"
+#include "admission.h"
 #include <sqlite3.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -33,7 +33,7 @@ ORBIT_XLINK int orbit_sqlite_progress_handler(void* param) { (void)param; return
 #else
 #endif
 
-/** @brief Open (or create) the SQLite database at @p db_path and install the Kynx progress handler. */
+/** @brief Open (or create) the SQLite database at @p db_path and install the admission progress handler. */
 
 /* Internal: table/identifier names are interpolated into SQL. Anything
  * outside [A-Za-z0-9_] cannot be a legit Orbit model table and would be
@@ -122,7 +122,7 @@ void orbit_db_init(const char* db_path) {
     if (count == 0) {
         const char* seed_sql =
             "INSERT INTO products VALUES ('prod_101', 'Orbit Compiler Pro', 'Ultra-high performance C runtime compiler for web microservices', 299.99, 'Developer Tools', 1, 4.9);"
-            "INSERT INTO products VALUES ('prod_102', 'Kynx Security Shield', 'O(1) sharded rate limiter and DDoS mitigation engine', 149.50, 'Security', 1, 4.8);"
+            "INSERT INTO products VALUES ('prod_102', 'admission Security Shield', 'O(1) sharded rate limiter and DDoS mitigation engine', 149.50, 'Security', 1, 4.8);"
             "INSERT INTO products VALUES ('prod_103', 'Steel Memory Profiler', 'Zero-overhead memory arena tracker and profiler', 89.00, 'Developer Tools', 1, 4.7);"
             "INSERT INTO notes VALUES ('note_101', 'Orbit Architecture Notes', 'Steel C runtime manages thread-local arena memory without global lock contention.', 'usr_admin', '2026-07-22T01:00:00Z', 0);"
             "INSERT INTO notes VALUES ('note_102', 'Superluminal Optimizer Guide', 'IR passes execute fixed-point optimizations including CTEVAL and auto-memoization.', 'usr_dev', '2026-07-22T01:15:00Z', 0);"
@@ -336,7 +336,7 @@ static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* 
 
 /** @brief Fetch a single row from @p col by @p id and return it as a JSON object string, or "" if not found. */
 orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* id) {
-    KYNX_DB_QUERY_CHECK("");
+    ADMISSION_DB_QUERY_CHECK("");
     const char* fmt = "SELECT * FROM %s WHERE id = ?;";
     size_t query_len = strlen(fmt) + strlen(col.table_name) + 16;
     char* query = (char*)orbit_alloc(arena, query_len);
@@ -372,7 +372,7 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
 
 /** @brief Fetch every row from @p col and return a JSON array string; returns "[]" on error or empty table. */
 orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM ;") + strlen(col.table_name) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return "[]";
@@ -537,7 +537,7 @@ static sqlite3_stmt* orbit_db_prepare_bound(OrbitArena* arena, const char* selec
 /** @brief Rows of @p table matching @p condition, bound with @p params, as a JSON array ("[]" on refusal). */
 static orbit_string orbit_db_where_bound(OrbitArena* arena, const char* table, const char* condition,
                                          int nparams, const char* const* params) {
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     sqlite3_stmt* stmt = orbit_db_prepare_bound(arena, "SELECT *", table, condition, nparams, params);
     if (!stmt) return "[]";
 
@@ -581,7 +581,7 @@ orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char*
 
 /** @brief Fetch the first row from @p col and return it as a JSON object string, or "" if the table is empty. */
 orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
-    KYNX_DB_QUERY_CHECK("");
+    ADMISSION_DB_QUERY_CHECK("");
     size_t query_len = strlen("SELECT * FROM  LIMIT 1;") + strlen(col.table_name) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return NULL;
@@ -677,7 +677,7 @@ static char* orbit_json_get_value(const char* json, const char* key) {
 }
 
 bool orbit_db_add(orbit_collection col, const char* json_data) {
-    KYNX_DB_QUERY_CHECK(false);
+    ADMISSION_DB_QUERY_CHECK(false);
     if (!col.table_name || !json_data) return false;
 
     /* Resolve the table's real columns via PRAGMA so INSERT matches the typed
@@ -754,7 +754,7 @@ Only keys present in @p json_data are written (partial update); the `id`
 column itself is never overwritten, so a payload without `id` cannot wipe
 the key. Returns true iff a row actually changed. */
 bool orbit_db_set(orbit_collection col, const char* id, const char* json_data) {
-    KYNX_DB_QUERY_CHECK(false);
+    ADMISSION_DB_QUERY_CHECK(false);
     if (!col.table_name || !id || !json_data) return false;
     if (!orbit_db_valid_identifier(col.table_name)) return false;
 
@@ -827,7 +827,7 @@ bool orbit_db_set(orbit_collection col, const char* id, const char* json_data) {
 
 /** @brief Delete the row with the given @p id from @p col. */
 bool orbit_db_del(orbit_collection col, const char* id) {
-    KYNX_DB_QUERY_CHECK(false);
+    ADMISSION_DB_QUERY_CHECK(false);
     size_t query_len = strlen("DELETE FROM  WHERE id = ?;") + strlen(col.table_name) + 1;
     char* query = (char*)malloc(query_len);
     if (!query) return false;
@@ -868,7 +868,7 @@ orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
  * query. Answers "[]" on any failure, like every other read. Ordering is
  * whole-table only: filtered ordering does not exist yet. */
 static orbit_string orbit_db_order(OrbitArena* arena, orbit_collection col, const char* col_name, int desc) {
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM  ORDER BY  ;") + strlen(col.table_name) + strlen(col_name) + 8;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return "[]";
@@ -948,7 +948,7 @@ orbit_string orbit_db_query_where_v(OrbitArena* arena, const char* table_name, c
     if (!orbit_db_valid_identifier(table_name)) return "[]";
     if (!condition || !*condition) return "[]";
     if (nparams < 0) return "[]";
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     const char** params = NULL;
     if (nparams > 0) {
         params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
@@ -970,7 +970,7 @@ orbit_string orbit_db_query_where_v(OrbitArena* arena, const char* table_name, c
 orbit_int orbit_db_count_all(OrbitArena* arena, const char* table_name) {
     (void)arena;
     if (!orbit_db_valid_identifier(table_name)) return 0;
-    KYNX_DB_QUERY_CHECK(0);
+    ADMISSION_DB_QUERY_CHECK(0);
     size_t query_len = strlen("SELECT COUNT(*) FROM ;") + strlen(table_name) + 1;
     char* query = (char*)malloc(query_len);
     if (!query) return 0;
@@ -996,7 +996,7 @@ orbit_int orbit_db_count_v(OrbitArena* arena, const char* table_name, const char
     if (!orbit_db_valid_identifier(table_name)) return 0;
     if (!condition) return 0;
     if (nparams < 0) return 0;
-    KYNX_DB_QUERY_CHECK(0);
+    ADMISSION_DB_QUERY_CHECK(0);
     const char** params = NULL;
     if (*condition && nparams > 0) {
         params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));

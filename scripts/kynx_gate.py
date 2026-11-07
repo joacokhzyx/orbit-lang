@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Kynx live gates and load tools: one file, four subcommands.
+"""admission live gates and load tools: one file, four subcommands.
 
 This used to be four scripts that all assumed a live Orbit server:
 
   scripts/kynx_live_gate.py        build a service, start it, burst it (the gate)
-  scripts/kynx_route_limit_gate.py three phases against a running server
-  scripts/kynx_burst_probe.py      manual burst probe, needs a live server
+  scripts/admission_route_limit_gate.py three phases against a running server
+  scripts/admission_burst_probe.py      manual burst probe, needs a live server
   scripts/night_load.py            stdlib-only TCP HTTP/1.1 keep-alive load generator
 
 They are one tool now because three of the four only ever ran as phases of
@@ -20,7 +20,7 @@ Subcommands:
   live          build examples/blog_api.orb, start it, run route-limit at it.
                 Then a service that declares its own port: started with no
                 argv it must bind the declared port, and an argv port must
-                still win. Then a request above the Kynx lease: it must be
+                still win. Then a request above the admission lease: it must be
                 answered 503, and the service must keep serving, because a
                 refusal at the request boundary is one failed request and not
                 a dead process. The only gate here that runs the compiler's
@@ -516,7 +516,7 @@ def phase_b(args):
             deny429 += 1
             if retry_after is None:
                 retry_after = ra
-            if body != b"429 Too Many Requests - Kynx admission control":
+            if body != b"429 Too Many Requests - admission control":
                 bad_body += 1
         else:
             out.fail("Phase B failed: unexpected status %r" % (status,))
@@ -549,7 +549,7 @@ def phase_c(args):
 
 
 def routelimit_main(argv=None):
-    ap = argparse.ArgumentParser(description="Kynx route-limit gate (needs a live server)")
+    ap = argparse.ArgumentParser(description="admission route-limit gate (needs a live server)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--path", default="/health")
@@ -572,7 +572,7 @@ def routelimit_main(argv=None):
     # All three phases run whatever the others did. This used to be
     # `b = phase_b(args) if a else False`, which meant a Phase A failure
     # suppressed the two phases that would have described it -- and the
-    # handoff for the Windows Kynx gate recorded "phases B and C pass on
+    # handoff for the Windows admission gate recorded "phases B and C pass on
     # Windows" from a run in which neither had executed. A phase that cannot
     # run cannot report, and the gate then looks like it knows less than it
     # does. Phase B stops at its first unexpected status, so a dead server
@@ -592,7 +592,7 @@ def routelimit_main(argv=None):
 # burst: demonstrate admission control end-to-end against a running server.
 #
 # Starts N requests against a running Orbit server and asserts that once
-# the configured per-IP window budget is spent, Kynx answers 429.
+# the configured per-IP window budget is spent, admission answers 429.
 #
 # Exit 0 iff at least one 429 was observed (gate proven) or the server
 # answered everything without exceeding its budget (documented via --strict).
@@ -612,7 +612,7 @@ def burst_fire(host, port, path, timeout):
 
 
 def burst_main(argv=None):
-    ap = argparse.ArgumentParser(description="Kynx burst probe (needs a live server)")
+    ap = argparse.ArgumentParser(description="admission burst probe (needs a live server)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=3000)
     ap.add_argument("--path", default="/")
@@ -659,7 +659,7 @@ def burst_main(argv=None):
 #
 # The only gate in this repository that runs the compiler's whole product: it
 # builds `examples/blog_api.orb` with the fixed-point compiler, starts the binary,
-# waits for it to answer, and fires a burst at `/gate-burst` to check the Kynx
+# waits for it to answer, and fires a burst at `/gate-burst` to check the admission
 # sharded rate limiter answers with the limit rather than letting everything
 # through. Everything else in CI reasons about the compiler or about text.
 #
@@ -671,7 +671,7 @@ def burst_main(argv=None):
 # assertions, so each half fails red on a server that comes up on the wrong
 # port instead of asserting text about the emission.
 #
-# It covers the request boundary too, on a third fixture. A Kynx lease caps
+# It covers the request boundary too, on a third fixture. A admission lease caps
 # one request's arena, and a request that asks for more than the cap must be
 # answered 503 and leave the process serving (ENGINEERING.md section 7,
 # kynx-lease-abort). The fixture's route grows one string past the lease's
@@ -865,7 +865,7 @@ def live_main(args):
         log.close()
 
     # The request boundary (ENGINEERING.md section 7, kynx-lease-abort): a
-    # request that asks for more than its Kynx lease allows is answered, not
+    # request that asks for more than its admission lease allows is answered, not
     # fatal. The route grows one string past the lease's 16 MB default, which
     # is a request asking for more than its share. Before the boundary, the
     # refusal ended the process, so /grow answers with a transport error (no
@@ -875,7 +875,7 @@ def live_main(args):
     ovf_srv = work / ("lease_overflow" + suffix)
     ovf_src.write_text(
         "// Written by kynx_gate live: a request that asks for more than its\n"
-        "// Kynx lease allows must be answered 503, not end the process. The\n"
+        "// admission lease allows must be answered 503, not end the process. The\n"
         "// loop grows one string past the 16 MB lease: 4000 appends trip the\n"
         "// cap around iteration 1833, at 16 770 112 of 16 777 216 bytes.\n"
         "\n"
@@ -1064,7 +1064,7 @@ def self_test() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Kynx live gates and load tools (needs a live server "
+        description="admission live gates and load tools (needs a live server "
                     "except for --self-test)")
     ap.add_argument("--self-test", action="store_true",
                     help="prove every subcommand fails cleanly against a dead port")

@@ -6,7 +6,7 @@ declarations in runtime/orbit_api.h; the definitions live in this archive.
 The archive holds one member per runtime module (CORE_MODULES, NET_MODULES),
 each compiled from its own runtime/<module>.c with -DORBIT_RUNTIME_MODULE
 against the module headers. ld pulls only the members a program references,
-so a program that never touches Kynx never links the Kynx tables, and a
+so a program that never touches admission never links the admission tables, and a
 program with no network never imports ws2_32. Unity builds (runtime.h without
 the flag) include the same .c files and are unchanged.
 
@@ -45,13 +45,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / "runtime"
 
 # One archive member per module. perf.c owns the performance counters and the
-# Kynx lease pointer; every other module binds to them through extern.
+# admission lease pointer; every other module binds to them through extern.
 CORE_MODULES = ("perf", "console", "crash",
                 "arena", "arena_alloc", "arena_oom", "arena_reset", "arena_checkpoint",
                 "arena_child", "arena_stats", "arena_global", "arena_pool",
                 "collections", "json", "file", "os", "builtins", "crypto",
                 "selfhost", "energy", "ledger")
-NET_MODULES = ("http", "kynx", "pulse")
+NET_MODULES = ("http", "admission", "pulse")
 DB_MODULES = ("database", "auth")
 
 # Modules compiled with -DORBIT_WITH_NET (their sources branch on it).
@@ -59,7 +59,7 @@ DB_MODULES = ("database", "auth")
 # defines ORBIT_CUSTOM_ROUTER and its own orbit_handle_request.
 MODULE_DEFINES = {m: ("ORBIT_WITH_NET", "ORBIT_LIB_NO_ROUTER") for m in NET_MODULES}
 # The DB modules sit in the DB archive only. The progress handler they install
-# is defined in kynx.c, so the DB archive carries the network modules too.
+# is defined in admission.c, so the DB archive carries the network modules too.
 MODULE_DEFINES.update({m: ("ORBIT_WITH_DB", "ORBIT_WITH_NET") for m in DB_MODULES})
 
 # Symbols the archive must export (a TU-visible function the split relies

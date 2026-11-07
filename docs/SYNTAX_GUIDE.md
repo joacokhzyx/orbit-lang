@@ -314,7 +314,7 @@ a value smuggling CRLF would split a second header into the reply.
 refuses 2xx/3xx in turn.
 
 Route annotations control admission: `route GET "/x" limit 20 / s burst 20`
-sets a per-source-IP budget, enforced by the Kynx gate. See [Kynx](KYNX.md).
+sets a per-source-IP budget, enforced by the admission gate. See [admission](ADMISSION.md).
 
 ## Imports
 

@@ -17,7 +17,7 @@ complete map; the second names the document that decides each topic.
 | What is missing or surprising? | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | The measured limits, with workarounds |
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
 | How does memory management work? | [`ARENA.md`](ARENA.md) | The arena allocator and its retention policy |
-| How do the HTTP protections work? | [`KYNX.md`](KYNX.md) | Admission, limits and request handling |
+| How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
 | What is experimental? | [`SUPERLUMINAL.md`](SUPERLUMINAL.md) | Compiler research, with no plan attached |
 | What does a program start? | [`STARTUP.md`](STARTUP.md) | The start-up rules the emitter applies |
 | How do I write a library? | [`LIBRARIES.md`](LIBRARIES.md) | Imports, the flat namespace and visibility |

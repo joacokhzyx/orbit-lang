@@ -718,7 +718,7 @@ def classify(changed: list) -> list:
 
     `examples/` stays at T1 and is a real gap, recorded in gate-sequence: nothing in T1
     or T2 compiles an example, so an edit to one is checked for formatting and
-    nothing else until the Kynx live gate runs, and that gate does not live in
+    nothing else until the admission live gate runs, and that gate does not live in
     dev.py yet.
     """
     areas = {"docs": 0, "scripts": 1, "examples": 1, "tests": 2,

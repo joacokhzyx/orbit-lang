@@ -7,7 +7,7 @@ Under `shell: bash` the MSYS2 runtime rewrites any argument that looks like
 an absolute POSIX path into a Windows path before handing it to a native
 program, so
 
-    python scripts/kynx_route_limit_gate.py --burst-path /gate-burst
+    python scripts/admission_route_limit_gate.py --burst-path /gate-burst
 
 reaches the script as
 

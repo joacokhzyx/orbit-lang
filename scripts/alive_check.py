@@ -247,11 +247,11 @@ def registry(compiler, cc, work):
         # Both of these were inline shell in ci-gate.yml, which is the shape
         # where a flag quietly stops being applied and nothing notices. Each
         # needs to be able to fail, and each has to be runnable by hand: the
-        # runtime one because it is the whole C test suite, the Kynx one because
+        # runtime one because it is the whole C test suite, the admission one because
         # it is the only gate that builds a service and starts it.
         # These two run their SELF-TESTS, and the reason is a measurement.
         # alive_check took 11 minutes on windows-latest against 2.5 on ubuntu,
-        # and 8 of those 11 were the Kynx gate re-running its load phase. Both
+        # and 8 of those 11 were the admission gate re-running its load phase. Both
         # tools are gates that already ran, moments earlier, in this same job --
         # alive_check re-executing them proves nothing the previous line did not,
         # and it doubles the most expensive thing in CI.

@@ -37,7 +37,7 @@ banner uses the same roles.
 Color fires only on a live terminal. Piped and redirected output stays
 plain (byte-identical), as do CI logs. `NO_COLOR` set or `TERM=dumb`
 always win. `--color always` forces styled output anywhere (for docs and
-snapshots) and `--color never` forces plain text. The generated server banner has one gradient, on the word `Kynx`. Findings and
+snapshots) and `--color never` forces plain text. The generated server banner has one gradient, on the word `admission`. Findings and
 the plain tier never use gradients (they must stay greppable). On a console that
 takes UTF-8 and 256 colors the compiler also draws cards, stage bars with a
 gradient and animated progress; [CLI_UI.md](CLI_UI.md) lists the tiers and the
@@ -144,7 +144,7 @@ A refusal by R6 is a compile error. R6's own line
 followed by one `orbit build:` line with R6's exit code and the command that
 builds the program with the C backend. There is no fallback to C. The programs
 R6 refuses today include every program that declares a route
-(`error[E_UNSUPPORTED]: Kynx routes are outside the M1 native subset`), so
+(`error[E_UNSUPPORTED]: admission routes are outside the M1 native subset`), so
 `orbit start`, `orbit dev` and `orbit cluster` need `--backend=c`
 (`cluster` always uses it).
 

@@ -94,7 +94,7 @@ jobs:
   # `make all && make report`: doctor goldens, doctor scope, the CLI contract,
   # the language and std suites, the negative corpus, the frontend TIR, parity,
   # -Werror on generated C, the fuzzers, the schema and walk-coverage checks, the
-  # tool aliveness check, the runtime C tests, the Kynx live gate and the gate
+  # tool aliveness check, the runtime C tests, the admission live gate and the gate
   # self-tests.
   #
   # It builds its own fixed point rather than consuming one from `bootstrap`. An

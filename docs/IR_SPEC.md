@@ -356,7 +356,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   (`compiler/emit/c_backend.orb:167` and `268`): the symbol resolves outside.
   Resolution is `UNSPECIFIED` (U-16).
 - `routeMethod == ""` ⇔ plain function. `initRouteFunction` pins the return
-  type to `"OrbitResponse*"` (`compiler/ir/ir.orb:212-214`). Optional Kynx route
+  type to `"OrbitResponse*"` (`compiler/ir/ir.orb:212-214`). Optional admission route
   limits are emitted at `compiler/emit/c_backend.orb:217-230`.
 - Parameters additionally live in a flat name-keyed kind registry
   (`listKinds`) restored per scope (`listKindMarks`). Two functions sharing a
@@ -391,7 +391,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   `compiler/emit/c_backend.orb:2377-2398`). With migrations or DB use, the preamble
   initializes `orbit_db_init(".orbit/data/app.db")`
   (`compiler/emit/route_runtime.orb:647`) and closes with `orbit_db_close()`
-  (`compiler/emit/route_runtime.orb:822`).
+  (`compiler/emit/route_runtime.orb:802`).
 
 ## 3. Calling convention
 

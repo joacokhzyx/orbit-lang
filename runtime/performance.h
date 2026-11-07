@@ -82,22 +82,22 @@ typedef struct {
     uint32_t active_arenas;
     
     // Security Stats
-    uint64_t kynx_blocks;
-    uint32_t kynx_tracked_ips;
+    uint64_t admission_blocks;
+    uint32_t admission_tracked_ips;
     
-    // Kynx Sovereign Telemetry
-    uint64_t kynx_admissions;
-    uint64_t kynx_early_rejections;
-    uint64_t kynx_throttled;
-    uint64_t kynx_deadline_exhausted;
-    uint64_t kynx_arena_budget_exhausted;
-    uint64_t kynx_request_budget_exhausted;
-    uint64_t kynx_response_budget_exhausted;
-    uint64_t kynx_db_query_budget_exhausted;
-    uint64_t kynx_db_step_budget_exhausted;
-    uint64_t kynx_table_saturations;
-    uint64_t kynx_state_transitions;
-    uint64_t kynx_route_limit_drops;
+    // admission Sovereign Telemetry
+    uint64_t admissions;
+    uint64_t admission_early_rejections;
+    uint64_t admission_throttled;
+    uint64_t admission_deadline_exhausted;
+    uint64_t admission_arena_budget_exhausted;
+    uint64_t admission_request_budget_exhausted;
+    uint64_t admission_response_budget_exhausted;
+    uint64_t admission_db_query_budget_exhausted;
+    uint64_t admission_db_step_budget_exhausted;
+    uint64_t admission_table_saturations;
+    uint64_t admission_state_transitions;
+    uint64_t admission_route_limit_drops;
     
     // Database Stats
     uint64_t db_queries;
@@ -374,22 +374,22 @@ typedef struct {
     uint32_t route_id;
     uint32_t principal_id;
     uint32_t flags;
-    /* Energy attribution (Kynx 0.1 C4): snapshots at creation, ESTIMATE
+    /* Energy attribution (admission 0.1 C4): snapshots at creation, ESTIMATE
      * at destroy. Appended at the end so existing offsets never move. */
     uint64_t start_cycles;        /* orbit_rdtsc() at lease creation */
     uint64_t start_total_cycles;  /* perf total_cycles at creation (share basis) */
     double   start_joules;        /* attributable package joules at creation */
     double   joules;              /* attributed ESTIMATE, set at destroy (0 = proxy) */
-} OrbitKynxLease;
+} OrbitAdmissionLease;
 
-/* The lease the current request runs under (NULL outside a Kynx request). Owned
- * by the counters' owner like orbit_perf_stats; arena.c reads it, kynx.c sets it. */
+/* The lease the current request runs under (NULL outside a admission request). Owned
+ * by the counters' owner like orbit_perf_stats; arena.c reads it, admission.c sets it. */
 #ifdef ORBIT_PERF_IMPL
-ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease = NULL;
+ORBIT_THREAD_LOCAL OrbitAdmissionLease* current_lease = NULL;
 #elif defined(ORBIT_SEPARATE_COMPILATION) || defined(ORBIT_RUNTIME_MODULE)
-extern ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease;
+extern ORBIT_THREAD_LOCAL OrbitAdmissionLease* current_lease;
 #else
-static ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease = NULL;
+static ORBIT_THREAD_LOCAL OrbitAdmissionLease* current_lease = NULL;
 #endif
 
 #endif

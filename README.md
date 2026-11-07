@@ -93,7 +93,7 @@ question it answers. The pages reached most often:
 
 ```text
 compiler/     Self-hosted compiler written in Orbit (lexer -> parser -> sema -> IR -> C backend)
-runtime/      C runtime (http, arena, kynx, database, auth, ledger, energy, pulse)
+runtime/      C runtime (http, arena, admission, database, auth, ledger, energy, pulse)
 std/          Orbit standard library modules
 scripts/      Developer entry point (dev.py) plus the verification gates
 tests/        Parity goldens and compiler test fixtures

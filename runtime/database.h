@@ -24,7 +24,7 @@ typedef struct {
 
 /* ── Lifecycle ──────────────────────────────────────────────────────── */
 
-/* The Kynx lease guard lives in kynx.c, which is only compiled with
+/* The admission lease guard lives in admission.c, which is only compiled with
  * ORBIT_WITH_NET. Without it, provide a no-op progress handler so DB-only
  * programs link without pulling in the network stack. */
 #ifdef ORBIT_WITH_NET
@@ -34,16 +34,16 @@ ORBIT_XLINK int orbit_sqlite_progress_handler(void* param);
 #endif
 
 #ifdef ORBIT_WITH_NET
-#define KYNX_DB_QUERY_CHECK(ret) \
+#define ADMISSION_DB_QUERY_CHECK(ret) \
     if (current_lease) { \
         current_lease->db_queries++; \
         if (current_lease->db_queries > current_lease->db_queries_limit) { \
-            orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_db_query_budget_exhausted); \
+            orbit_perf_atomic_inc64(&orbit_perf_stats.admission_db_query_budget_exhausted); \
             return ret; \
         } \
     }
 #else
-#define KYNX_DB_QUERY_CHECK(ret)
+#define ADMISSION_DB_QUERY_CHECK(ret)
 #endif
 void orbit_db_init(const char* db_path);
 void orbit_db_close(void);

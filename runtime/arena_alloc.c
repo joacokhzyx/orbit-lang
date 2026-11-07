@@ -144,7 +144,7 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
          * SIZE_MAX, and arena_bytes + aligned would wrap below the limit. */
         if (current_lease->arena_bytes > current_lease->arena_limit ||
             aligned > current_lease->arena_limit - current_lease->arena_bytes) {
-            orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_arena_budget_exhausted);
+            orbit_perf_atomic_inc64(&orbit_perf_stats.admission_arena_budget_exhausted);
             orbit_perf_record_oom();
             return NULL;
         }
