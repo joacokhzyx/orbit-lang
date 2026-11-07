@@ -66,7 +66,7 @@ a write. Code both branches. They're real answers, not filler.
 **9. Is the language stable? Will my code compile next month?**
 No stability promise before 1.0. Minor releases in the 0.x
 series may include documented breaking changes (see
-[Versioning](VERSIONING.md)). Pin your compiler version in CI.
+[Versioning](SUPPORTED.md#versions-and-compatibility)). Pin your compiler version in CI.
 
 **10. Does Orbit have generics / async / pattern matching?**
 Functions and models take inferred type parameters (`fn getOr[T]`,

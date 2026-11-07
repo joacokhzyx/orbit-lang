@@ -62,14 +62,14 @@ builds already do (`runtime/vendor/README.md`).
 | Multithreaded server (`thread_pool.c`) | `__atomic_load_n` undeclared; `__thread` / `__declspec(thread)` rejected | tcc 0.9.27 has no `__atomic` builtins and no TLS on Windows |
 | 64-bit interlocked (`performance.h`, `arena_pool.c`, `admission.c` hot paths) | `undefined symbol '_InterlockedExchangeAdd64'` etc. (missing from tcc's `kernel32.def`) | needs a forked import lib; not worth it for a fast-build lane |
 | `pthread.h` test helpers | include not found | POSIX-only shape; out of lane scope |
-| Benchmarks / perf / energy numbers from a tcc binary | nonsensical by construction (`Sleep(0)` spins, 32-bit clock wraps, unoptimised codegen) | forbidden by rule, see `docs/TOOLCHAIN.md` |
+| Benchmarks / perf / energy numbers from a tcc binary | nonsensical by construction (`Sleep(0)` spins, 32-bit clock wraps, unoptimised codegen) | forbidden by rule, see `docs/SUPPORTED.md#toolchain` |
 
 The multithreaded server always builds with gcc: that is a rule in
-`docs/TOOLCHAIN.md`, and the table above is its mechanical backing.
+`docs/SUPPORTED.md#toolchain`, and the table above is its mechanical backing.
 
 ## Widening the set
 
 1. Confirm the name is a real export: `tcc -impdef C:\Windows\System32\ws2_32.dll`.
 2. Add the declaration to the header AND the name to the `.def` in the same change.
-3. Rebuild the loopback + sqlite probes in `docs/TOOLCHAIN.md`.
+3. Rebuild the loopback + sqlite probes in `docs/SUPPORTED.md#toolchain`.
 4. Bump `SHIM_VERSION` in `VERSION`.

@@ -170,4 +170,4 @@ For source-level verification, compare the published canonical C hash with the `
 - A tag containing `-rc` publishes a release candidate.
 - Manual workflow dispatch builds artifacts but does not publish a GitHub release unless it is invoked through a tagged release flow.
 
-Versioning and compatibility rules are defined in [Versioning and Compatibility](VERSIONING.md). Platform support is defined in [Platform Support](SUPPORT.md).
+Versioning and compatibility rules are defined in [Versions and compatibility](SUPPORTED.md#versions-and-compatibility). Platform support is defined in [Platform Support](SUPPORT.md).

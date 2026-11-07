@@ -250,7 +250,7 @@ A compiler change is not complete until the relevant gates pass:
 5. `fmt --check` is clean on `compiler`, `tests/suite`, `std`, `tests/std` and `examples`, `doctor` reports nothing on `tests/suite`, and `cli_probe` passes.
 6. Documentation and examples reflect the supported behavior.
 
-See [Platform Support](SUPPORT.md), [Getting Started](GETTING_STARTED.md), and the [Engineering Contract](../ENGINEERING.md) for platform-specific details and invariants.
+See [Platform Support](SUPPORTED.md#platforms), [Getting Started](GETTING_STARTED.md), and the [Engineering Contract](../ENGINEERING.md) for platform-specific details and invariants.
 
 ## Terminal output
 

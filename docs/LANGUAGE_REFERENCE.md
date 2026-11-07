@@ -1497,7 +1497,7 @@ this:
 - **Document the expected layout** next to your library: which `std/` copy the
   importer needs and where. Today that is the whole install story.
 - **State your compiler version.** There is no compatibility range machinery
-  (see [Versioning](VERSIONING.md)), so pin the release you were written
+  (see [Versioning](SUPPORTED.md#versions-and-compatibility)), so pin the release you were written
   against. `orbit --version` exists and is the thing to check.
 
 A worked example, deliberately boring:

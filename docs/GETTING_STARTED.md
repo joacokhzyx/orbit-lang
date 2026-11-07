@@ -10,7 +10,7 @@ Install:
 - Python 3.10 or newer
 - GCC, Clang, or MSVC
 
-Platform details are listed in [Platform Support](SUPPORT.md).
+Platform details are listed in [Platform Support](SUPPORTED.md#platforms).
 
 ## 2. Build Orbit
 
@@ -35,7 +35,7 @@ python scripts/trust.py build --out orbit.exe
 python3 scripts/trust.py build --out orbit
 ```
 
-When automatic compiler detection is insufficient, pass `--cc gcc`, `--cc clang`, or `--cc cl` explicitly. You can also set `ORBIT_CC`. See [Platform Support](SUPPORT.md).
+When automatic compiler detection is insufficient, pass `--cc gcc`, `--cc clang`, or `--cc cl` explicitly. You can also set `ORBIT_CC`. See [Platform Support](SUPPORTED.md#platforms).
 
 The commands above create a local executable in the repository root. Unless you install Orbit or add that directory to `PATH`, invoke the compiler using its local path as shown below.
 
@@ -89,7 +89,7 @@ On Windows:
 .\health_service.exe
 ```
 
-Database examples require the SQLite support described in [Platform Support](SUPPORT.md).
+Database examples require the SQLite support described in [Platform Support](SUPPORTED.md#platforms).
 
 ## 5. Editor Setup
 
@@ -97,7 +97,7 @@ The installer registers the VS Code extension automatically. For a manual setup,
 
 ## Troubleshooting
 
-Toolchain problems are covered in [Platform Support](SUPPORT.md). Symptoms
+Toolchain problems are covered in [Platform Support](SUPPORTED.md#platforms). Symptoms
 you'll meet while running a service are in the
 [troubleshooting tutorial](tutorials/troubleshooting.md).
 

@@ -87,7 +87,7 @@ question it answers. The pages reached most often:
 - [Getting Started](docs/GETTING_STARTED.md) · [FAQ](docs/FAQ.md) · [Known Limitations](docs/KNOWN_LIMITATIONS.md)
 - [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Language Tour](docs/GETTING_STARTED.md#a-thirty-minute-tour)
 - [Architecture](docs/ARCHITECTURE.md) · [Performance](docs/internals/PERF.md) · [Changelog](docs/CHANGELOG.md)
-- [Platform Support](docs/SUPPORT.md) · [Versioning](docs/VERSIONING.md) · [Server Examples](examples/README.md)
+- [Platform Support](docs/SUPPORTED.md#platforms) · [Versioning](docs/SUPPORTED.md#versions-and-compatibility) · [Server Examples](examples/README.md)
 
 ## Repository structure
 

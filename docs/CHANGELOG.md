@@ -5,7 +5,7 @@ one line per change, grouped by what it was for. Nothing here
 is reconstructed from memory. (`git log --oneline` tells the
 full story; this page tells the short one.)
 
-Versioning rules: [Versioning and Compatibility](VERSIONING.md).
+Versioning rules: [Versioning and Compatibility](SUPPORTED.md#versions-and-compatibility).
 Current: `0.1.0` (`orbit --version` prints `orbit 0.1.0`, and the
 startup banner says `Orbit 0.1.0`).
 

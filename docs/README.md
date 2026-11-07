@@ -21,9 +21,6 @@ complete map; the second names the document that decides each topic.
 | How fast does it build and run? | [`internals/PERF.md`](internals/PERF.md) | Method and measured performance |
 | How do I measure resource use? | [`internals/ENERGY.md`](internals/ENERGY.md) | CPU, memory, energy method and the ledger |
 | How large is the generated C? | [`internals/CODEGEN_BUDGET.md`](internals/CODEGEN_BUDGET.md) | Emitted size and build cost per program |
-| Which toolchain builds what? | [`TOOLCHAIN.md`](TOOLCHAIN.md) | Compiler policy per platform |
-| Which platforms are supported? | [`SUPPORT.md`](SUPPORT.md) | Operating systems, compilers and limits |
-| How is Orbit versioned? | [`VERSIONING.md`](VERSIONING.md) | Versions and compatibility |
 | How are releases produced? | [`RELEASES.md`](RELEASES.md) | Artifacts, verification and packaging |
 | What changed? | [`CHANGELOG.md`](CHANGELOG.md) | Release history |
 | What do people ask? | [`FAQ.md`](FAQ.md) | Twenty questions, answered plainly |
@@ -49,8 +46,6 @@ table names the document that decides each topic.
 | IR text and semantics | `IR_SPEC.md` | The IRv1 document the compiler emits |
 | Gates and invariants | `ENGINEERING.md` §7 and §8, `scripts/dev.py` | What a change must not contradict, and how it is checked |
 | Test corpora | `tests/*/README.md` and the runner output | What each gate measures |
-| Platform support | `SUPPORT.md` | Which platforms and compilers are exercised |
-| Versions and releases | `VERSIONING.md`, `RELEASES.md` | Compatibility and release artifacts |
 | Workflow | `BRANCHES.md`, `AGENTS.md` | Branches, review and stop rules |
 | Documentation map | this file | Which page answers which question |
 
