@@ -33,6 +33,7 @@ and `child_env`'s temporary directory was called `scratch`, which is a
 
 import argparse
 import difflib
+import json
 import os
 import pathlib
 import re
@@ -803,6 +804,23 @@ else:
     SETUP[R6_SILENT] = "#!/bin/sh\nsleep 40\n"
     SETUP[R6_OTHER] = "#!/bin/sh\necho 'r6 9.9.9 ir-protocol 99'\n"
 
+def lsp_session(text):
+    """A JSON-RPC session as an editor sends it: open, publish, close."""
+    messages = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}},
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": "file:///lsp/case.orb",
+                                     "languageId": "orbit", "version": 1, "text": text}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]
+    framed = []
+    for message in messages:
+        body = json.dumps(message)
+        framed.append("Content-Length: %d\r\n\r\n%s" % (len(body.encode("utf-8")), body))
+    return "".join(framed)
+
+
 CASES = [
     # (name, argv, exp_rc, stream, needle, absent)
     # stream: "out" (stdout), "err" (stderr), "any"; needle "" skips match.
@@ -821,6 +839,14 @@ CASES = [
     # line from it. The needle is the line the probe writes into the pipe.
     ("run-stdin", ["run", "stdin_echo.orb"], 0, "out", "hello from the pipe", "", None,
      "hello from the pipe\n"),
+    # `orbit lsp` end to end: the framed protocol plus the one analysis it
+    # publishes. The positive case carries a type error and must name its
+    # code; the negative allows the same session with a program that checks,
+    # so a server that published nothing would still pass neither needle.
+    ("lsp-diagnostic", ["lsp"], 0, "out", '"code":"E1006"', "", None,
+     lsp_session('fn main() -> int {\n    val n: int = "x"\n    return n\n}\n')),
+    ("lsp-clean", ["lsp"], 0, "out", '"diagnostics":[]', "", None,
+     lsp_session("fn main() -> int {\n    return 0\n}\n")),
     ("help-short", ["-h"], 0, "out", "Usage:", ""),
     ("version", ["--version"], 0, "out", "orbit 0.1.0", ""),
     ("unknown-cmd", ["frobnicate"], 2, "err", "Usage:", ""),

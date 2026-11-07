@@ -770,7 +770,7 @@ def cmd_build(args) -> int:
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by `trust.py build --promote`,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "FE35DD4465738715C756AE5E8B03D0D52F080DFD93C390744DBE33DBE0C66503"
+PUBLISHED_C = "79E6643B03B5C66AA15DE9E6C117FB673BAA7E19347B246D2F7CBA5F71D6CA6B"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says

@@ -654,6 +654,11 @@ orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command);
 orbit_string orbit_stdin_read_line(OrbitArena* arena);
 orbit_string orbit_stdin_read_bytes(OrbitArena* arena, orbit_int n);
 bool orbit_stdin_at_end(void);
+/* Bytes out, not the platform's newline translation: a JSON-RPC header
+   terminator written to a text-mode stream becomes "\r\r\n" on Windows. */
+bool orbit_stdout_binary(void);
+/* `print` appends a newline; a framed protocol cannot have one. */
+bool orbit_stdout_write(orbit_string text);
 void orbit_os_exit(orbit_int code);
 orbit_int orbit_os_spawn(orbit_string command);
 orbit_int orbit_os_run_timeout(orbit_string command, orbit_int timeout_ms, orbit_string capture_path);

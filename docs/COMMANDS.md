@@ -22,9 +22,28 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit frontend <file>` | Emit the typed IR (TIR) without building; the document goes to stdout unless `-o` names a file | `orbit frontend main.orb` |
 | `orbit lextrace <file>` | Developer lexer trace; output is unstable by design | `orbit lextrace main.orb` |
 | `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
+| `orbit lsp` | Language server on stdin/stdout: JSON-RPC 2.0 framing and diagnostics from `orbit check` | started by the editor, not by hand |
 | `orbit --help` | Display the command-line help | `orbit --help` |
 | `orbit --version` | Display the compiler version | `orbit --version` |
 | `orbit` (no arguments) | Short help with next steps | `orbit` |
+
+## Language server
+
+`orbit lsp` speaks JSON-RPC 2.0 over stdin and stdout, with `Content-Length`
+framing. It answers `initialize` with `textDocumentSync: 1`: every `didChange`
+carries the whole document, so the server keeps no incremental state it could
+get wrong. `didOpen` and `didChange` publish diagnostics, `shutdown` answers
+`null`, and `exit` ends the process. A method the server does not know is
+answered with `-32601` only when the message carried an `id`, because a
+notification has nowhere to put a response.
+
+Diagnostics come from `orbit check` on a temporary file, so the editor and the
+command line cannot disagree about what a program means. The cost is one check
+process per change. Editors start the server themselves; for example, Neovim:
+
+```lua
+vim.lsp.start({ name = "orbit", cmd = { "orbit", "lsp" }, root_dir = vim.fn.getcwd() })
+```
 
 ## Appearance: palette, color and progress
 

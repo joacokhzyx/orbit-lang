@@ -20,6 +20,7 @@ import "../tools/palette.orb"
 import "../tools/ui.orb"
 import "./pipeline.orb"
 import "../tools/doctor.orb"
+import "../tools/lsp.orb"
 import "./cluster.orb"
 import "./start.orb"
 
@@ -122,6 +123,7 @@ fn helpText(useColor: bool) -> string {
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " <file.orb>             Format a file (writes only on success)\n"
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " --check <file|dir>     List files that need formatting\n"
     h = h + "  " + palettePaint(paletteBold(), "doctor", useColor) + " [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)\n"
+    h = h + "  " + palettePaint(paletteBold(), "lsp", useColor) + "                   Language server on stdin/stdout (JSON-RPC)\n"
     h = h + "  " + palettePaint(paletteBold(), "frontend", useColor) + " <input.orb> [-o output.tir]\n"
     h = h + "                             Without -o the canonical TIR goes to stdout\n"
     h = h + "  " + palettePaint(paletteBold(), "cluster", useColor) + " up --nodes N --port-base P [--log-dir D] [--service S]\n"
@@ -174,6 +176,7 @@ fn isKnownCommand(cmd: string) -> bool {
     if cmd == "lextrace" || cmd == "cluster" { return true }
     if cmd == "start" || cmd == "dev" || cmd == "stop" { return true }
     if cmd == "migrate" { return true }
+    if cmd == "lsp" { return true }
     if cmd == "--help" || cmd == "-h" || cmd == "--version" || cmd == "-v" { return true }
     return false
 }
@@ -492,6 +495,11 @@ fn main() {
     // doctor dispatch (agent)
     if cmd == "doctor" {
         runDoctor()
+        return
+    }
+    // lsp dispatch: the editor speaks JSON-RPC over this process's stdio.
+    if cmd == "lsp" {
+        runLsp()
         return
     }
     // cluster dispatch (agent)

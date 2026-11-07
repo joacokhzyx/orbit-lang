@@ -608,6 +608,7 @@ followed by `orbit_handle_request` is emitted by
 | `compiler/host/cluster.orb` | `orbit cluster` subcommands |
 | `compiler/tools/doctor.orb` | `orbit doctor` checks and rendering |
 | `compiler/tools/fmt.orb` | `orbit fmt` |
+| `compiler/tools/lsp.orb` | `orbit lsp`: JSON-RPC framing, `initialize`, diagnostics from `orbit check` |
 | `compiler/host/extern.orb` | `orbit_*_selfhost` extern declarations (typed) |
 | `compiler/tir/entry.orb` | `orbit frontend` driver |
 | `compiler/tir/lower.orb` | AST to typed IR lowering |

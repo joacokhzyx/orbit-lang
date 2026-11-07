@@ -80,6 +80,7 @@ def prog(name: str, *, vendor: bool = False, defines=(), warnings=False,
 PROGRAMS = [
     prog("arena"),
     prog("stdin"),
+    prog("stdout", warnings=True),
     prog("file"),
     prog("oom", posix_only=True),
     prog("http_parse", vendor=True),

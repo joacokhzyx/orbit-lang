@@ -1921,11 +1921,11 @@ These print the one-line `Semantic error:` form and pin a substring:
 ## Formatting
 
 The rules below are the contract for `orbit fmt`: the style the repository already follows, rule by rule, with evidence, and the formatter implements exactly what is written here. The corpus is recursive `*.orb`
-under `compiler/` (28 files), `tests/suite/` (128),
+under `compiler/` (29 files), `tests/suite/` (128),
 `std/` (21) and `tests/std/` (24), plus
 `examples/*.orb` (13, minus
-`orbit_full_expansion.orb`). 214 files -- the exact list
-the fmt gate verifies (`make all` prints `fmt ... (214 files, 8 workers)`). The rules were inferred
+`orbit_full_expansion.orb`). 215 files -- the exact list
+the fmt gate verifies (`make all` prints `fmt ... (215 files, 8 workers)`). The rules were inferred
 from that corpus with strings and comments stripped, so stylish string contents (JSON payloads,
 URLs) do not pollute them, and they stay readable as the corpus grows.
 

@@ -11,6 +11,25 @@ startup banner says `Orbit 0.1.0`).
 
 ## 0.1.0 (2026-11-01)
 
+Language server:
+
+- **`orbit lsp` is a language server an editor can start.** The command speaks
+  JSON-RPC 2.0 over stdin/stdout with `Content-Length` framing, answers
+  `initialize` with `textDocumentSync: 1`, republishes diagnostics on
+  `didOpen` and `didChange`, and exits on `shutdown` then `exit`. Diagnostics
+  come from `orbit check` on a temporary file, so the editor cannot disagree
+  with the build about what a program means; the cost is one check process per
+  change. Two runtime facts had to be true first. The stream read must take an
+  exact byte count, which the previous entry added. The write must not be
+  translated twice: Windows text mode turned the `\r\n` of a header
+  terminator into `\r\r\n`, and no client parsed that, so `runtime/os.c` gained
+  `orbit_stdout_binary` and `orbit_stdout_write`, with `runtime/test_stdout.c`
+  comparing the bytes written to a text-mode file. `scripts/doctor_gates.py
+  cli-probe` drives a complete session. The positive case opens a document
+  with a type error and requires the published `E1006`; the negative case
+  opens a program that checks and requires an empty diagnostics array. 94/94
+  pass.
+
 Repository tooling:
 
 - **`cli-probe` feeds a program its stdin.** The runtime learned to read the

@@ -16,6 +16,7 @@
 #include <direct.h>
 #include <windows.h>
 #include <io.h>
+#include <fcntl.h>
 #include <errno.h>
 #else
 #include <sys/wait.h>
@@ -686,6 +687,25 @@ orbit_string orbit_stdin_read_bytes(OrbitArena* arena, orbit_int n) {
 
 bool orbit_stdin_at_end(void) {
     return feof(stdin) != 0;
+}
+
+/* A protocol writer needs its bytes, not the platform's idea of a newline:
+   Windows text mode turns the "\n" of a "\r\n" header terminator into
+   "\r\n", so the stream carries "\r\r\n" and no client parses it. */
+bool orbit_stdout_binary(void) {
+#ifdef _WIN32
+    return _setmode(_fileno(stdout), _O_BINARY) != -1;
+#else
+    return true;
+#endif
+}
+
+/* `print` appends a newline, which a framed protocol cannot have: the bytes
+   between messages are part of the framing. */
+bool orbit_stdout_write(orbit_string text) {
+    if (!text) return false;
+    if (fwrite(text, 1, strlen(text), stdout) != strlen(text)) return false;
+    return fflush(stdout) == 0;
 }
 
 #endif

@@ -485,7 +485,7 @@ parameter: the C backend prepends it at the call site.
 | `orbit_db_insert` | `table: string, json: string` | `bool` | `database.c` |
 | `orbit_db_update` | `table: string, id: string, json: string` | `bool` | `database.c` |
 | `orbit_db_delete` | `table: string, id: string` | `bool` | `database.c` |
-| `system_uptime`, `system_pid`, `system_active_workers`, `system_http_requests_total`, `system_latency_avg_us`, `system_latency_p50_us`, `system_latency_p95_us`, `system_latency_p99_us` | none | `int` | `system_uptime` first of eight at `runtime/orbit_api.h:689-698` |
+| `system_uptime`, `system_pid`, `system_active_workers`, `system_http_requests_total`, `system_latency_avg_us`, `system_latency_p50_us`, `system_latency_p95_us`, `system_latency_p99_us` | none | `int` | `system_uptime` first of eight at `runtime/orbit_api.h:694-703` |
 
 `T` in `orbit_object_set_*` is `int`, `float`, `bool`, `string`, `object` or
 `list`. `orbit_string_find` is the source-level alias of `orbit_string_indexOf`
