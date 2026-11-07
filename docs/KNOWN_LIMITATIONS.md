@@ -385,6 +385,27 @@ NUL bytes are length-delimited on the wire but cannot round-trip as
 `orbit_string`. Treat them as saved bytes. Pinned by
 `runtime/test_upload.c`.
 
+## An editor gets checks on save, not a language server
+
+The VS Code extension in `editors/vscode/` registers syntax highlighting and runs
+`orbit check <file>` on save, and that is the whole editor story. There is no
+`orbit lsp` subcommand and no server behind one.
+
+A minimal server needs two things the language does not have today. The runtime
+exposes argv, `exec`, the environment, cwd, temp and the clock, and nothing that
+reads the process's own standard input: `compiler/host/extern.orb` names
+`orbit_os_argv_selfhost`, `orbit_os_exec_selfhost`, `orbit_os_env_selfhost`,
+`orbit_os_cwd_selfhost` and `orbit_os_temp_dir_selfhost`, and no read of stdin
+or of N bytes. On top of that read, JSON-RPC needs a Content-Length framer;
+`std/json/json.orb` already parses the bodies.
+
+A server written in another language would bring back the dependency this
+project exists to remove. The order is the two reads, a gate that feeds them,
+then a server that answers `initialize`, `textDocument/didOpen` and
+`textDocument/didChange` by running the checker and publishing its diagnostics.
+Until then, save-time `orbit check` is the supported path, and it is what the
+extension runs.
+
 ## Cluster is single-host only
 
 `orbit cluster` starts N copies of one service on this machine.
