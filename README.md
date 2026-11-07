@@ -60,10 +60,11 @@ percentile split by outcome.
 The measured list with workarounds is [Known Limitations](docs/KNOWN_LIMITATIONS.md).
 Twenty questions, answered plainly: [FAQ](docs/FAQ.md).
 
-On Windows x86-64 the native backend is the default for the programs R6
-accepts: it emits IR and runs R6, with no C compiler. R6 refuses every program
-that declares a route, and a refusal is a compile error, so a service build
-needs `--backend=c`. Elsewhere the C backend is the default.
+On a host where the compiler finds an `r6` it can run, the native backend is
+the default for the programs R6 accepts: it emits IR and runs R6, with no C
+compiler. R6 refuses every program that declares a route, and a refusal is a
+compile error, so a service build needs `--backend=c`. Where no r6 is present
+the C backend is the default.
 
 ## Usage
 

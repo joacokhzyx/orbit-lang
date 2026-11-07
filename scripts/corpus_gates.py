@@ -169,16 +169,8 @@ def cmd_suite(args) -> int:
     tool = "suite_native" if native else "suite"
     r6 = os.environ.get("ORBIT_R6", "")
     if native:
-        if os.name != "nt":
-            # `orbit build --backend=native` refuses any host that is not Windows
-            # x86-64 (`hostIsWindows` in compiler/host/pipeline.orb), so pointing
-            # at an r6 here cannot produce a pass: it produced three failing gates
-            # until this line named the rule.
-            out.say(f"Skipped {tool}: the native backend targets Windows x86-64 "
-                    "only, so this host cannot run it. This is a skip, not a pass.")
-            return SKIP_RC
         if not r6:
-            out.say(f"Skipped {tool}: ORBIT_R6 is not set. Point it at r6.exe "
+            out.say(f"Skipped {tool}: ORBIT_R6 is not set. Point it at r6 "
                     "(and R6_RUNTIME_DIR at its runtime archives) to run the "
                     "native backend. This is a skip, not a pass.")
             return SKIP_RC
@@ -1723,9 +1715,7 @@ def cmd_runtime_gen(args) -> int:
 #
 #   --backend c       the object comes from the C backend.
 #   --backend native  the object comes from R6 (`r6 build --object`); needs
-#                     ORBIT_R6, else the run is SKIPPED with exit 77. Any host
-#                     that is not Windows x86-64 is SKIPPED for the same reason:
-#                     the compiler refuses --backend=native there.
+#                     ORBIT_R6, else the run is SKIPPED with exit 77.
 #
 # The program is always built by the C backend: R6 does not link foreign
 # objects. arena.orb (an RtArena parameter) is built on both lanes. A file with a `main` must be refused by `--runtime-module`, which
@@ -1751,16 +1741,8 @@ def cmd_runtime_module(args) -> int:
     tool = "runtime_module_native" if args.backend == "native" else "runtime_module"
     r6 = os.environ.get("ORBIT_R6", "")
     if args.backend == "native":
-        if os.name != "nt":
-            # `orbit build --runtime-module --backend=native` is refused off
-            # Windows x86-64 by the same guard the suites hit
-            # (`hostIsWindows` in compiler/host/pipeline.orb), so an ORBIT_R6
-            # here buys a failure, not a lane.
-            out.say(f"Skipped {tool}: the native backend targets Windows x86-64 "
-                    "only, so this host cannot run it. This is a skip, not a pass.")
-            return SKIP_RC
         if not r6:
-            out.say(f"Skipped {tool}: ORBIT_R6 is not set. Point it at r6.exe "
+            out.say(f"Skipped {tool}: ORBIT_R6 is not set. Point it at r6 "
                     "with ir-protocol 3 to run this lane.")
             return SKIP_RC
         if not os.path.isfile(r6):

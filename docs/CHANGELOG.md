@@ -17,6 +17,22 @@ Repository tooling:
 
 - **Seventeen gate scripts became three, and one table owns the sequence.** `scripts/gate_registry.py` declares the 33 labels, their tiers and their command lines. `scripts/dev.py` reads that table; the order used to live in a tier dict, a `Makefile` copy and the prose of `ENGINEERING.md` §8. The five text gates are subcommands of `scripts/static_gates.py`, the eight corpus gates of `scripts/corpus_gates.py`, the four screens of `scripts/doctor_gates.py`. Labels are stable identifiers and did not move, so `--filter werror` selects the work it selected before. A filter that names no label exits 1 now; it printed `nothing to run` and exited 0, which is how a renamed gate stops being checked in silence. Measured on this tree: `dev.py all` runs 27 gates and skips 3 for want of `ORBIT_R6`, and `dev.py static` runs 6 in 19 s, against 13 s before the two probes. Files fell from 43 to 22 and the line count rose from 19,844 to 22,721: 19 Python tools plus three Orbit probes, and every merged subcommand carries a `--self-test` its old file did not have. Two of the five tier-0 checks, `schema` and `walk`, moved their analysis into Orbit probes (`scripts/schema_conformance.orb`, `scripts/walk_coverage.orb`); the driver compiles each with the fixed point, so those two need a compiler where the other three do not.
 
+Native backend:
+
+- **The native backend builds on either host.** `--backend=native` refused
+  every host that was not Windows before it looked at an `r6`, although R6
+  writes ELF64 as well as COFF. The refusal is gone. The command line is
+  quoted for the shell that runs it -- `set "K=V" &&` on cmd.exe, `K='v'` and
+  a single-quoted path on a POSIX shell -- `r6` is looked for as `r6.exe` and
+  as `r6` beside the compiler and under `bin/`, and temporary files are
+  removed with each host's delete. The default backend no longer reads the
+  host: it is `native` when an r6 is found and `c` otherwise. Measured with
+  `ORBIT_CC` set to a path that does not exist, so only R6 can produce the
+  binary: a 15,804-byte PE in 66 ms on Windows and a 16,760-byte ELF in 33 ms
+  on Linux, both printing `hello, orbit`. The doctor gate's two native
+  refusals run on both hosts now, each against a stand-in r6 that never
+  answers `--version` or answers `ir-protocol 99`.
+
 Language front end:
 
 - **A `match` arm binds its payload in the typed frontend.** `orbit frontend` refused every arm that named a variant payload (`E3001`, "a match that binds a payload needs the data read this pass does not print") while `orbit build` compiled them, so the unknown-type census measured a path the command line does not build with. The pass reads the data word with `data <payload> <scrutinee>`, binds it, and for a multi-payload variant reads each field of the packed struct. The census grew from 111,537 instructions to 147,001 as the files that printed no TIR now print theirs, and the unknown rate fell from 2.46 to 2.09 per mille; 307 instructions remain unknown, none silent. The frontend gate is 59/59, with `variant_match_payload.tir` as the new golden and `variant_match_bindless.orb` as the refusal control.

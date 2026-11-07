@@ -698,12 +698,15 @@ orbit build: couldn't finish the C step - this one is on me, not your code.
   with the .orb file and I'll read it.
 """
 
+# Stand-ins for r6. The native backend must refuse both before it hands
+# either a program: one never answers `--version` (a stale r6 waits for
+# input), the other answers with an IR protocol this compiler does not emit.
+# Each host runs a script it can execute: cmd.exe runs a .cmd, a POSIX kernel
+# runs a shebang, so setup_dir makes the POSIX pair executable.
+R6_SILENT = "r6_silent.cmd" if os.name == "nt" else "r6_silent.sh"
+R6_OTHER = "r6_other.cmd" if os.name == "nt" else "r6_other.sh"
+
 SETUP = {
-    # Stand-ins for r6.exe. The native backend must refuse both before it hands
-    # either a program: one never answers `--version` (a stale r6 waits for
-    # input), the other answers with an IR protocol this compiler does not emit.
-    "r6_silent.cmd": "@echo off\r\nping -n 40 127.0.0.1 >nul\r\n",
-    "r6_other.cmd": "@echo off\r\necho r6 9.9.9 ir-protocol 99\r\n",
     "files/case.orb": "fn main() -> int {\nreturn 0\n}\n",
     "files/clean.orb": "fn main() -> int {\n    return 0\n}\n",
     "files/ws.orb": "fn main() -> int {\n    return 0   \n}\n",
@@ -789,20 +792,27 @@ SETUP = {
     "reserved/extern_prefix.orb": "extern fn orbit_absent_symbol(x: int) -> int\n\nfn main() -> int {\n    return 0\n}\n",
 }
 
+if os.name == "nt":
+    SETUP[R6_SILENT] = "@echo off\r\nping -n 40 127.0.0.1 >nul\r\n"
+    SETUP[R6_OTHER] = "@echo off\r\necho r6 9.9.9 ir-protocol 99\r\n"
+else:
+    SETUP[R6_SILENT] = "#!/bin/sh\nsleep 40\n"
+    SETUP[R6_OTHER] = "#!/bin/sh\necho 'r6 9.9.9 ir-protocol 99'\n"
+
 CASES = [
     # (name, argv, exp_rc, stream, needle, absent)
     # stream: "out" (stdout), "err" (stderr), "any"; needle "" skips match.
     # absent: text that must NOT appear on either stream ("" skips), or scoped
     #   to one stream as "out:<text>" / "err:<text>".
     ("help", ["--help"], 0, "out", "Usage:", ""),
-    # The native backend exists on Windows only. On a POSIX host the contract
-    # is the platform refusal, which fires before any r6 is inspected.
+    # The native backend refuses an r6 before it hands it a program, on either
+    # host: these two cases are the same contract with a host-native stand-in.
     ("native-r6-no-answer", ["build", "tiny.orb", "-o", "t.exe", "--backend=native"], 1, "err",
-     "did not answer `--version`" if os.name == "nt" else "targets Windows x86-64 only", "",
-     {"ORBIT_R6": "./r6_silent.cmd"}),
+     "did not answer `--version`", "",
+     {"ORBIT_R6": "./" + R6_SILENT}),
     ("native-r6-wrong-protocol", ["build", "tiny.orb", "-o", "t.exe", "--backend=native"], 1, "err",
-     "ir-protocol 99" if os.name == "nt" else "targets Windows x86-64 only", "",
-     {"ORBIT_R6": "./r6_other.cmd"}),
+     "ir-protocol 99", "",
+     {"ORBIT_R6": "./" + R6_OTHER}),
     ("help-short", ["-h"], 0, "out", "Usage:", ""),
     ("version", ["--version"], 0, "out", "orbit 0.1.0", ""),
     ("unknown-cmd", ["frobnicate"], 2, "err", "Usage:", ""),
@@ -1054,6 +1064,8 @@ def setup_dir(work):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
+        if os.name != "nt" and rel in (R6_SILENT, R6_OTHER):
+            os.chmod(dest, 0o755)
 
 
 def invariants(compiler, work):

@@ -9,7 +9,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | Command | Purpose | Example |
 |---|---|---|
 | `orbit build <file>` | Compile an Orbit source file to an executable | `orbit build main.orb -o main` |
-| `orbit build --backend=native <file>` | The same, through R6 and without a C compiler (Windows x86-64) | `orbit build --backend=native main.orb -o main` |
+| `orbit build --backend=native <file>` | The same, through R6 and without a C compiler (Windows and Linux x86-64) | `orbit build --backend=native main.orb -o main` |
 | `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
 | `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
 | `orbit dev [file]` | Watch sources, rebuild and restart on change (drains on both hosts; [the Windows ask is a named channel](KNOWN_LIMITATIONS.md#a-windows-stop-drains-through-a-named-channel)) | `orbit dev svc.orb` |
@@ -128,14 +128,16 @@ The exact options supported by a command are defined by the compiler returned by
 
 `orbit build` and `orbit run` take `--backend=c|native`. `ORBIT_BACKEND` sets
 the same choice for every command that builds, and the flag wins over it.
-The default is `native` on Windows and `c` elsewhere. An unknown name is a usage error (exit 2) for the flag and
+The default is `native` when the compiler finds an `r6` it can run, and `c` otherwise. An unknown name is a usage error (exit 2) for the flag and
 a build error (exit 1) for the variable.
 
 - `c` emits C and runs the system C compiler (`ORBIT_CC`, else `CC`, else `cc`).
 - `native` writes the IR document that `--emit-ir` writes (see
   [the IR specification](IR_SPEC.md)) into the temp directory and runs R6, a
-  separate x86-64 code generator, on it. No C compiler is involved. It is
-  Windows-only: on another platform the build fails and says so.
+  separate x86-64 code generator, on it. No C compiler is involved. R6 builds
+  the host's format: a PE on Windows, an ELF on Linux x86-64. An `r6` built
+  for another host is refused with its own diagnostic, and there is no
+  cross build.
 
 A refusal by R6 is a compile error. R6's own line
 (`r6: <file>:<line>:<col>: error[CODE]: <msg>`) is printed as R6 wrote it,
@@ -155,12 +157,16 @@ R6 is found in this order:
 
 | Order | Where | Layout |
 |---|---|---|
-| 1 | `ORBIT_R6` | The path of `r6.exe`. A path that does not exist is an error, not a fall-through. |
-| 2 | `r6.exe` in the directory of `orbit.exe` | A portable directory. |
-| 3 | `bin\r6.exe` under the directory of `orbit.exe` | The installed layout. |
-| 4 | none found | `orbit build: the native backend needs r6.exe and couldn't find it`. |
+| 1 | `ORBIT_R6` | The path of `r6`. A path that does not exist is an error, not a fall-through. |
+| 2 | `r6` in the directory of `orbit` | A portable directory. |
+| 3 | `bin/r6` under the directory of `orbit` | The installed layout. |
+| 4 | none found | `orbit build: the native backend needs r6 and couldn't find it`. |
 
-The installed layout is one root:
+Both directories are tried as `r6` and `r6.exe`, because a Windows install
+ships the extension and a Linux build does not.
+
+The installed layout is one root, shown for Windows; Linux names the same two
+files `orbit` and `bin/r6`:
 
 ```text
 <root>\orbit.exe        the compiler, on PATH
@@ -178,7 +184,7 @@ it. `orbit` also sets `R6_TMPDIR` to the build temp directory.
 | Variable | Effect |
 |---|---|
 | `ORBIT_BACKEND=c\|native` | Backend for every build; the flag wins. |
-| `ORBIT_R6` | Path of `r6.exe`. |
+| `ORBIT_R6` | Path of `r6`. |
 | `ORBIT_R6_RUNTIME` | Directory of the runtime archives; becomes `R6_RUNTIME_DIR`. |
 
 ## Errors and exit codes

@@ -561,8 +561,8 @@ run-to-run flakiness. The full gate sequence, in order, is in
 compiler. `compiler/host/pipeline.orb` runs the same front end, writes the IR
 document that `--emit-ir` writes into the temp directory, and runs R6 on it.
 R6 is a separate project (`github.com/joacokhzyx/orbit-r6`, MIT): it encodes
-x86-64 itself, writes AMD64 COFF and links with GNU `ld`. It targets Windows
-only.
+x86-64 itself, writes AMD64 COFF or ELF64 and links with GNU `ld`. It targets
+the host: Win64 on Windows, System V on Linux.
 
 There is no fallback. A program R6 refuses is a compile error that carries
 R6's own diagnostic, and `--backend=c` builds it. The pipeline passes the

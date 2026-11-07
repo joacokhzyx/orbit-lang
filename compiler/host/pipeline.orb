@@ -771,13 +771,12 @@ fn hostIsWindows() -> bool {
     return orbit_os_env_selfhost("OS") == "Windows_NT" || orbit_os_env_selfhost("WINDIR") != ""
 }
 
-// A Windows host gets the native backend only when an r6.exe it can use is
-// actually there. Without one the default is C, because a missing r6 is not a
-// refusal by R6: the build still has to finish. An explicit ORBIT_R6 keeps
-// native, since naming a path is an order and the R6 path already reports one
-// that does not resolve.
+// A host gets the native backend only when an r6 it can use is actually
+// there. Without one the default is C, because a missing r6 is not a refusal
+// by R6: the build still has to finish. An explicit ORBIT_R6 keeps native,
+// since naming a path is an order and the R6 path already reports one that
+// does not resolve.
 fn defaultBackend() -> string {
-    if hostIsWindows() == false { return "c" }
     if orbit_os_env_selfhost("ORBIT_R6") != "" { return "native" }
     if findInstalledR6() != "" { return "native" }
     return "c"
@@ -868,10 +867,15 @@ fn emitIrDocument(irModule: IRModule, irPath: string, verbose: bool, useColorErr
 fn findInstalledR6() -> string {
     val dir = getDir(orbit_os_argv_selfhost(0))
     if dir == "" { return "" }
-    val beside = dir + "/r6.exe"
-    if runtimeLibFileExists(beside) { return beside }
-    val installed = dir + "/bin/r6.exe"
-    if runtimeLibFileExists(installed) { return installed }
+    // Beside the compiler or in bin/, with and without the Windows extension:
+    // a POSIX install names it `r6` because the kernel does not append one.
+    val names = ["/r6.exe", "/r6", "/bin/r6.exe", "/bin/r6"]
+    var i = 0
+    while i < names.len() {
+        val candidate: string = names.get(i)
+        if runtimeLibFileExists(dir + candidate) { return dir + candidate }
+        i = i + 1
+    }
     return ""
 }
 
@@ -891,6 +895,23 @@ fn r6RuntimeDir() -> string {
 
 fn shellPath(path: string) -> string {
     return replaceBuildToken(path, "/", "\\")
+}
+
+// A shell-quoted path for the host that runs the native backend's command
+// line: cmd.exe wants double quotes and backslashes, a POSIX shell wants the
+// path as it is. A path containing a single quote would break the POSIX form;
+// the compiler's own temp paths do not contain one.
+fn quotePath(path: string) -> string {
+    if hostIsWindows() { return "\"" + shellPath(path) + "\"" }
+    return "'" + path + "'"
+}
+
+fn removeFileQuiet(path: string) {
+    if hostIsWindows() {
+        val ignored = orbit_os_exec_selfhost("del /F /Q " + quotePath(path) + " 2>NUL")
+    } else {
+        val ignored = orbit_os_exec_selfhost("rm -f " + quotePath(path))
+    }
 }
 
 fn nativeIrTempPath(outputPath: string) -> string {
@@ -939,7 +960,7 @@ fn r6RefusalReason(r6: string) -> string {
     if tmpDir != "" {
         probe = tmpDir + "/" + probe
     }
-    val code = orbit_os_run_timeout_selfhost("\"" + shellPath(r6) + "\" --version", r6ProbeTimeoutMs(), shellPath(probe))
+    val code = orbit_os_run_timeout_selfhost(quotePath(r6) + " --version", r6ProbeTimeoutMs(), probe)
     if code == -2 {
         return "did not answer `--version` within " + orbit_int_to_string_selfhost(r6ProbeTimeoutMs() / 1000) + " s; it is probably an older r6 that waits for input"
     }
@@ -973,7 +994,7 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     if named != "" {
         if runtimeLibFileExists(named) == false {
             uiBuildFinish(ui, false)
-            orbit_os_write_stderr_selfhost(head + " ORBIT_R6 is '" + named + "' and that file doesn't exist. Point it at r6.exe, or unset it to use the installed one.\n")
+            orbit_os_write_stderr_selfhost(head + " ORBIT_R6 is '" + named + "' and that file doesn't exist. Point it at r6, or unset it to use the installed one.\n")
             return false
         }
         r6 = named
@@ -982,31 +1003,39 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     }
     if r6 == "" {
         uiBuildFinish(ui, false)
-        orbit_os_write_stderr_selfhost(head + " the native backend needs r6.exe and couldn't find it.\n")
-        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to its path, or put it in bin\\r6.exe under the Orbit install. `orbit build --backend=c` needs neither.\n")
+        orbit_os_write_stderr_selfhost(head + " the native backend needs r6 and couldn't find it.\n")
+        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to its path, or put it in bin/r6 under the Orbit install. `orbit build --backend=c` needs neither.\n")
         return false
     }
     val refusal = r6RefusalReason(r6)
     if refusal != "" {
         uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost(head + " the native backend found '" + r6 + "' and it " + refusal + ".\n")
-        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to a current r6.exe, or build with --backend=c.\n")
+        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to a current r6, or build with --backend=c.\n")
         return false
     }
     var cmd = ""
     val rtDir = r6RuntimeDir()
     if rtDir != "" {
-        cmd = cmd + "set \"R6_RUNTIME_DIR=" + shellPath(rtDir) + "\" && "
+        if hostIsWindows() {
+            cmd = cmd + "set \"R6_RUNTIME_DIR=" + shellPath(rtDir) + "\" && "
+        } else {
+            cmd = cmd + "R6_RUNTIME_DIR=" + quotePath(rtDir) + " "
+        }
     }
     val tmpDir = buildTempDir()
     if tmpDir != "" {
-        cmd = cmd + "set \"R6_TMPDIR=" + shellPath(tmpDir) + "\" && "
+        if hostIsWindows() {
+            cmd = cmd + "set \"R6_TMPDIR=" + shellPath(tmpDir) + "\" && "
+        } else {
+            cmd = cmd + "R6_TMPDIR=" + quotePath(tmpDir) + " "
+        }
     }
     var objectFlag = ""
     if runtimeModule {
         objectFlag = "--object "
     }
-    cmd = cmd + "\"" + shellPath(r6) + "\" build " + objectFlag + "\"" + shellPath(irPath) + "\" -o \"" + shellPath(outputPath) + "\""
+    cmd = cmd + quotePath(r6) + " build " + objectFlag + quotePath(irPath) + " -o " + quotePath(outputPath)
     if verbose {
         print("r6 " + cmd)
     }
@@ -1020,10 +1049,10 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     var captured = ""
     if capture != "" {
         captured = orbit_file_read_selfhost(capture)
-        val ignoredLog = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(capture) + "\" 2>NUL")
+        removeFileQuiet(capture)
     }
     if irIsTemp && verbose == false {
-        val ignoredDel = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(irPath) + "\" 2>NUL")
+        removeFileQuiet(irPath)
     }
     if code != 0 {
         uiBuildFinish(ui, false)
@@ -1153,11 +1182,6 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
         return false
     }
     val native = backendName == "native" && orbit_os_env_selfhost("ORBIT_SKIP_CC") == ""
-    if native && hostIsWindows() == false {
-        uiBuildFinish(ui, false)
-        orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " the native backend targets Windows x86-64 only. Use --backend=c on this platform.\n")
-        return false
-    }
 
     // --emit-ir dumps IRv1 straight after the builder, before the optimizer
     // and the C backend touch the module, so registerTypes is what buildAST
