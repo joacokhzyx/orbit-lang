@@ -22,7 +22,6 @@ complete map; the second names the document that decides each topic.
 | How do I measure resource use? | [`internals/ENERGY.md`](internals/ENERGY.md) | CPU, memory, energy method and the ledger |
 | How large is the generated C? | [`internals/CODEGEN_BUDGET.md`](internals/CODEGEN_BUDGET.md) | Emitted size and build cost per program |
 | What changed? | [`CHANGELOG.md`](CHANGELOG.md) | Release history |
-| What do people ask? | [`FAQ.md`](FAQ.md) | Twenty questions, answered plainly |
 | How do I report a vulnerability? | [`../SECURITY.md`](../SECURITY.md) | Private disclosure and response |
 | How do I work as an agent here? | [`../AGENTS.md`](../AGENTS.md) | Gates, zones, review and stop rules |
 | What is the engineering contract? | [`../ENGINEERING.md`](../ENGINEERING.md) | Invariants, debt rows and gate commands |

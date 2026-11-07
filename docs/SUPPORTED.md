@@ -271,3 +271,148 @@ defined `WSAEWOULDBLOCK` as 14035 from memory, and the loopback probe
 failed. The DLL, MinGW-w64's `winerror.h` (`WSABASEERR+35`), and tcc's
 own `winerror.h` all say 10035 — three sources agree.
 The shim carries 10035, and the memory lost.
+
+## Frequently asked questions
+
+Short answers, plain words. Where the answer is "not yet" or
+"not known," it says so - that's the point of this page.
+
+### Basics
+
+**1. What is Orbit?**
+A statically typed language for APIs and microservices. It
+compiles fast and needs little to run, so it stays fast even
+under load. The project tests whether servers can do the
+same work with less energy. How far that goes is still
+being measured.
+
+**2. Is Orbit ready for production?**
+No. It's 0.1.0 pre-release research. Reads, writes, bearer auth,
+path parameters and forward migrations all work. What isn't there
+is multi-host clustering, `down` migrations and a language server.
+Uploads save files, but a binary payload doesn't round-trip as a
+string. Latency percentiles are estimated inside their histogram bucket, and
+requests split by class (`system.http_requests_ok()` and
+`http_requests_error()`). Good for learning and experimenting. Don't bet
+a business on it.
+
+**3. What do I need to build it?**
+A C compiler (gcc, clang, or MSVC), Python 3.10+, and git.
+That's it - no giant dependencies. See [Getting Started](GETTING_STARTED.md).
+
+**4. How is this different from Go, Rust, or Node?**
+There is no comparison against other languages by claim -
+only with same-machine, same-workload measurements,
+published with method. Those measurements don't exist yet
+in publishable form. What can be said without one: Orbit
+compiles to readable C99, reclaims memory per request with
+arenas, and measures its own resource use out of the box.
+
+**5. Is Orbit "green" / eco-friendly?**
+It's an engineering project whose result could be less energy
+per request - not an ecological identity. Energy savings
+are not claimed until they're measured with hardware,
+workload, and method recorded. Anyone telling you otherwise
+about 0.1.0 is ahead of the data.
+
+### Language
+
+**6. What can I build today?**
+Read-heavy JSON services over SQLite: routes, query values,
+request bodies, filtered queries, status codes, live telemetry.
+The [Tour](GETTING_STARTED.md#a-thirty-minute-tour) takes 30 minutes. The tutorials go further.
+
+**7. What can't Orbit do yet?**
+The known list: multi-host clustering, `down` migrations, a
+language server, joules on Windows (no sensor - CPU time plus
+memory is the proxy), graceful drain on Windows (the stop is a
+kill), and a success/error split in the latency percentiles.
+Multipart uploads and forward migrations used to be on this list
+and work now. Full list with workarounds:
+[Known Limitations](KNOWN_LIMITATIONS.md).
+
+**8. When does `create()` return `false`?**
+When the `id` already exists - it is the primary key - or when
+the payload has no usable fields. `delete()` answers `false`
+when no row was removed, which is how a handler tells a 404 from
+a write. Code both branches. They're real answers, not filler.
+
+**9. Is the language stable? Will my code compile next month?**
+No stability promise before 1.0. Minor releases in the 0.x
+series may include documented breaking changes (see
+[Versioning](SUPPORTED.md#versions-and-compatibility)). Pin your compiler version in CI.
+
+**10. Does Orbit have generics / async / pattern matching?**
+Functions and models take inferred type parameters (`fn getOr[T]`,
+`model Box[T]`). Unions and `match` cover tagged alternatives. There is no
+`async fn` and no `every` schedules -- both parse and are refused, because
+there is no async or timer runtime behind them. Collection APIs,
+concurrency ergonomics, and module imports are still settling.
+Keep business logic simple, cover it with tests, and file an
+issue when you hit a wall - every report is read.
+
+### Running services
+
+**11. How do I set the port?**
+Declare it in the entry file - `port 8080` - and the built server binds it
+when started with no argument. `./service 8080` still overrides the
+declaration. With neither, the default is 3000. The declared value must be
+an integer literal in 1..65535. Anything else fails `orbit check` (E1008).
+
+**12. Where's the database file?**
+`.orbit/data/app.db` under the project directory, created on
+first start with four tables and demo seed rows. Back it up by
+copying the file while the service is stopped. A legacy `./orbit.db`
+from older builds is moved there once, loudly, by `orbit start`/`orbit dev`.
+
+**13. Why did my DB service exit with no message on Windows?**
+`sqlite3.dll` must sit next to the exe. Copy it from
+`runtime/vendor/win-x64/`. Non-DB services don't need it.
+
+**14. How do I run two copies?**
+`orbit cluster up --nodes 2 --port-base 8100 --service
+service.orb` - single host only, no failover. Verified walkthrough:
+[Deploy tutorial](tutorials/deploy-single-binary.md).
+
+**15. How do I know it's healthy?**
+`GET /health` if you write one, process liveness via
+`cluster status`, and the built-in request ledger at `/_ledger`
+(JSON at `/_ledger/data`, loopback only). A `/metrics` endpoint is
+yours to write - `examples/health_service.orb` is one. There are no
+built-in alerts or dashboards.
+
+### Measuring
+
+**16. Is Orbit faster than X?**
+Not known yet in any publishable sense. There is no
+cross-language measurement of Orbit against anything, so
+none is implied here. Ask again after someone
+publishes a run with the hardware, the flags, the workload
+and the spread.
+
+**17. What does "stays fast under load" mean concretely?**
+Today: admission control sheds load (429s past budget)
+and per-request arenas bound memory growth. With numbers and
+method attached - otherwise it's just words, and words
+are not evidence.
+
+**18. Can I measure energy per request?**
+On Linux with RAPL or a wall meter, yes, following the guide.
+On Windows, no joules - report CPU time and memory as labeled
+proxies. The docs never convert one to the other.
+
+### Project
+
+**19. Who builds Orbit, and why should I trust it?**
+Orbit is maintained by one person, in Argentina, on modest
+hardware - which is the point: the constraint is the design
+brief. Trust comes from the verification gates (bootstrap,
+parity, behavior suite all in CI) and from publishing
+limits next to features, not from a claim.
+
+**20. How can I help?**
+Run the [Tour](GETTING_STARTED.md#a-thirty-minute-tour), file issues with repros (small `.orb`
+files plus expected vs actual), and grow the behavior suite -
+one focused test per behavior. Start with
+[Contributing](../CONTRIBUTING.md). Bug reports with failing
+examples help more than feature requests right now.

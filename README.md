@@ -58,7 +58,7 @@ uploads, and DB migrations in both directions. Forward DDL runs once per
 Not there yet: multi-host clustering, a language server, and a latency
 percentile split by outcome.
 The measured list with workarounds is [Known Limitations](docs/KNOWN_LIMITATIONS.md).
-Twenty questions, answered plainly: [FAQ](docs/FAQ.md).
+Twenty questions, answered plainly: [FAQ](docs/SUPPORTED.md#frequently-asked-questions).
 
 On a host where the compiler finds an `r6` it can run, the native backend is
 the default for the programs R6 accepts: it emits IR and runs R6, with no C
@@ -84,7 +84,7 @@ Full reference: [Command Reference](docs/COMMANDS.md).
 Start at the [documentation map](docs/README.md), which lists every page by the
 question it answers. The pages reached most often:
 
-- [Getting Started](docs/GETTING_STARTED.md) · [FAQ](docs/FAQ.md) · [Known Limitations](docs/KNOWN_LIMITATIONS.md)
+- [Getting Started](docs/GETTING_STARTED.md) · [FAQ](docs/SUPPORTED.md#frequently-asked-questions) · [Known Limitations](docs/KNOWN_LIMITATIONS.md)
 - [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Language Tour](docs/GETTING_STARTED.md#a-thirty-minute-tour)
 - [Architecture](docs/ARCHITECTURE.md) · [Performance](docs/internals/PERF.md) · [Changelog](docs/CHANGELOG.md)
 - [Platform Support](docs/SUPPORTED.md#platforms) · [Versioning](docs/SUPPORTED.md#versions-and-compatibility) · [Server Examples](examples/README.md)

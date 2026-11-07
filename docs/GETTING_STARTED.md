@@ -333,5 +333,5 @@ no code.
    content, and raw-body uploads.
 3. [Troubleshooting](tutorials/troubleshooting.md) - ports,
    sqlite3.dll, slow first boot, stale canonical.
-4. [FAQ](FAQ.md) - twenty questions, hard ones included.
+4. [FAQ](SUPPORTED.md#frequently-asked-questions) - twenty questions, hard ones included.
 5. [Language Reference](LANGUAGE_REFERENCE.md) - the full contract.
