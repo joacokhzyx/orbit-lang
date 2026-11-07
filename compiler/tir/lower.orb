@@ -1168,6 +1168,20 @@ fn tryAnnotationType(annotation: string) -> string {
     return ""
 }
 
+// The type a binding keeps from its annotation: the four scalars as written,
+// and a `list<T>` spelled whole. The element is what a later `.get` answers,
+// so `val out: list<DoctorEdit> = []` has to keep `DoctorEdit`; the bare
+// `list` an unwrap needs is `tryAnnotationType`'s answer, not this one.
+fn bindingAnnotationType(annotation: string) -> string {
+    if annotation == "int" || annotation == "bool" || annotation == "string" || annotation == "float" {
+        return annotation
+    }
+    if annotation.length > 6 && annotation.slice(0, 5) == "list<" {
+        if annotation.slice(annotation.length - 1, annotation.length) == ">" { return annotation }
+    }
+    return ""
+}
+
 // The number the C backend defines as `<Type>_TAG_<Variant>`: the variant's
 // position in the declaration, payload or not (`compiler/emit/c_backend.orb:2082`).
 // "" when this file declares neither the type or not that variant in it.
@@ -1570,7 +1584,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             // E2001 and every rule downstream of the register is skipped.
             var boundType = typeOfExpression(module, bindings, declaration.value)
             if boundType == "unknown" {
-                val annotated = tryAnnotationType(declaration.typeAnnotation)
+                val annotated = bindingAnnotationType(declaration.typeAnnotation)
                 if annotated != "" { boundType = annotated }
             }
             bindings.push(TirBinding(declaration.name, boundType))

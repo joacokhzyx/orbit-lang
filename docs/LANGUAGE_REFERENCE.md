@@ -1781,9 +1781,10 @@ binding carries no type, or whose name no binding declares. This is the
 `orbit frontend` lowering. `orbit
 check` rejects the same program through sema's uncoded `Undeclared
 identifier` diagnostic (pinned by `n09`). A `val x: T = e` whose value has no
-type binds `T` when it is `int`, `float`, `bool`, `string` or a list, because
-sema already checked the annotation against the value; the same binding
-without the annotation stays untyped. Fix hint: declare the name before
+type binds `T` when it is `int`, `float`, `bool`, `string` or a `list<T>`,
+because sema already checked the annotation against the value. A list keeps
+its element -- `list<DoctorEdit>` stays whole, because a later `.get` answers
+from it -- and a binding without the annotation stays untyped. Fix hint: declare the name before
 use, or annotate the `val`.
 
 ### E2002 — incompatible binary operands (frontend)
