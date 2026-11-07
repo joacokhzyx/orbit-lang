@@ -49,8 +49,11 @@ fi
 
 if [ "$SOURCE_EXE" != "$INSTALL_DIR/orbit" ]; then
     cp "$SOURCE_EXE" "$INSTALL_DIR/orbit"
-    chmod +x "$INSTALL_DIR/orbit"
 fi
+# Unconditional: the bootstrap writes the binary without the exec bit, and the
+# copy branch used to be the only place that added it, so a first install from
+# source left a binary that answered "Permission denied".
+chmod +x "$INSTALL_DIR/orbit"
 echo "[+] Installed Orbit binary to $INSTALL_DIR/orbit"
 
 # Update PATH in shell config files
