@@ -1563,7 +1563,17 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             }
             val value = lowerExpression(module, function, blockId, bindings, declaration.value)
             tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(value))
-            bindings.push(TirBinding(declaration.name, typeOfExpression(module, bindings, declaration.value)))
+            // `val src3: string = sources.get(i)` promises a type the call does
+            // not answer. The annotation is checked against the value before
+            // this pass runs, so when the expression has no type the promise is
+            // what the binding carries; without it every read of the local is
+            // E2001 and every rule downstream of the register is skipped.
+            var boundType = typeOfExpression(module, bindings, declaration.value)
+            if boundType == "unknown" {
+                val annotated = tryAnnotationType(declaration.typeAnnotation)
+                if annotated != "" { boundType = annotated }
+            }
+            bindings.push(TirBinding(declaration.name, boundType))
             return blockId
         }
         // `x = 5` in statement position rebinds a name the block already

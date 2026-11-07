@@ -216,7 +216,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#194-of-instructions-are-unknown-and-every-one-of-them-says-so).
+[below](#01-of-instructions-are-unknown-and-every-one-of-them-says-so).
 
 
 ## A `try` binding annotation is checked where the payload is written
@@ -866,15 +866,15 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 0.2% of instructions are `unknown`, and every one of them says so
+## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 214 files and 146,974
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,001
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 277 | **0.2%** |
+| instructions the front end types `unknown` | 213 | **0.1%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -883,16 +883,23 @@ printed no TIR for one now print theirs, so the measured corpus grew from
 the same change; the absolute count rose with the denominator, 275 to 307.
 On 2026-11-07 a written `list` began to name its element, and the count fell
 to 277 over 146,974 instructions: 15 loads and 15 calls that read through such
-a list now carry the element's type.
+a list now carry the element's type. The same day, `orbit lsp` joined the
+corpus and raised it to 280 over 147,976. A `val` whose value has no type now
+takes its annotation as the binding's type: `val src3: string = sources.get(i)`
+promises a type the call does not answer, sema checks the promise against the
+value, and the register reads back `string` instead of `unknown`. The count
+fell to 213 over 148,001 instructions, E2001 from 114 to 48, and 25
+instructions appeared where a statement that read one of those names lowered
+and had been skipped.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 111 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 51), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 48 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 50), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 15) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 100). Their sum, 277, is the whole unknown count. The five
+(call result, 100). Their sum, 213, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:876`, `:889`, `:897`, `:921` and `:1023`, and
 each sits on the branch that emits the instruction.
 

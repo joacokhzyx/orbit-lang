@@ -1777,10 +1777,14 @@ that value is not a declaration, and the rule does not fire on it. Pinned by
 ### E2001 - unknown identifier (frontend)
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression`: a load whose
-name no binding declares. This is the `orbit frontend` lowering. `orbit
+binding carries no type, or whose name no binding declares. This is the
+`orbit frontend` lowering. `orbit
 check` rejects the same program through sema's uncoded `Undeclared
-identifier` diagnostic (pinned by `n09`). Fix hint: declare the name before
-use.
+identifier` diagnostic (pinned by `n09`). A `val x: T = e` whose value has no
+type binds `T` when it is `int`, `float`, `bool`, `string` or a list, because
+sema already checked the annotation against the value; the same binding
+without the annotation stays untyped. Fix hint: declare the name before
+use, or annotate the `val`.
 
 ### E2002 — incompatible binary operands (frontend)
 
