@@ -964,7 +964,7 @@ void orbit_admission_lease_destroy(OrbitAdmissionLease* lease) {
  * A refused request still holds its lease, and the lease is what refused, so
  * the 503 the boundary sends must be built after this. The generated worker
  * loop calls it (runtime/arena.c has the mechanism; ENGINEERING.md section 7,
- * kynx-lease-abort). This is a function rather than a direct
+ * admission-lease-abort). This is a function rather than a direct
  * orbit_admission_lease_destroy because the generated C would otherwise have to
  * name current_lease, which unity builds declare and separate builds do not.
  */

@@ -7,7 +7,7 @@ three things does not belong here.
 
 ## How to measure, and what a measurement has to carry
 
-`scripts/kynx_gate.py load` is the load generator: standard library only, TCP
+`scripts/admission_gate.py load` is the load generator: standard library only, TCP
 HTTP/1.1 keep-alive, one thread per connection, `perf_counter` latencies.
 `--source-ips N` binds connections to distinct `127.0.0.x` sources, so a run
 simulates N clients against per-IP admission control. Warmup always uses the
@@ -319,7 +319,7 @@ line's own construction, dominated by the msvcrt `printf` format walk.
 
 ## admission route-limit live gate
 
-`scripts/kynx_gate.py route-limit` runs three phases against a live server and
+`scripts/admission_gate.py route-limit` runs three phases against a live server and
 is the gate that checks the admission-control path:
 
 | Phase | Expectation |
@@ -336,7 +336,7 @@ denies. Against the 5-token bucket it would have to span seconds to do that,
 and the phase logs its elapsed time, so a failure points at the runner rather
 than at the timing. Phase B is isolated to the route bucket by construction:
 25 requests sit well under the global burst, so any 429 is route-level. The
-gate runs `kynx_gate.py load` with `--warmup 0`, because the standard warmup floods
+gate runs `admission_gate.py load` with `--warmup 0`, because the standard warmup floods
 the shared loopback budgets and trips the 429 path before the measurement
 starts. The server is started by the caller instead.
 

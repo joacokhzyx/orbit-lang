@@ -47,7 +47,7 @@ Orbit competes with Go, C, C++, and Java for production server workloads. These 
 | `orbit doctor` scan time | ≤ 50 ms on 100 000 LOC project | external wall clock around `orbit doctor <dir>`; see note below |
 | Arena alloc per request | ≤ 50 ns amortised over 1M calls | timed allocation loop compiled from an Orbit program, median of 5 runs |
 
-No performance number is published until it comes with the command that produced it, the hardware it ran on, the flags it ran with, and the spread across at least 5 runs. A number without its reproducible command is not a claim, it is an anecdote, and it does not go in this document. `scripts/orbit_ccache.py` and `scripts/measure.py measure-selfhost` exist to make bootstrap-side measurements cheap enough to repeat. `scripts/kynx_gate.py load` is the load generator for live-service measurements.
+No performance number is published until it comes with the command that produced it, the hardware it ran on, the flags it ran with, and the spread across at least 5 runs. A number without its reproducible command is not a claim, it is an anecdote, and it does not go in this document. `scripts/orbit_ccache.py` and `scripts/measure.py measure-selfhost` exist to make bootstrap-side measurements cheap enough to repeat. `scripts/admission_gate.py load` is the load generator for live-service measurements.
 
 **Note on the doctor row.** `DoctorStats` carries a duration per phase (`textMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them. Read the phases from `orbit_clock_ms()`, never a nanosecond clock: `orbit_int` was a 32-bit `int`, so nanoseconds wrapped every 4.29 s and a subtraction across the wrap returned a NEGATIVE duration. It printed `-417 ms text` before this was fixed. `orbit_int` is 64 bits now and the wrap is gone; the millisecond clock stays because every budget in the tree is written in milliseconds.
 
@@ -834,7 +834,7 @@ $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB \
 # 13. [CI] admission route limit, live: build a server, start it, burst a guarded route.
 ORBIT_CC="$CC" /tmp/orbit_fp build examples/blog_api.orb -o /tmp/gate_srv
 /tmp/gate_srv 4102 &
-python scripts/kynx_gate.py route-limit --port 4102 --burst-path /gate-burst
+python scripts/admission_gate.py route-limit --port 4102 --burst-path /gate-burst
 
 # 14. [CI, REPORT ONLY] Unknown-type census. `continue-on-error: true` and its
 #     output goes to the job summary, not to a red X. It counts how much of the

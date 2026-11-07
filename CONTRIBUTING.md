@@ -9,6 +9,35 @@ high across the compiler and C runtime. The documentation map is
 
 ---
 
+## The contract
+
+What a change has to satisfy, before the sections below explain how to run
+and check it.
+
+**Names.** A component, file, document and test is named for what it does.
+No codename is invented or kept: the admission layer used to be called
+`Kynx`, and the optimizer experiments used to be called `Superluminal`. A
+stable identifier (`D001`, `F-000N`) is kept, and is defined in
+[`docs/internals/DEFECTS.md`](docs/internals/DEFECTS.md) before it appears
+in code or in a message. Retired debt slugs stay retired.
+
+**Documentation.** [`docs/README.md`](docs/README.md) is the map: ten pages
+that answer a reader's question, and `docs/internals/` for the measurements
+behind a claim. New material goes into an existing page first; a new page
+arrives with its row in the map in the same commit. Every claim about the
+tree carries the command and the number that produced it.
+
+**Dependencies.** Python 3.10 or later, standard library only. A C compiler
+(gcc, clang or MSVC) and GNU `ld` for the C backend; R6 for the native
+backend. SQLite is vendored under `runtime/vendor/`. There is no package
+manager, no `requirements.txt`, and no third-party Python import.
+
+**Commits.** Subject `area: what changed`, imperative, under 60 characters,
+no period. The body says why; the diff says what. No batch, phase or ticket
+label, and no `D-` or `F-` code in the message: a code belongs in
+`DEFECTS.md`. End with an Evidence block, one line per command and what it
+printed. One defect, one commit.
+
 ## Code of Conduct
 
 All contributors are expected to adhere to the [Orbit Code of Conduct](CODE_OF_CONDUCT.md). Please treat all members of the community with respect and professionalism.
@@ -376,6 +405,56 @@ For source-level verification, compare the published canonical C hash with the `
 - Manual workflow dispatch builds artifacts but does not publish a GitHub release unless it is invoked through a tagged release flow.
 
 Versioning and compatibility rules are defined in [Versions and compatibility](SUPPORTED.md#versions-and-compatibility). Platform support is defined in [Platform Support](SUPPORT.md).
+
+## Style
+
+- Preserve existing shapes: 4-space, no `var` vs `val` concessions; comments explain why code is like this, not what the code says. No new comments unless they say something the code cannot.
+- Name things by what they are. Files, doc sections, examples and tests carry descriptive names; a component is named after what it does, never after a codename. A commit message names the change or the mechanism, never the plan that produced it. Diagnostic and defect codes (`D001`, `F-000N`) are stable identifiers: keep them, and define a new identifier in docs before using it in code. Retired debt-table IDs (`STAB-N`, `PAR-N`, ...) stay retired; do not mint new ones.
+  - Day-0 read: a codename is never invented and never kept in new text; a stable identifier is kept (e.g. `D001`, `F-000N`); a retired slug stays retired (e.g. `STAB-N`).
+- Changes to the emitted C need the whole-prelude byte-diff check: track one program byte-for-byte; only expected fragments (one register renumber, one removed line) should differ.
+- `gh` is the source of truth for CI state: `gh run list --limit 3; gh run view <id> --log` for the failing step's name. The failing step name is the finding; the step text is often as enough.
+- Register-name number shifts (`r_N`) in emitted C are benign renumbering; hash goldens will still flip, which is one probe, not a proof.
+
+## Writing
+
+Write for the maintainer who joined yesterday. They read English; they do not read our history.
+
+- Documentation is impersonal. The page says what was measured, not who measured it. A commit body may say "I".
+- One idea per sentence. Average under 22 words, none over 40. A semicolon usually means two sentences.
+- Write what the reader can act on. A row in `docs/internals/DEFECTS.md` holds a defect, its measurement and its decision. It is not a diary, and the list of everything checked is not the finding.
+- A table is for more than two columns. Two facts are a sentence.
+- Name the thing. "The 99 `return ""` sites", not "the surface". "What is left", not "the residual". "The line the gate checks", not "the witness".
+- Every claim carries a command, a number or a line. "Faster", "cleaner" and "more robust" carry nothing.
+- "Honest" describes the author, not the code. Write "measured", "unchecked" or "the reason". A measurement is enough; a confession is not a finding.
+- No hedges. "Should", "likely" and "probably" become a measurement or a question.
+- Do not explain the sentence you are about to write, or the one you just wrote. Delete the first sentence of a section if it only announces the section.
+
+Banned in new text: shape, surface, lane, load-bearing, battery, premise, clause, witness, residual, honest. They are our own metaphors, and a reader cannot look them up. Generic AI vocabulary is not the problem here: counting this repository on 2026-10-19 found none of it, so do not spend lines banning it.
+
+Defined once, used freely: **contract** (`docs/internals/DEFECTS.md` and `ENGINEERING.md` §8, which a change must not contradict), **gate** (a check that fails the build), **row** (one line of the `DEFECTS.md` table), **ceiling** (a measured upper bound on a named machine).
+
+## Commits
+
+Commits are how a change is found again, reviewed and undone. One defect, one commit.
+
+- Branches, merges and releases follow `CONTRIBUTING.md#branches`: work happens on `feature/<topic>`, it merges into `develop` after the full gate, and `main` receives only tagged releases.
+- Commit when the change is small, verified and complete. A correction that changes behaviour or a document's claim gets its own commit, even if it is one line.
+- Do not wait for the rest of the work. A verified fix left in the working tree is a fix nobody can find in the history.
+- Do not mix. A code change and a documentation change are two commits, unless the document is the reason the code changed.
+- Do not commit a state you have not gated. The evidence block names the gate.
+- The exception is the root of trust: a promote commits the sources, `compiler/selfhost/stage3.exe.c`, the refreshed goldens and `PUBLISHED_C` together. They are one file in four copies, and a commit that splits them describes a tree that never existed.
+- A pushed commit is a record. Fix forward: the next commit carries the correction and says what it corrects. Do not rewrite history to make an old message tidy.
+- A commit is not a checkpoint or a diary. If the message needs "also", it is two commits.
+
+Message:
+
+- Subject: `area: what changed`, imperative, under 60 characters, no period.
+- The body says why. The diff says what.
+- No batch, phase or ticket label (`E2`, `B3`, `WT-1`, `wave4`) in the subject or the body. The message describes the change, not the plan that produced it.
+- One claim per sentence. Every number is one the reader can reproduce.
+- End with an Evidence block: one line per command and what it printed.
+- If something is unmeasured or left undone, one sentence says so, with the reason.
+- Never: "this commit", "as requested", a list of the files, or a summary of the diff.
 
 ---
 

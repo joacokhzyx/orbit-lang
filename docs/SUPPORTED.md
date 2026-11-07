@@ -54,7 +54,7 @@ python3 scripts/trust.py build --cc "$ORBIT_CC" --out orbit
 | `curl` | Readiness polling before a live gate, and manual request checks |
 | `python3` (standard library only) | Every gate script; no third-party packages are needed |
 
-None of these are required to build, verify, install or release Orbit. `scripts/kynx_gate.py load` and `scripts/measure.py measure-selfhost` are stdlib-only on purpose, so a measurement never depends on a package install.
+None of these are required to build, verify, install or release Orbit. `scripts/admission_gate.py load` and `scripts/measure.py measure-selfhost` are stdlib-only on purpose, so a measurement never depends on a package install.
 
 ### Database Notes
 
@@ -201,7 +201,7 @@ as a baseline, not "just to see". Three independent reasons:
 3. The shim's `GetTickCount64` is the 32-bit `GetTickCount` and wraps
    every ~49 days. Any clock arithmetic past a restart is wrong.
 
-Instruments that stay on the reference toolchain: `scripts/kynx_gate.py
+Instruments that stay on the reference toolchain: `scripts/admission_gate.py
 load`, `scripts/measure.py measure-selfhost`, the `/_ledger` energy columns.
 `docs/internals/PERF.md` and `docs/internals/ENERGY.md` record what those instruments say.
 A tcc timing belongs in neither file.

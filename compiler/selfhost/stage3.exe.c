@@ -92650,7 +92650,7 @@ orbit_string o_serverMainText(OrbitArena* arena, orbit_bool hasDb, orbit_bool ha
     r_312 = orbit_string_concat(arena, r_311, "     * returns here instead of ending the process, and is answered 503\n");
     out = (void*)(r_312);
     r_313 = (void*)(out);
-    r_314 = orbit_string_concat(arena, r_313, "     * (ENGINEERING.md section 7, kynx-lease-abort). The jmp_buf has to\n");
+    r_314 = orbit_string_concat(arena, r_313, "     * (ENGINEERING.md section 7, admission-lease-abort). The jmp_buf has to\n");
     out = (void*)(r_314);
     r_315 = (void*)(out);
     r_316 = orbit_string_concat(arena, r_315, "     * outlive the request, which is why it lives here and not in the\n");

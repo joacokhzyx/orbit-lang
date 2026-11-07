@@ -3,7 +3,7 @@
 
 This used to be four scripts that all assumed a live Orbit server:
 
-  scripts/kynx_live_gate.py        build a service, start it, burst it (the gate)
+  scripts/admission_gate.py        build a service, start it, burst it (the gate)
   scripts/admission_route_limit_gate.py three phases against a running server
   scripts/admission_burst_probe.py      manual burst probe, needs a live server
   scripts/night_load.py            stdlib-only TCP HTTP/1.1 keep-alive load generator
@@ -674,7 +674,7 @@ def burst_main(argv=None):
 # It covers the request boundary too, on a third fixture. A admission lease caps
 # one request's arena, and a request that asks for more than the cap must be
 # answered 503 and leave the process serving (ENGINEERING.md section 7,
-# kynx-lease-abort). The fixture's route grows one string past the lease's
+# admission-lease-abort). The fixture's route grows one string past the lease's
 # 16 MB default, which is a request asking for more than its share; no C-level
 # test needs to reach into the allocator to produce it. On the pre-boundary
 # compiler the refusal ended the process: /grow then reports a transport error
@@ -683,7 +683,7 @@ def burst_main(argv=None):
 #
 # Unlike `runtime_c_tests.py` this one needs the Orbit compiler, which is why it
 # is not in T0. It uses the fixed point at the path `dev.py` owns; pass `--compiler`
-# to point it elsewhere. Run it as `python scripts/kynx_gate.py live`.
+# to point it elsewhere. Run it as `python scripts/admission_gate.py live`.
 # --------------------------------------------------------------------------
 def stop_server(proc: subprocess.Popen) -> None:
     """terminate, 10 s, kill: the shape live_main's `finally` already used."""
@@ -790,7 +790,7 @@ def live_main(args):
         gate_rc = routelimit_main(["--port", str(args.port),
                                    "--burst-path", args.burst_path])
         if gate_rc != 0:
-            print("\nFinished kynx-gate: FAILED "
+            print("\nFinished admission-gate: FAILED "
                   f"(exit {gate_rc})")
             srv_log.flush()
             try:
@@ -864,7 +864,7 @@ def live_main(args):
         stop_server(proc)
         log.close()
 
-    # The request boundary (ENGINEERING.md section 7, kynx-lease-abort): a
+    # The request boundary (ENGINEERING.md section 7, admission-lease-abort): a
     # request that asks for more than its admission lease allows is answered, not
     # fatal. The route grows one string past the lease's 16 MB default, which
     # is a request asking for more than its share. Before the boundary, the
@@ -1013,7 +1013,7 @@ def live_main(args):
         stop_server(proc)
         log.close()
 
-    print("\nFinished kynx-gate: the route-limit burst answered as specified,"
+    print("\nFinished admission-gate: the route-limit burst answered as specified,"
           " the declared port answered under both runs, the request boundary"
           " answered 503 without taking the service down, and a route that"
           " answered nothing was answered and logged 500.")
@@ -1057,7 +1057,7 @@ def self_test() -> int:
         if rc == 0:
             print("self-test FAILED: %s passed against a dead port" % name)
             return 1
-    print("Finished kynx-gate self-test: readiness bounded; route-limit, burst "
+    print("Finished admission-gate self-test: readiness bounded; route-limit, burst "
           "and load all fail cleanly against a dead port.")
     return 0
 

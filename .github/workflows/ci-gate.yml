@@ -188,7 +188,7 @@ jobs:
           "$PY" scripts/static_gates.py flags --self-test
           "$PY" scripts/static_gates.py cites --self-test
           "$PY" scripts/runtime_c_tests.py --self-test
-          "$PY" scripts/kynx_gate.py --self-test
+          "$PY" scripts/admission_gate.py --self-test
           "$PY" scripts/measure.py ratchet --self-test
           "$PY" scripts/corpus_gates.py werror --self-test
           "$PY" scripts/alive_check.py --self-test

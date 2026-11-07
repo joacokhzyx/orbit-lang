@@ -201,8 +201,8 @@ GATES = [
     Gate("fuzz_frontend", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "fuzz_frontend", "--compiler", "{fp}"),
          why="the frontend fuzz driver, in the tier that has a binary to feed "
              "it"),
-    Gate("kynx_live", 2, "scripts/kynx_gate.py", _argv(
-        "kynx_gate.py", "live", "--cc", "{cc}", "--compiler", "{fp}"),
+    Gate("kynx_live", 2, "scripts/admission_gate.py", _argv(
+        "admission_gate.py", "live", "--cc", "{cc}", "--compiler", "{fp}"),
          why="the only gate that builds a service and runs it. It was the other "
              "shell block in CI, and being unable to run the gate that proves "
              "the compiler produces a working server is how a compiler ends up "
@@ -301,7 +301,7 @@ EXPECTED_ARGV = {
     "parity": ["{script}corpus_gates.py", "parity", "--cc", "CC", "--compiler", "FP"],
     "werror": ["{script}corpus_gates.py", "werror", "--cc", "CC", "--compiler", "FP"],
     "fuzz_frontend": ["{script}corpus_gates.py", "fuzz_frontend", "--compiler", "FP"],
-    "kynx_live": ["{script}kynx_gate.py", "live", "--cc", "CC", "--compiler",
+    "kynx_live": ["{script}admission_gate.py", "live", "--cc", "CC", "--compiler",
                   "FP"],
     "unknown_ratchet": ["{script}measure.py", "ratchet", "--compiler", "FP",
                         "--cc", "CC"],

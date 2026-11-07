@@ -128,20 +128,20 @@ gone, since an exhausted arena has no room to answer with. That case belongs to
 the reservation, not to this boundary.
 
 Before/after and the fixture are in `docs/internals/DEFECTS.md` row `admission-lease-abort`.
-`python scripts/kynx_gate.py live` and `runtime/test_admission.c` (T15) pin it.
+`python scripts/admission_gate.py live` and `runtime/test_admission.c` (T15) pin it.
 
 ## Verifying it yourself
 
 ```sh
 python scripts/trust.py build --cc gcc --out orbit_fp
 ./orbit_fp build examples/catalog_service.orb -o srv && ./srv # port 3000
-python scripts/kynx_gate.py burst                            # burst -> expect 429s
+python scripts/admission_gate.py burst                            # burst -> expect 429s
 ```
 
-`scripts/kynx_gate.py burst` hammers a running server past its configured
+`scripts/admission_gate.py burst` hammers a running server past its configured
 `rate_limit` and asserts that admission answers 429 once the window budget is spent.
 It is manual-only (needs a live server on a chosen port): the same burst
-behavior is covered automatically by `scripts/kynx_gate.py route-limit`,
+behavior is covered automatically by `scripts/admission_gate.py route-limit`,
 which runs in CI (see `.github/workflows/ci-gate.yml`).
 
 ## Per-route limits

@@ -479,7 +479,7 @@ keep an emergency budget, and the rest are rejected. See [ADMISSION.md](ADMISSIO
 
 The lease and admission API lives in `runtime/admission.c`. The unit tests are
 `runtime/test_admission.c`, built with `-DORBIT_ADMISSION_TEST`. A live route-limit gate
-runs against a real server: `scripts/kynx_gate.py route-limit`.
+runs against a real server: `scripts/admission_gate.py route-limit`.
 
 ---
 
@@ -672,13 +672,13 @@ symbol, the dependent module imports the owning module.
 | `scripts/static_gates.py` | The five T0 text gates, one entry: `schema`, `walk`, `counts`, `flags`, `cites` |
 | `scripts/doctor_gates.py` | The doctor goldens (`doctor`, and `--scope-only` for the clean-directory check), the CLI subcommand, help and exit-code contract (`cli-probe`), the rich and colour screens (`snapshots`), the checker's dispatch arms (`dispatch`) |
 | `scripts/measure.py routes` | Route argument normalisation |
-| `scripts/kynx_gate.py` | Live admission gate (live/route-limit/burst) + stdlib load generator (load) |
+| `scripts/admission_gate.py` | Live admission gate (live/route-limit/burst) + stdlib load generator (load) |
 | `scripts/trust.py amalgamate` | Inline the project includes into `dist/orbit_bootstrap.c` |
 | `scripts/orbit_ccache.py` | Content-addressed C compile cache for the bootstrap gates |
 | `scripts/orbit_routes.py` | Path normalisation shared by gates and the server |
 | `scripts/orbit_output.py` | Shared gate output helpers |
 | `scripts/measure.py measure-selfhost` | Bootstrap-side measurement |
-| `scripts/kynx_gate.py load` | Load generator for live-service measurement |
+| `scripts/admission_gate.py load` | Load generator for live-service measurement |
 | `scripts/build_seed.sh`, `.bat` | Detect a C compiler and build the seed |
 | `scripts/install.sh`, `install.ps1` | Install the fixed-point compiler on `PATH` |
 

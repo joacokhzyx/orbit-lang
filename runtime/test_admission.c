@@ -441,7 +441,7 @@ static void test_route_limit_overflow_counted(void) {
  * reached the default OOM handler, which printed the arena line and exited --
  * exit code 3, measured against this same fixture. The boundary takes the
  * caller's jmp_buf, so a refusal lands in the caller's frame and the process
- * keeps serving (ENGINEERING.md section 7, kynx-lease-abort). */
+ * keeps serving (ENGINEERING.md section 7, admission-lease-abort). */
 static void test_lease_refusal_returns_to_boundary(void) {
     OrbitArena* arena = orbit_arena_create(64 * 1024 * 1024);
     assert(arena != NULL);

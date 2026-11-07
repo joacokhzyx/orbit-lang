@@ -79,7 +79,7 @@ never depends on a package install:
 
 | Tool | Used for |
 |---|---|
-| `scripts/kynx_gate.py load` | keep-alive HTTP load with latency percentiles and per-source-IP control |
+| `scripts/admission_gate.py load` | keep-alive HTTP load with latency percentiles and per-source-IP control |
 | `scripts/measure.py measure-selfhost` | per-phase wall time, peak RSS and output size of the self-host bootstrap |
 | `examples/demo-ledger-server.c` | a loopback fixture that exercises the cost ledger and the energy sampler |
 | `runtime/pulse.c` | the `/_pulse` and `/_pulse/data` telemetry endpoints |
@@ -186,7 +186,7 @@ from the repository, so the magnitudes are gone and the findings are kept.
 2. Idle 10 s with no traffic, fetch `/_ledger/data`, confirm `energy_source
    rapl-estimate` and note `idle_watts` behavior.
 3. Drive a fixed load (for example 2000 keep-alive requests) with
-   `scripts/kynx_gate.py load`, confirm per-route `joules_total` sums to
+   `scripts/admission_gate.py load`, confirm per-route `joules_total` sums to
    approximately the attributable joules, and confirm `joules_per_req` is
    stable across repeats.
 4. Re-run the whole measurement and confirm the per-route figures stay inside

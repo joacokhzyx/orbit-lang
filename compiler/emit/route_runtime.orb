@@ -530,7 +530,7 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasAdmissionLimi
     out = out + "    size_t consumed = 0;\n"
     out = out + "    /* The boundary is this frame's: a refusal inside the request below\n"
     out = out + "     * returns here instead of ending the process, and is answered 503\n"
-    out = out + "     * (ENGINEERING.md section 7, kynx-lease-abort). The jmp_buf has to\n"
+    out = out + "     * (ENGINEERING.md section 7, admission-lease-abort). The jmp_buf has to\n"
     out = out + "     * outlive the request, which is why it lives here and not in the\n"
     out = out + "     * runtime. The connection closes with the request: how much of it\n"
     out = out + "     * was consumed died with the stack. */\n"

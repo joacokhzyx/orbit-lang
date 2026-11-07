@@ -378,7 +378,7 @@ OrbitOomHandler orbit_get_oom_handler(void);
  * router arms and disarms it around one request -- arming hands over the
  * jmp_buf of the frame that will take the longjmp -- and answers with a 503
  * that carries the refusal's numbers. ENGINEERING.md section 7,
- * kynx-lease-abort. */
+ * admission-lease-abort. */
 void orbit_request_oom_install(void);
 void orbit_request_oom_arm(jmp_buf* target);
 void orbit_request_oom_disarm(void);

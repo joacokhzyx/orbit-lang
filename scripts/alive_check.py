@@ -267,12 +267,12 @@ def registry(compiler, cc, work):
              "real run is a gate that just executed",
              lambda: _script("runtime_c_tests.py", "--self-test"),
              r"Finished runtime-c self-test", 120, allow_rc=(0, 1)),
-        Tool("kynx_gate.py", "gate",
+        Tool("admission_gate.py", "gate",
              "builds and bursts a live service; --self-test proves the "
              "readiness loop plus all four subcommands (live shares it, "
              "route-limit, burst, load) without starting a server",
-             lambda: _script("kynx_gate.py", "--self-test"),
-             r"Finished kynx-gate self-test", 300),
+             lambda: _script("admission_gate.py", "--self-test"),
+             r"Finished admission-gate self-test", 300),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does
@@ -419,11 +419,11 @@ def registry(compiler, cc, work):
              lambda: _script("trust.py", "verify", "--cc", cc),
              witness=r"Finished verify: \d+/\d+ pass",
              marker=r"fixed point", timeout=900, allow_rc=(0, 1), cost="heavy"),
-        Tool("kynx_gate.py", "gate",
+        Tool("admission_gate.py", "gate",
              "live route-limit gate; the live server is started by the live "
              "subcommand, which CI runs; this row asserts the route-limit "
              "phase fails cleanly with no server",
-             lambda: _script("kynx_gate.py", "route-limit", "--port", "9",
+             lambda: _script("admission_gate.py", "route-limit", "--port", "9",
                              "--burst-path", "/gate-burst"),
              r"Finished kynx gate: FAIL", 120, allow_rc=(1,), expect_fail=True),
 
@@ -567,17 +567,17 @@ def registry(compiler, cc, work):
                              "--phases", "1", "--interval-ms", "1"),
              r"^Finished measure: \d+ phase record\(s\) written$", 900,
              allow_rc=(0, 1, 2), cost="heavy"),
-        Tool("kynx_gate.py", "report",
+        Tool("admission_gate.py", "report",
              "HTTP load generator, in NO CI step, and it USED to exit 0 against "
              "a dead port having measured nothing. Now it must fail when zero "
              "requests completed, which is what the marker below is checking",
-             lambda: _script("kynx_gate.py", "load", "--port", "9", "--requests", "2",
+             lambda: _script("admission_gate.py", "load", "--port", "9", "--requests", "2",
                              "--duration", "1", "--warmup", "0", "--timeout", "1"),
              r"Failed night_load|Finished night-load: \d+ completed", 120,
              allow_rc=(0, 1)),
-        Tool("kynx_gate.py", "report",
+        Tool("admission_gate.py", "report",
              "429 admission-control probe, in NO CI step",
-             lambda: _script("kynx_gate.py", "burst", "--port", "9",
+             lambda: _script("admission_gate.py", "burst", "--port", "9",
                              "--requests", "2", "--threads", "1",
                              "--timeout", "1"),
              r"Finished burst probe: FAIL", 120, allow_rc=(1,), expect_fail=True),
