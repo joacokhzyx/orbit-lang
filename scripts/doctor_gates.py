@@ -712,6 +712,10 @@ SETUP = {
     "files/ws.orb": "fn main() -> int {\n    return 0   \n}\n",
     "cleandir/clean.orb": "fn main() -> int {\n    return 0\n}\n",
     "tiny.orb": "fn main() -> int {\n    return 0\n}\n",
+    # A program that reads its own stdin. `orbit run` hands the child the
+    # parent's stream, so the probe can feed a line and see it printed: this is
+    # the gate on the two reads a language server is built from.
+    "stdin_echo.orb": "extern fn orbit_stdin_read_line() -> string\n\nfn main() -> int {\n    val line = orbit_stdin_read_line()\n    print(line)\n    return 0\n}\n",
     # `orbit run` with a path that names a directory: cmd.exe reads a quoted
     # forward-slash path as a command named after its first segment, so the
     # child never started and the error named the directory instead.
@@ -813,6 +817,10 @@ CASES = [
     ("native-r6-wrong-protocol", ["build", "tiny.orb", "-o", "t.exe", "--backend=native"], 1, "err",
      "ir-protocol 99", "",
      {"ORBIT_R6": "./" + R6_OTHER}),
+    # The stdin contract: `orbit run` inherits stdio and the runtime reads a
+    # line from it. The needle is the line the probe writes into the pipe.
+    ("run-stdin", ["run", "stdin_echo.orb"], 0, "out", "hello from the pipe", "", None,
+     "hello from the pipe\n"),
     ("help-short", ["-h"], 0, "out", "Usage:", ""),
     ("version", ["--version"], 0, "out", "orbit 0.1.0", ""),
     ("unknown-cmd", ["frobnicate"], 2, "err", "Usage:", ""),
@@ -1154,7 +1162,7 @@ def one(compiler, work, name, argv, exp_rc, stream, needle, absent="", env_extra
 
 
 def probe(compiler, work, name, argv, exp_rc, stream, needle, absent="",
-          env_extra=None):
+          env_extra=None, stdin_text=""):
     """One CLI case. Returns (ok, stdout, stderr); no printing.
 
     Each caller hands this its own stage dir as `work`: builds write
@@ -1170,7 +1178,8 @@ def probe(compiler, work, name, argv, exp_rc, stream, needle, absent="",
     env["TMP"] = work
     env.update(env_extra or {})
     p = subprocess.run([compiler] + argv, cwd=work, capture_output=True,
-                       text=True, errors="replace", env=env)
+                       text=True, errors="replace", env=env,
+                       input=stdin_text if stdin_text else None)
     so, se = p.stdout or "", p.stderr or ""
     if stream == "out":
         ok_stream = (not needle) or (needle in so)
@@ -1240,11 +1249,12 @@ def cli_probe_main(args, ap) -> int:
         name, argv, exp_rc, stream, needle = case[:5]
         absent = case[5] if len(case) > 5 else ""
         env_extra = case[6] if len(case) > 6 else None
+        stdin_text = case[7] if len(case) > 7 else ""
         stage = os.path.join(work, "case_" + name.replace("/", "_"))
         os.makedirs(stage, exist_ok=True)
         setup_dir(stage)
         ok, so, se, rc = probe(args.compiler, stage, name, argv, exp_rc,
-                               stream, needle, absent, env_extra)
+                               stream, needle, absent, env_extra, stdin_text)
         return (name, exp_rc, ok, so, se, rc)
 
     def report(name, exp_rc, ok, so, se, rc):

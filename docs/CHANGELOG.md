@@ -13,6 +13,14 @@ startup banner says `Orbit 0.1.0`).
 
 Repository tooling:
 
+- **`cli-probe` feeds a program its stdin.** The runtime learned to read the
+  process's own stream in this release, and nothing exercised that through the
+  command line: the C test hands the runtime a file directly. The probe's case
+  table gained an eighth field, the text to write into the child's stdin, and
+  one case runs a program that calls `orbit_stdin_read_line` and prints the line
+  it read; the needle is the line the probe wrote. `orbit run` inherits stdio,
+  so this is the same path an editor's language server will use. 92/92 pass.
+
 - **The doctor's typecheck cache cannot outlive its compiler.** The key is a file's source and import closure, which cannot see the compiler that answered, so an entry written by an older build answered "ok" for a fixture the current compiler rejects: D008 disappeared from the doctor gate, and `alive_check` failed on Windows while passing on Linux. The cache is opt-in now (`ORBIT_DOCTOR_CACHE`), `dev.py` points it at `.orbit/doctor-cache` and clears that directory whenever it rebuilds the fixed point, and the doctor gate enables it for the one case that tests invalidation. Measured on `doctor compiler`: 6.63 s cold, 4.99 s warm, 6.99 s without a cache.
 
 - **Seventeen gate scripts became three, and one table owns the sequence.** `scripts/gate_registry.py` declares the 33 labels, their tiers and their command lines. `scripts/dev.py` reads that table; the order used to live in a tier dict, a `Makefile` copy and the prose of `ENGINEERING.md` §8. The five text gates are subcommands of `scripts/static_gates.py`, the eight corpus gates of `scripts/corpus_gates.py`, the four screens of `scripts/doctor_gates.py`. Labels are stable identifiers and did not move, so `--filter werror` selects the work it selected before. A filter that names no label exits 1 now; it printed `nothing to run` and exited 0, which is how a renamed gate stops being checked in silence. Measured on this tree: `dev.py all` runs 27 gates and skips 3 for want of `ORBIT_R6`, and `dev.py static` runs 6 in 19 s, against 13 s before the two probes. Files fell from 43 to 22 and the line count rose from 19,844 to 22,721: 19 Python tools plus three Orbit probes, and every merged subcommand carries a `--self-test` its old file did not have. Two of the five tier-0 checks, `schema` and `walk`, moved their analysis into Orbit probes (`scripts/schema_conformance.orb`, `scripts/walk_coverage.orb`); the driver compiles each with the fixed point, so those two need a compiler where the other three do not.
