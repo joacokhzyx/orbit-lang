@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 148271,
+  "instructions": 148242,
   "context": {
-    "unknown_instructions": 96,
+    "unknown_instructions": 90,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -38,7 +38,7 @@
     "compiler/tir/lower.orb": 0,
     "compiler/tools/doctor.orb": 7,
     "compiler/tools/fmt.orb": 0,
-    "compiler/tools/lsp.orb": 3,
+    "compiler/tools/lsp.orb": 0,
     "compiler/tools/palette.orb": 0,
     "compiler/tools/ui.orb": 0,
     "examples/blog_api.orb": 0,
@@ -95,7 +95,7 @@
     "tests/std/test_option.orb": 1,
     "tests/std/test_process.orb": 0,
     "tests/std/test_process_exit.orb": 0,
-    "tests/std/test_random.orb": 3,
+    "tests/std/test_random.orb": 0,
     "tests/std/test_regex.orb": 0,
     "tests/std/test_string.orb": 0,
     "tests/std/test_time.orb": 0,

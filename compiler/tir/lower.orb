@@ -1192,35 +1192,25 @@ fn enterTryHandler(function: TirFunction, handlerBlock: int, bindings: list < Ti
     return handlerBindings
 }
 
-// The type a binding annotation promises a `try` yields. `compiler/ir/builder.orb:3140`
-// retypes the read register to exactly these when the callee's signature writes no
-// payload: the annotation is the promise, and the checker has already compared it with
-// the value. An empty answer is the give-up E3001 reports.
-fn tryAnnotationType(annotation: string) -> string {
-    if annotation == "int" || annotation == "bool" || annotation == "string" || annotation == "float" {
-        return annotation
-    }
-    if annotation == "list" { return "list" }
-    if annotation.length > 5 && annotation.slice(0, 5) == "list<" { return "list" }
-    return ""
-}
-
-// The type a binding keeps from its annotation: the four scalars as written,
-// and a `list<T>` spelled whole. The element is what a later `.get` answers,
-// so `val out: list<DoctorEdit> = []` has to keep `DoctorEdit`; the bare
-// `list` an unwrap needs is `tryAnnotationType`'s answer, not this one.
-// A `list<T>` annotation that names its element. The bare `list` an unwrap
-// needs is not one: it says nothing a later `.get` could answer.
+// A `list<T>` annotation that names its element. The bare `list` is not one:
+// it says nothing a later `.get` could answer.
 fn listSpellingWithElement(text: string) -> bool {
     if text.length < 7 { return false }
     if text.slice(0, 5) != "list<" { return false }
     return text.slice(text.length - 1, text.length) == ">"
 }
 
+// The type a binding keeps from its annotation. `compiler/ir/builder.orb:3140`
+// retypes a `try`'s read register from exactly these when the callee's
+// signature writes no payload: the annotation is the promise, and the checker
+// has already compared it with the value. An empty answer is the give-up E3001
+// reports. The four scalars and `object` travel as written; a `list<T>` keeps
+// its whole spelling, because the element is what a later `.get` answers.
 fn bindingAnnotationType(annotation: string) -> string {
     if annotation == "int" || annotation == "bool" || annotation == "string" || annotation == "float" {
         return annotation
     }
+    if annotation == "object" { return "object" }
     if listSpellingWithElement(annotation) { return annotation }
     return ""
 }
@@ -1608,7 +1598,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                 ASTNode.Try(tryNode) => {
                     var unwrapType = declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr))
                     if unwrapType == "" {
-                        unwrapType = tryAnnotationType(declaration.typeAnnotation)
+                        unwrapType = bindingAnnotationType(declaration.typeAnnotation)
                     }
                     val tryValue = lowerTryValue(module, function, blockId, bindings, tryNode, unwrapType)
                     if tryValue < 0 { return blockId }

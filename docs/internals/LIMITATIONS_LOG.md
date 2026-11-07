@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,271
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,242
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 96 | **0.1%** |
+| instructions the front end types `unknown` | 90 | **0.1%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -903,16 +903,19 @@ E2005 from 98 to 54, E2001 from 48 to 36 and E2004 from 15 to 14. A local with
 no annotation takes the element of the value pushed into it: `val out = []`
 writes no element, and every `out.get(i)` after the first push had nothing to
 answer. The count fell to 96 over 148,271 instructions, E2005 from 54 to 37 and
-E2001 from 36 to 33.
+E2001 from 36 to 33. A `try` binding reads the same annotation helper as any
+other `val`, so `val o: object = try parse(t) catch { ... }` binds `object` and
+`val xs: list<int> = try ...` binds the whole list. The count fell to 90 over
+148,242 instructions.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 33 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 28 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 12), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 14) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 37). Their sum, 96, is the whole unknown count. The five
+(call result, 36). Their sum, 90, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:881`, `:894`, `:902`, `:926` and `:1028`, and
 each sits on the branch that emits the instruction.
 
