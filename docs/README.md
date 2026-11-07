@@ -1,48 +1,70 @@
 # Orbit documentation
 
-Start with the question you are trying to answer. The first table is the
-complete map; the second names the document that decides each topic.
+Ten pages. Each answers one kind of question, and the first table is the
+whole map: if a page is not there, it does not exist for the reader.
 
-## Start here
+## The pages
 
-| Question | Document | Answer in one line |
+| Question | Page | What it decides |
 |---|---|---|
-| What is Orbit, and how do I run a service? | [`../README.md`](../README.md) | A statically typed language for services, with a five-minute start |
-| How do I install it and run a first program? | [`GETTING_STARTED.md`](GETTING_STARTED.md) | Prerequisites, build, first compile and first server |
-| Which commands exist? | [`COMMANDS.md`](COMMANDS.md) | User commands, backends, errors, exit codes |
-| How do I write Orbit? | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | The user-visible language, with limits stated |
-| How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
-| How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
-| What is experimental? | [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Compiler research, with no plan attached |
+| What is Orbit, and how do I run a service? | [`../README.md`](../README.md) | The short answer and the five-minute start |
+| How do I install it and run a first program? | [`GETTING_STARTED.md`](GETTING_STARTED.md) | Prerequisites, build, first compile, first server, a thirty-minute tour |
+| How do I write Orbit? | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | Syntax, semantics, imports, memory, diagnostics, formatting |
+| Which commands exist? | [`COMMANDS.md`](COMMANDS.md) | Every command, backends, terminal output, doctor checks, errors |
+| How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime modules, start-up, threads, request path, file index |
+| What does the IR look like? | [`IR_SPEC.md`](IR_SPEC.md) | The IRv1 document the compiler emits and R6 consumes |
+| How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, leases, route limits, request boundaries |
 | How does `orbit cluster` work? | [`CLUSTER.md`](CLUSTER.md) | Single-host process orchestration |
-| How is the compiler bootstrapped? | [`internals/SELF_HOSTING.md`](internals/SELF_HOSTING.md) | Why and how the compiler compiles itself |
-| What is trusted in the bootstrap? | [`internals/SOVEREIGNTY.md`](internals/SOVEREIGNTY.md) | Root of trust, fixed point, recovery |
-| How fast does it build and run? | [`internals/PERF.md`](internals/PERF.md) | Method and measured performance |
-| How do I measure resource use? | [`internals/ENERGY.md`](internals/ENERGY.md) | CPU, memory, energy method and the ledger |
-| How large is the generated C? | [`internals/CODEGEN_BUDGET.md`](internals/CODEGEN_BUDGET.md) | Emitted size and build cost per program |
+| Which platforms, versions and limits apply? | [`SUPPORTED.md`](SUPPORTED.md) | Platforms, toolchain, compatibility, what is not supported yet, FAQ |
 | What changed? | [`CHANGELOG.md`](CHANGELOG.md) | Release history |
-| How do I report a vulnerability? | [`../SECURITY.md`](../SECURITY.md) | Private disclosure and response |
-| How do I work as an agent here? | [`../AGENTS.md`](../AGENTS.md) | Gates, zones, review and stop rules |
-| What is the engineering contract? | [`../ENGINEERING.md`](../ENGINEERING.md) | Invariants, debt rows and gate commands |
-| How do I build a blog API? | [`tutorials/blog-api.md`](tutorials/blog-api.md) | Runnable example with expected output |
-| How do I serve files and uploads? | [`tutorials/file-server.md`](tutorials/file-server.md) | Runnable example with scope stated |
-| How do I ship one binary? | [`tutorials/deploy-single-binary.md`](tutorials/deploy-single-binary.md) | Windows and Linux deployment, plus one-box clustering |
-| Something broke; now what? | [`tutorials/troubleshooting.md`](tutorials/troubleshooting.md) | Ports, silent exits and slow first boots |
-| How do schemas evolve? | [`guides/migrations.md`](guides/migrations.md) | Forward migrations and what is missing |
-| How is the self-host split into shards? | [`internals/SHARDING.md`](internals/SHARDING.md) | The shard contract and its measurements |
+| How do I contribute? | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Branch flow, gates, commits, release process |
+
+## Tutorials
+
+Runnable programs with the output they print, kept next to the reference
+rather than inside it.
+
+| Question | Page |
+|---|---|
+| How do I build a blog API? | [`tutorials/blog-api.md`](tutorials/blog-api.md) |
+| How do I serve files and uploads? | [`tutorials/file-server.md`](tutorials/file-server.md) |
+| How do I ship one binary? | [`tutorials/deploy-single-binary.md`](tutorials/deploy-single-binary.md) |
+| Something broke; now what? | [`tutorials/troubleshooting.md`](tutorials/troubleshooting.md) |
+| How do schemas evolve? | [`guides/migrations.md`](guides/migrations.md) |
+
+## Evidence
+
+`internals/` holds the measurements a claim in the pages above rests on. A
+reader looking for what a program relies on does not need these; a reader
+checking a number does.
+
+| Page | What it measures |
+|---|---|
+| [`internals/PERF.md`](internals/PERF.md) | Build and run cost, the method and the machine |
+| [`internals/CODEGEN_BUDGET.md`](internals/CODEGEN_BUDGET.md) | Emitted C size and build cost per program |
+| [`internals/ENERGY.md`](internals/ENERGY.md) | CPU, memory and energy accounting |
+| [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Experimental program transformations |
+| [`internals/ARENA.md`](internals/ARENA.md) | The arena allocator's layout and mechanics |
+| [`internals/SHARDING.md`](internals/SHARDING.md) | How the single translation unit splits into linkable shards |
+| [`internals/SELF_HOSTING.md`](internals/SELF_HOSTING.md) | Why and how the compiler compiles itself |
+| [`internals/SOVEREIGNTY.md`](internals/SOVEREIGNTY.md) | The root of trust, the fixed point and recovery |
+| [`internals/LIMITATIONS_LOG.md`](internals/LIMITATIONS_LOG.md) | The dated record behind `SUPPORTED.md`, command by command |
+| [`internals/DEFECTS.md`](internals/DEFECTS.md) | Defect and finding index, with the measurement that closed each one |
 
 ## Authority
 
 When prose and executable behaviour disagree, the gate and the tree win. This
 table names the document that decides each topic.
 
-| Topic | Normative document | What it decides |
-|---|---|---|
-| Language behaviour | `LANGUAGE_REFERENCE.md` | What a program means, and what is not promised |
-| IR text and semantics | `IR_SPEC.md` | The IRv1 document the compiler emits |
-| Gates and invariants | `ENGINEERING.md` §7 and §8, `scripts/dev.py` | What a change must not contradict, and how it is checked |
-| Test corpora | `tests/*/README.md` and the runner output | What each gate measures |
-| Documentation map | this file | Which page answers which question |
+| Topic | Normative document |
+|---|---|
+| Language behaviour | `LANGUAGE_REFERENCE.md` |
+| IR text and semantics | `IR_SPEC.md` |
+| Commands and their output | `COMMANDS.md` |
+| Platforms, versions and limits | `SUPPORTED.md` |
+| Gates, invariants and debt | `../ENGINEERING.md` |
+| Branches, review and releases | `../CONTRIBUTING.md` |
+| Test corpora | `tests/*/README.md` and the runner output |
 
-A document that is not in the first table does not exist for the reader. New
-content goes into an existing row before a new file is created.
+New material goes into an existing page before a new one is created. A new
+page needs a row here in the same commit.
