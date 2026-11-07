@@ -1177,13 +1177,19 @@ fn tryAnnotationType(annotation: string) -> string {
 // and a `list<T>` spelled whole. The element is what a later `.get` answers,
 // so `val out: list<DoctorEdit> = []` has to keep `DoctorEdit`; the bare
 // `list` an unwrap needs is `tryAnnotationType`'s answer, not this one.
+// A `list<T>` annotation that names its element. The bare `list` an unwrap
+// needs is not one: it says nothing a later `.get` could answer.
+fn listSpellingWithElement(text: string) -> bool {
+    if text.length < 7 { return false }
+    if text.slice(0, 5) != "list<" { return false }
+    return text.slice(text.length - 1, text.length) == ">"
+}
+
 fn bindingAnnotationType(annotation: string) -> string {
     if annotation == "int" || annotation == "bool" || annotation == "string" || annotation == "float" {
         return annotation
     }
-    if annotation.length > 6 && annotation.slice(0, 5) == "list<" {
-        if annotation.slice(annotation.length - 1, annotation.length) == ">" { return annotation }
-    }
+    if listSpellingWithElement(annotation) { return annotation }
     return ""
 }
 
@@ -1588,9 +1594,14 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             // what the binding carries; without it every read of the local is
             // E2001 and every rule downstream of the register is skipped.
             var boundType = typeOfExpression(module, bindings, declaration.value)
+            val annotated = bindingAnnotationType(declaration.typeAnnotation)
             if boundType == "unknown" {
-                val annotated = bindingAnnotationType(declaration.typeAnnotation)
                 if annotated != "" { boundType = annotated }
+            } else if boundType == "list" && listSpellingWithElement(annotated) {
+                // `val out: list<DoctorEdit> = []` types its literal as the
+                // bare `list`, which says nothing a later `.get` can answer.
+                // The element the source wrote is the only element there is.
+                boundType = annotated
             }
             bindings.push(TirBinding(declaration.name, boundType))
             return blockId

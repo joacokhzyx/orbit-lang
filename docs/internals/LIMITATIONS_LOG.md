@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,122
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,142
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 173 | **0.1%** |
+| instructions the front end types `unknown` | 116 | **0.1%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -895,16 +895,20 @@ read one of those names lowered and had been skipped. A character read answers
 `int` now: this pass typed `s.at(i)` as `string` while the build already typed
 it `int` (`compiler/ir/builder.orb:1984`), so every `c - 48` in a lexer-shaped
 loop was two unknown operands. The count fell to 173 over 148,122 instructions
-and E2002 from 50 to 12.
+and E2002 from 50 to 12. A list binding keeps the element its annotation names:
+`val out: list<DoctorEdit> = []` typed its literal as the bare `list`, which
+says nothing a later `.get` can answer, and the annotation was read only when
+the value had no type at all. The count fell to 116 over 148,142 instructions,
+E2005 from 98 to 54, E2001 from 48 to 36 and E2004 from 15 to 14.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 48 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 36 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 12), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
-(member read, 15) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 98). Their sum, 173, is the whole unknown count. The five
+(member read, 14) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
+(call result, 54). Their sum, 116, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:881`, `:894`, `:902`, `:926` and `:1028`, and
 each sits on the branch that emits the instruction.
 
