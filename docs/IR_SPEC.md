@@ -267,7 +267,7 @@ of that file and the name of the root file: the IR has no per-function file.
 | `Label` | `int` (label number) | `ir_label` |
 | `None` | — | `ir_none` |
 
-Observed C rendering (`generateValue`, `compiler/emit/c_backend.orb:3017-3041`): `Int` →
+Observed C rendering (`generateValue`, `compiler/emit/c_backend.orb:3028-3052`): `Int` →
 decimal; `Float` → `orbit_float_to_string_selfhost`; `String` → quoted
 with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 `r_N` (`n<0` → `"0"`); `Label(n)` → decimal; anything else → empty string.
@@ -398,7 +398,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 ### 3.1 `arg` / `call` protocol
 
 1. Each `arg` without `dest` appends `generateValue(O1)` to the backend's
-   pending stack (`callArgs`) (`compiler/emit/c_backend.orb:3532`).
+   pending stack (`callArgs`) (`compiler/emit/c_backend.orb:3543`).
 2. `call` reads O1: `String`/`Sym` → named call; any other value →
    indirect call.
 3. O2 (`Int`) is the arity recorded by the builder: the `call` consumes
@@ -599,7 +599,7 @@ migrations  = "[", { jsonString }, "]";
 ```
 
 Minimal runnable example — `fn main() -> int { return 0 }`, i.e. one
-`load_const` (`compiler/emit/c_backend.orb:3180-3183`) plus `ret`:
+`load_const` (`compiler/emit/c_backend.orb:3191-3194`) plus `ret`:
 
 ```json
 {"irVersion":"1","module":{
@@ -631,9 +631,9 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 | E-02 | `Register(-1)` operand value | Reject (V-09); negative register ids are not encodable | `generateValue` maps `n<0` to `"0"` |
 | E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "void*"` | Accept; ref elements the builder cannot name stay `"void*"` | `compiler/ir/builder.orb:4823-4827` |
 | E-04 | `elemKind: 0` on `list_create` | Accept; untyped accessor + `void*` destination | `elemKind` at `compiler/ir/ir.orb:131` |
-| E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `compiler/emit/c_backend.orb:3696-3701` |
+| E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `compiler/emit/c_backend.orb:3707-3712` |
 | E-06 | `print` call with 2 pending args | Accept the IR; lowering emits `/* print */` and drops them | `compiler/emit/c_backend.orb:3666-3671` |
-| E-07 | `label` never targeted by a jump | Accept; lowering omits the label when `refLabels` has no entry | `compiler/emit/c_backend.orb:3498-3503` |
+| E-07 | `label` never targeted by a jump | Accept; lowering omits the label when `refLabels` has no entry | `compiler/emit/c_backend.orb:3509-3514` |
 | E-08 | `jump` to an undeclared label number | Reject (V-14) | `refLabels` collection `2085-2089` |
 | E-09 | `isExtern: true` function with a non-empty `instructions` list | Accept but ignore the body (no prototype/definition emitted) | `functionProto` at `compiler/emit/c_backend.orb:166-167` |
 | E-10 | `routeMethod: ""` with non-empty `routePath` (and vice versa) | Reject (V-16); plain vs route is decided by `routeMethod` alone | `compiler/emit/c_backend.orb:170`, §2.3 |
@@ -709,16 +709,16 @@ U-08, U-10, U-11, U-13 complete the sequence.
 | U-01 | Which type spellings yield `elemKind` 5 (`isReferenceKindName`) | Predicate not audited here (§2.2). |
 | U-02 | The flat name-keyed `listKinds` registry shared across functions | Not reproducible in serialized IR (§2.3). |
 | U-03 | Population of `IRVariantDecl`/`IRVariantField` | Declared, no constructor site in the builder (§2.4). |
-| U-04 | Exact `functionNeedsArena` list (which calls get a prepended `arena`) | Not audited name by name (§3.1): `functionNeedsArena` at `compiler/emit/c_backend.orb:5153-5174`, applied by `calleeTakesArena`. |
+| U-04 | Exact `functionNeedsArena` list (which calls get a prepended `arena`) | Not audited name by name (§3.1): `functionNeedsArena` at `compiler/emit/c_backend.orb:5164-5185`, applied by `calleeTakesArena`. |
 | U-05 | Argument evaluation order of the indirect `call` | Unfixed by the observed lowering (§3.1). |
 | U-06 | Exact pointer-fallback tail of `mapTypeToC` | Tail rule not audited here (§3.2): `mapTypeToC` at `compiler/emit/c_backend.orb:500-560`. |
 | U-07 | Exact byte coverage of `escapeString` (e.g. non-ASCII, control bytes other than `\"`, `\n`, `\r`, `\t`, `\x1b`) | Table at `compiler/emit/c_backend.orb:2992-3015` not pinned byte by byte (§5.1). |
-| U-08 | Exact C keyword set of `isCKeyword`/`sanitizeIdentifier` | `isCKeyword` at `compiler/emit/c_backend.orb:1570-1619`, quoted but not versioned as a contract (§3.1). |
+| U-08 | Exact C keyword set of `isCKeyword`/`sanitizeIdentifier` | `isCKeyword` at `compiler/emit/c_backend.orb:1581-1630`, quoted but not versioned as a contract (§3.1). |
 | U-09 | `free` semantics | Observed as a no-op comment; not semantics (§1.2). |
 | U-10 | Exact rewrite rules of `inferRegisterTypes` (3 passes, `compiler/emit/c_backend.orb:705-1161`) | Advisory `registerTypes` may change under emission; the pass rules are not pinned here (§2.3). |
 | U-11 | Exact cast rules of `storeCastFor` / `load_var` casts | Cast selection observed but its table is not pinned here (§1.2). |
 | U-12 | `type_info` semantics | Observed as a comment only (§1.2). |
-| U-13 | Label liveness beyond `refLabels` (duplicate labels, `label` after `ret`, cross-block jumps) | Only the referenced-emits rule on `label` is observed (`compiler/emit/c_backend.orb:3498-3503`), and the `refLabels` collection at 2739. |
+| U-13 | Label liveness beyond `refLabels` (duplicate labels, `label` after `ret`, cross-block jumps) | Only the referenced-emits rule on `label` is observed (`compiler/emit/c_backend.orb:3509-3514`), and the `refLabels` collection at 2739. |
 | U-14 | Union `{int tag; void* data;}` layout | Locally emitted text, no contractual runtime helper (§1.2). |
 | U-15 | Definition point of `ORBIT_API_RESPONSE` | Not declared in `runtime/orbit_api.h` (§1.2). |
 | U-16 | Resolution of `isExtern` symbols | Backend emits nothing; resolution is outside (§2.3). |

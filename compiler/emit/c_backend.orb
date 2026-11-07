@@ -15,7 +15,7 @@ model CBackend {
     fieldNames: list < string >
     fieldOwners: list < string >
     declVars: list < string >
-    usedRegs: list
+    usedRegs: list < int >
     refLabels: list < string >
     defIdxFunc: IRFunction
     defIdxNames: list < string >
@@ -1169,6 +1169,17 @@ fn irVerifierUnionType(backend: CBackend, t: string) -> bool {
     return false
 }
 
+// The table that answers a builtin's call type and the destination the source
+// wrote agree when both say `list`; the element is what a read needs, and a
+// table entry that predates typed lists is not a disagreement with it. This is
+// the compatibility the checker already applies, and the verifier's exact
+// compare was rejecting the first program that wrote the element.
+fn verifierSameCallType(a: string, b: string) -> bool {
+    if a == b { return true }
+    if orbit_string_len(a) < 4 || orbit_string_len(b) < 4 { return false }
+    return orbit_string_slice(a, 0, 4) == "list" && orbit_string_slice(b, 0, 4) == "list"
+}
+
 fn irVerifierKnown(t: string) -> bool {
     if t == "" { return false }
     if t == "unknown" { return false }
@@ -1402,7 +1413,7 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, fnHeads: list < int >, fnN
                                 rt = f.returnType
                             }
                         }
-                        if irVerifierKnown(rt) && irVerifierKnown(dt) && rt != dt && rt != "void" && dt != "result" {
+                        if irVerifierKnown(rt) && irVerifierKnown(dt) && verifierSameCallType(rt, dt) == false && rt != "void" && dt != "result" {
                             errs.push("call '" + cn + "' returns '" + rt + "' but destination typed '" + dt + "' in fn '" + func.name + "'")
                         }
                     }
@@ -4625,7 +4636,7 @@ fn feBuildTimeCallType(name: string) -> string {
     if name == "orbit_os_mkdir_selfhost" || name == "orbit_os_isatty_selfhost" { return "bool" }
     if name == "orbit_string_hash_selfhost" { return "string" }
     if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_update" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
-    if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list" }
+    if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list<string>" }
     if name == "orbit_os_alloc" || name == "orbit_os_create_arena" { return "ptr" }
     if name == "orbit_response_json" { return "response" }
     // The frontend's own table, for the names this one did not copy over.

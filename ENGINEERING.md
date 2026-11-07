@@ -370,7 +370,7 @@ code path that does not run.
 The check was "a `var` at module scope, written from a handler". There are no
 module-scope `var`s: E1007 rejects them (`compiler/front/sema.orb:2418-2432`), and
 `compiler/ir/builder.orb:2794` records a surviving top-level `val` as a module
-global. `generateRoutePreamble` (`compiler/emit/c_backend.orb:2013`) emits that
+global. `generateRoutePreamble` (`compiler/emit/c_backend.orb:2024`) emits that
 global as a `#define` of an int or bool literal. `ENGINEERING.md` already said
 as much in its own §3 notes:
 *"the language has no working module-level mutable state"*. `store_var` IS
@@ -384,7 +384,7 @@ is not spent.
 
 `alloc`/`free` are not emitted, so there is nothing to walk. Allocation reaches
 the IR as an ordinary `IROpcode.call` to a runtime name, and the arena argument
-is injected by the backend via `functionNeedsArena` (`compiler/emit/c_backend.orb:5153`).
+is injected by the backend via `functionNeedsArena` (`compiler/emit/c_backend.orb:5164`).
 An allocation check is therefore a NAME match over calls, which is exactly what
 **D019** already does at the AST level and with positions attached. Anything
 D026 could add is path analysis ("is it freed on every path") over a data-flow
@@ -403,7 +403,7 @@ and sinks are named in the emitted calls.
   `orbit_db_query_get`, `orbit_db_insert`, `orbit_db_delete`
 
 The precedent for walking calls and matching names is `moduleCallsBuiltin`
-(`compiler/emit/c_backend.orb:5518`): walk `module.functions` -> `f.instructions` ->
+(`compiler/emit/c_backend.orb:5529`): walk `module.functions` -> `f.instructions` ->
 `inst.opcode == IROpcode.call` -> match `inst.operand1` as `IRValue.String`.
 
 **Doctor implements this on the AST, not the IR.** One instruction field is a

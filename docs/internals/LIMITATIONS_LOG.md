@@ -1194,7 +1194,7 @@ read once with `tag int v0`, because `buildMatchExpr` compares one register agai
 every arm; each arm's test compares that register against the variant's declared
 position -- a number that is not the frontend's to invent, because the emitter
 numbers variants by declaration index, `tdName` + `_TAG_` + `vName` = `vi` at
-`compiler/emit/c_backend.orb:2082`;
+`compiler/emit/c_backend.orb:2093`;
 `== bool` and `branch` split the arm from the next test; an arm that returns writes
 no jump and an arm that falls through jumps to the merge block; a wildcard writes no
 test and takes the block the last test fell through to, so no empty block is printed
