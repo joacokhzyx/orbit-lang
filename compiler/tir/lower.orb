@@ -1019,6 +1019,38 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 callOperands = callOperands + " " + tirValue(value)
                 i = i + 1
             }
+            // `val out = []` writes no element, so the literal types as the bare
+            // `list` and every `out.get(i)` after it had nothing to answer. The
+            // value pushed into it is the element, and it is typed here already,
+            // so the statements after the push read the local with that element.
+            // Only the bare `list` is filled: `list<T>` came from an annotation
+            // or an earlier push and already says what it holds.
+            if callCalleeIsMethod {
+                match call.callee {
+                    ASTNode.MemberAccess(memberCallee) => {
+                        if memberCallee.field == "push" || memberCallee.field == "set" {
+                            var receiverName = ""
+                            match memberCallee.object {
+                                ASTNode.Literal(receiverLiteral) => {
+                                    if receiverLiteral.valType == "identifier" { receiverName = receiverLiteral.text }
+                                }
+                                _ => {}
+                            }
+                            if receiverName != "" && bindingType(bindings, receiverName) == "list" {
+                                var elementIndex = 0
+                                if memberCallee.field == "set" { elementIndex = 1 }
+                                if call.args.len() > elementIndex {
+                                    val elementType = typeOfExpression(module, bindings, call.args.get(elementIndex))
+                                    if elementType != "" && elementType != "unknown" {
+                                        bindings.push(TirBinding(receiverName, "list<" + elementType + ">"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
             val returnType = typeOfExpression(module, bindings, node)
             // Same reasoning as E2004, and the larger of the two: a call whose
             // result cannot be typed is a call the front end does not know the
