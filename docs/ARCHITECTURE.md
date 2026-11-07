@@ -4,7 +4,7 @@
 > architecture that exists today: the self-hosted pipeline in `compiler/`, the C
 > runtime in `runtime/`, the gates in `scripts/`, and the test corpora in
 > `tests/`. For the bootstrap trust model see
-> [architecture/SOVEREIGNTY.md](architecture/SOVEREIGNTY.md).
+> [internals/SOVEREIGNTY.md](internals/SOVEREIGNTY.md).
 
 ---
 
@@ -258,11 +258,11 @@ drift afterwards.
 
 Terms in this section (canonical, seed, seed2, chain2, chain3, promote,
 `PUBLISHED_C`, amalgamate) are defined once in the
-[Sovereignty glossary](architecture/SOVEREIGNTY.md#glossary---canonical-bootstrap-terms)
+[Sovereignty glossary](internals/SOVEREIGNTY.md#glossary---canonical-bootstrap-terms)
 and not redefined here. Promotion is the only operation that replaces the
 canonical. It is explicit and reviewable. For what is trusted vs verified
 and where amalgamation fits, see the
-[trust-boundary diagram](architecture/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified).
+[trust-boundary diagram](internals/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified).
 
 ---
 
@@ -307,7 +307,7 @@ allocations from an O(1) TLS bump path. Nothing in the generated server ever
 opened a session: `tls_oracle_session.active` stayed 0 and the prediction
 tables stayed cold. The last code that read those tables was the ledger's
 `arena_overflow` / `arena_max_bytes`. Those are now measured from the arena that
-served the request (see [PERF.md](PERF.md), "Arena telemetry is a fold"). With
+served the request (see [PERF.md](internals/PERF.md), "Arena telemetry is a fold"). With
 no consumer left, the predictor is gone, and with it the TLS branch the
 allocator carried on every allocation. The predictive pre-reservation design is
 in the history rather than the tree: `git log -- runtime/oracle.c`.
@@ -340,7 +340,7 @@ and a max. There is no histogram, so there is no P50 / P95 / P99 to compute,
 and `system.*` exposes no latency distribution either. The hardware energy
 accounting sits alongside it rather than on top of it:
 `runtime/energy.c` samples the platform energy sensor on its own thread and
-`runtime/ledger.c` records the accounting entries. See [ENERGY.md](ENERGY.md).
+`runtime/ledger.c` records the accounting entries. See [ENERGY.md](internals/ENERGY.md).
 
 ---
 

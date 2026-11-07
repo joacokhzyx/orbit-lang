@@ -7,7 +7,7 @@ Orbit tests one idea: a server can be fast without using so much energy. It is
 pre-release software, and its limits are measured, not hidden.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/architecture/SOVEREIGNTY.md)
+[![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/internals/SOVEREIGNTY.md)
 
 ![Orbit Banner](assets/orbit_banner.png)
 
@@ -86,7 +86,7 @@ question it answers. The pages reached most often:
 
 - [Getting Started](docs/GETTING_STARTED.md) · [FAQ](docs/FAQ.md) · [Known Limitations](docs/KNOWN_LIMITATIONS.md)
 - [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Language Tour](docs/TOUR.md)
-- [Architecture](docs/ARCHITECTURE.md) · [Performance](docs/PERF.md) · [Changelog](docs/CHANGELOG.md)
+- [Architecture](docs/ARCHITECTURE.md) · [Performance](docs/internals/PERF.md) · [Changelog](docs/CHANGELOG.md)
 - [Platform Support](docs/SUPPORT.md) · [Versioning](docs/VERSIONING.md) · [Server Examples](examples/README.md)
 
 ## Repository structure

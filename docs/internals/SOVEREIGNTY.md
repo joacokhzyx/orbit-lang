@@ -237,7 +237,7 @@ Invariants that must hold afterwards:
 
 - [Self Hosting](SELF_HOSTING.md) - why the compiler is written in its own
   language.
-- `docs/PERF.md` - the measured cost of the self-build, with the commands.
+- `docs/internals/PERF.md` - the measured cost of the self-build, with the commands.
 
 ## Appendix: stages in detail
 

@@ -57,7 +57,7 @@ find the file ready.
 
 **Fix:** none needed. Don't compare a cold start against a warm
 one, and don't publish a number without saying which of the two you
-measured (see [Performance notes](../PERF.md)).
+measured (see [Performance notes](../internals/PERF.md)).
 
 ## `Model.create()` answers 400
 

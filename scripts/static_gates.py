@@ -512,7 +512,7 @@ def self_test_walk(args) -> int:
 #    second. Every place the census is written down is dated or defers to
 #    `scripts/baselines/unknown_count.json` as the current truth, which is a
 #    statement the gate does not have to make for it.
-#  * docs/PERF.md and docs/CHANGELOG.md. A performance transcript and a release
+#  * docs/internals/PERF.md and docs/CHANGELOG.md. A performance transcript and a release
 #    history are dated by contract; their numbers are of their moment. PERF.md
 #    still says `runtime_c_tests.py` compiles 20 programs, which is where it was.
 #
@@ -1128,7 +1128,7 @@ TARGETS = (
     "docs/LANGUAGE_REFERENCE.md",
     "docs/COMMANDS.md",
     "docs/DOCTOR.md",
-    "docs/PERF.md",
+    "docs/internals/PERF.md",
     "tests/negative/README.md",
     "std/README.md",
 )

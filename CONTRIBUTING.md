@@ -26,7 +26,7 @@ To build and test Orbit locally, ensure you have the following installed:
 
 No toolchain vendor is involved: a C compiler plus a stock `python3` are the
 whole dependency list. The compiler bootstraps itself from the committed
-canonical C (see [docs/architecture/SOVEREIGNTY.md](docs/architecture/SOVEREIGNTY.md)).
+canonical C (see [docs/internals/SOVEREIGNTY.md](docs/internals/SOVEREIGNTY.md)).
 
 ### Building from Source
 
@@ -77,7 +77,7 @@ inside these tiers (via `scripts/runtime_c_tests.py`).
 
 `scripts/corpus_gates.py werror` is the strict warning gate. The bootstrap
 deliberately builds without `-Wall` because it costs 5.7x on the compiler's own
-multi-megabyte output unit. See [Performance notes](docs/PERF.md). Set
+multi-megabyte output unit. See [Performance notes](docs/internals/PERF.md). Set
 `ORBIT_BOOTSTRAP_WARNINGS=1` to get warnings back while hacking.
 
 Every gate runs on a C compiler plus a stock `python3`. There is nothing to

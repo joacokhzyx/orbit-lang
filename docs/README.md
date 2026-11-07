@@ -18,17 +18,17 @@ complete map; the second names the document that decides each topic.
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
 | How does memory management work? | [`ARENA.md`](ARENA.md) | The arena allocator and its retention policy |
 | How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
-| What is experimental? | [`SUPERLUMINAL.md`](SUPERLUMINAL.md) | Compiler research, with no plan attached |
+| What is experimental? | [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Compiler research, with no plan attached |
 | What does a program start? | [`STARTUP.md`](STARTUP.md) | The start-up rules the emitter applies |
 | How do I write a library? | [`LIBRARIES.md`](LIBRARIES.md) | Imports, the flat namespace and visibility |
 | What do error codes mean? | [`ERROR_CODES.md`](ERROR_CODES.md) | Compiler diagnostics by code |
 | What do the doctor checks mean? | [`DOCTOR.md`](DOCTOR.md) | The check catalogue and its fixes |
 | How does `orbit cluster` work? | [`CLUSTER.md`](CLUSTER.md) | Single-host process orchestration |
-| How is the compiler bootstrapped? | [`architecture/SELF_HOSTING.md`](architecture/SELF_HOSTING.md) | Why and how the compiler compiles itself |
-| What is trusted in the bootstrap? | [`architecture/SOVEREIGNTY.md`](architecture/SOVEREIGNTY.md) | Root of trust, fixed point, recovery |
-| How fast does it build and run? | [`PERF.md`](PERF.md) | Method and measured performance |
-| How do I measure resource use? | [`ENERGY.md`](ENERGY.md) | CPU, memory, energy method and the ledger |
-| How large is the generated C? | [`CODEGEN_BUDGET.md`](CODEGEN_BUDGET.md) | Emitted size and build cost per program |
+| How is the compiler bootstrapped? | [`internals/SELF_HOSTING.md`](internals/SELF_HOSTING.md) | Why and how the compiler compiles itself |
+| What is trusted in the bootstrap? | [`internals/SOVEREIGNTY.md`](internals/SOVEREIGNTY.md) | Root of trust, fixed point, recovery |
+| How fast does it build and run? | [`internals/PERF.md`](internals/PERF.md) | Method and measured performance |
+| How do I measure resource use? | [`internals/ENERGY.md`](internals/ENERGY.md) | CPU, memory, energy method and the ledger |
+| How large is the generated C? | [`internals/CODEGEN_BUDGET.md`](internals/CODEGEN_BUDGET.md) | Emitted size and build cost per program |
 | How does formatting work? | [`FMT.md`](FMT.md) | The formatter, its corpus and its gate |
 | Which toolchain builds what? | [`TOOLCHAIN.md`](TOOLCHAIN.md) | Compiler policy per platform |
 | Which platforms are supported? | [`SUPPORT.md`](SUPPORT.md) | Operating systems, compilers and limits |
@@ -45,7 +45,7 @@ complete map; the second names the document that decides each topic.
 | How do I ship one binary? | [`tutorials/deploy-single-binary.md`](tutorials/deploy-single-binary.md) | Windows and Linux deployment, plus one-box clustering |
 | Something broke; now what? | [`tutorials/troubleshooting.md`](tutorials/troubleshooting.md) | Ports, silent exits and slow first boots |
 | How do schemas evolve? | [`guides/migrations.md`](guides/migrations.md) | Forward migrations and what is missing |
-| How is the self-host split into shards? | [`shard_layout.md`](shard_layout.md) | The shard contract and its measurements |
+| How is the self-host split into shards? | [`internals/SHARDING.md`](internals/SHARDING.md) | The shard contract and its measurements |
 
 ## Authority
 

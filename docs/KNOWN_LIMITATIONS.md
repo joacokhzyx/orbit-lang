@@ -419,7 +419,7 @@ rule below.
 Energy is reported in joules only where sensors exist (Linux
 RAPL). On Windows the proxy is CPU time plus memory -
 never converted to joules with a universal factor. The measurement
-record in [Resource and Energy Measurement](ENERGY.md) enforces this.
+record in [Resource and Energy Measurement](internals/ENERGY.md) enforces this.
 
 ## A latency percentile is estimated inside its bucket (fixed)
 

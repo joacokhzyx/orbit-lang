@@ -195,7 +195,7 @@ durable part.
   `-O0` the probe costs more than the uncontended spinlock it skips. Dropped
   without landing. This is the clearest example in the codebase of a
   plausible-sounding optimisation that loses. It is also why the compile-time
-  waves in `docs/SUPERLUMINAL.md` are allowed to report a ship decision of
+  waves in `docs/internals/OPTIMIZER_EXPERIMENTS.md` are allowed to report a ship decision of
   "not shipped" when a change measures inside its own comparison band.
 - **String-pool short-circuit.** Interning does not run on the static-route
   request path, so no change there can show up in a static-route measurement.

@@ -56,7 +56,7 @@ compiler invocation on build and run, and the input size on check.
 `--color always|never|auto` styles the output. `auto` paints only on a live
 terminal and stays plain in pipes.
 `build` additionally accepts `--release`, which compiles the emitted unit
-at `-O2` instead of the default `-O1` (see [Performance](PERF.md#user-build-optimisation-level)).
+at `-O2` instead of the default `-O1` (see [Performance](internals/PERF.md#user-build-optimisation-level)).
 `fmt` accepts `--quiet` (single-file
 mode) and `--verbose` (scan totals with `--check`). `doctor` accepts
 `--fix` (whitespace only: trailing whitespace and a missing final

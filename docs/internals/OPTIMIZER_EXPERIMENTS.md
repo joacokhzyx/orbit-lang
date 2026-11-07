@@ -1,6 +1,6 @@
-# Superluminal
+# Optimizer experiments
 
-Superluminal is Orbit's experimental optimization and program-transformation work. Its purpose isn't to claim speedups. It's to make measurable reductions in execution work that preserve semantics, with a safe fallback to ordinary codegen when proof is incomplete.
+This is Orbit's experimental optimization and program-transformation work. Its purpose isn't to claim speedups. It's to make measurable reductions in execution work that preserve semantics, with a safe fallback to ordinary codegen when proof is incomplete.
 
 ## Status (measured baseline)
 

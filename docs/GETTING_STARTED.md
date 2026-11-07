@@ -114,4 +114,4 @@ python scripts/corpus_gates.py parity --cc <gcc-or-clang> --compiler <path-to-or
 python scripts/corpus_gates.py suite --cc <gcc-or-clang> --compiler <path-to-orbit>
 ```
 
-The parity command compares the compiler output with committed probe goldens. The behavior suite compiles and runs the executable programs under `tests/suite/`. The full model is described in [Self-Hosting](architecture/SELF_HOSTING.md) and [Sovereignty](architecture/SOVEREIGNTY.md).
+The parity command compares the compiler output with committed probe goldens. The behavior suite compiles and runs the executable programs under `tests/suite/`. The full model is described in [Self-Hosting](internals/SELF_HOSTING.md) and [Sovereignty](internals/SOVEREIGNTY.md).

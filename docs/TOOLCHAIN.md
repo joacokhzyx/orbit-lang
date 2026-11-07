@@ -24,7 +24,7 @@ as a baseline, not "just to see". Three independent reasons:
 
 Instruments that stay on the reference toolchain: `scripts/kynx_gate.py
 load`, `scripts/measure.py measure-selfhost`, the `/_ledger` energy columns.
-`docs/PERF.md` and `docs/ENERGY.md` record what those instruments say.
+`docs/internals/PERF.md` and `docs/internals/ENERGY.md` record what those instruments say.
 A tcc timing belongs in neither file.
 
 ## Rule 2 — the multithreaded server always builds with gcc

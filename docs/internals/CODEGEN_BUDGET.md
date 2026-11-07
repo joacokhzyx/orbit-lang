@@ -1,7 +1,7 @@
 # Codegen budget
 
 What the generated C costs to emit and to build, what was measured, what was
-changed, and what was left alone. Same rules as [docs/PERF.md](PERF.md): every
+changed, and what was left alone. Same rules as [docs/internals/PERF.md](PERF.md): every
 number ships with the command that produced it, the machine it ran on, and the
 spread across runs. Comparisons that hide the runs that went badly are
 advertising, not engineering.
@@ -181,9 +181,9 @@ None of them is a bug; they are the negative results that bound the win.
   route entry points, which the change above now removes outright. There is no
   dead-function term left to collect.
 - **Items already measured elsewhere, not redone.** `-Wall` costs 5.7x on the
-  compiler unit (docs/PERF.md), the builder's temporary-sinking loop and
+  compiler unit (docs/internals/PERF.md), the builder's temporary-sinking loop and
   `variableDefType` rescan were the quadratic passes and are already O(n)
-  (docs/PERF.md), and repeated compilations are already served by
+  (docs/internals/PERF.md), and repeated compilations are already served by
   `scripts/orbit_ccache.py`. Re-measuring them would be redoing work, not
   bounding it.
 

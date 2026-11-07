@@ -76,7 +76,7 @@ Stating this plainly, because the arrangement has sharp edges:
 
 - **It is not faster.** A compiler bootstrapped in its own language pays for
   every missing language feature. The self-build is measured in
-  [docs/PERF.md](../PERF.md). The measured reading is that most of its cost is
+  [docs/internals/PERF.md](PERF.md). The measured reading is that most of its cost is
   the C compiler invoked on a large generated translation unit, not the Orbit
   front end.
 - **It is not a proof of correctness.** A self-hosting compiler can reproduce a

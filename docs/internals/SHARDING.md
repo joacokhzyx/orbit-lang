@@ -1,6 +1,6 @@
-# Shard layout: how the single-TU emission splits into linkable shards
+# Sharding: how the single-TU emission splits into linkable shards
 
-Status: the S1 emitter step is done. The compiler emits external linkage
+The compiler emits external linkage
 plus a common header. No driver splits yet. This file is the contract the
 build driver step implements against. Background and measurements: prototype
 report (local scratch, not in repo), whose E1/E2 rule out byte-`cat`
