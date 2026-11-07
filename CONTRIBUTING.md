@@ -59,21 +59,21 @@ canonical C (see [docs/internals/SOVEREIGNTY.md](docs/internals/SOVEREIGNTY.md))
 
 ### Building from Source
 
-Clone the repository and use the `make` entry point (a thin wrapper over
-`scripts/dev.py`, the single authority for gates):
+Clone the repository and run the one entry point. It owns `TEMP`/`TMP`,
+`ORBIT_CCACHE_DIR`, the fixed-point binary and each gate's flags:
 
 ```bash
 git clone https://github.com/joacokhzyx/orbit-lang.git
 cd orbit-lang
-make fp     # build the fixed-point compiler and print its version
-make dev    # gates proportionate to what the working tree touched
+python3 scripts/dev.py fp     # build the fixed-point compiler and print its version
+python3 scripts/dev.py dev    # gates proportionate to what the working tree touched
 ```
 
-`scripts/dev.py` owns `TEMP`/`TMP`, `ORBIT_CCACHE_DIR`, the fixed-point
-binary and each gate's flags. Do not export those variables by hand and do
-not pass `--cc`/`--compiler` by hand. Windows runners have no `make`, so
-call `scripts/dev.py` directly there (`python scripts/dev.py dev`, and so
-on). See `Makefile` and `AGENTS.md`.
+The `make` targets are one-line aliases of the same calls, for people who
+type them faster. `make` is a convenience, not a requirement: Windows has it
+only when it is installed, and CI calls `scripts/dev.py` directly. Do not
+export the variables above by hand and do not pass `--cc`/`--compiler` by
+hand.
 
 End users who just want Orbit installed take the CI release wizard
 (`Orbit-Setup-<version>.exe`, built from `installer/orbit.iss` as described
@@ -83,8 +83,8 @@ in [Releases](#releases)), not a source checkout.
 
 ## Running Tests & Gates
 
-The `make` targets are the single authority for verification (see `Makefile`,
-`scripts/dev.py` and `AGENTS.md`). Do not invoke the scripts in `scripts/`
+`scripts/dev.py` is the single authority for verification; the `make` targets
+are aliases of it. Do not invoke the scripts in `scripts/`
 by hand with `--cc`/`--compiler`:
 
 ```bash

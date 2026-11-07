@@ -162,13 +162,8 @@ LOWMEM_AUTO_MB = 4096
 MAX_ITERATIONS = 4
 
 
-def avail_commit_mb():
-    """Available commit (physical + pagefile) in MB, or None when unknown."""
-    try:
-        import psutil  # type: ignore
-        return psutil.virtual_memory().available // (1 << 20)
-    except Exception:
-        pass
+def _commit_mb():
+    """Available commit memory in MB (physical plus pagefile/swap), or None."""
     if sys.platform == "win32":
         try:
             import ctypes
@@ -192,7 +187,21 @@ def avail_commit_mb():
                 return int((stat.ullAvailPhys + stat.ullAvailPageFile) >> 20)
         except Exception:
             return None
-    return None
+        return None
+    try:
+        mb = 0
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith(("MemAvailable:", "SwapFree:")):
+                    mb += int(line.split()[1]) // 1024
+        return mb or None
+    except Exception:
+        return None
+
+
+def avail_commit_mb():
+    """Available commit (physical + pagefile) in MB, or None when unknown."""
+    return _commit_mb()
 
 
 def lowmem_cc_flags(cc: str) -> list:
@@ -255,35 +264,7 @@ def bootstrap_cc_middle(cc: str, low_mem: bool) -> list:
 def warn_low_memory() -> None:
     """LLVM/lld peak usage on the multi-MB compiler TU can exceed what
     low-RAM machines have free; warn early instead of dying cryptically."""
-    free_mb = None
-    try:
-        import psutil  # type: ignore
-        free_mb = psutil.virtual_memory().available // (1 << 20)
-    except Exception:
-        if sys.platform == "win32":
-            try:
-                import ctypes
-
-                class MEMORYSTATUSEX(ctypes.Structure):
-                    _fields_ = [
-                        ("dwLength", ctypes.c_ulong),
-                        ("dwMemoryLoad", ctypes.c_ulong),
-                        ("ullTotalPhys", ctypes.c_ulonglong),
-                        ("ullAvailPhys", ctypes.c_ulonglong),
-                        ("ullTotalPageFile", ctypes.c_ulonglong),
-                        ("ullAvailPageFile", ctypes.c_ulonglong),
-                        ("ullTotalVirtual", ctypes.c_ulonglong),
-                        ("ullAvailVirtual", ctypes.c_ulonglong),
-                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-                    ]
-
-                stat = MEMORYSTATUSEX()
-                stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-                if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
-                    # Commit headroom is what matters: physical + pagefile.
-                    free_mb = ((stat.ullAvailPhys + stat.ullAvailPageFile) >> 20)
-            except Exception:
-                return
+    free_mb = _commit_mb()
     if free_mb is not None and free_mb < 2048:
         print(f"Warning: only ~{free_mb} MB commit available; LLVM/lld links of "
               "the compiler TU may OOM. Close applications or expect slower retried builds.",

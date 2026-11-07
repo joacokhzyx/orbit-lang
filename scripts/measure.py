@@ -2968,17 +2968,11 @@ def detect_cc():
 
 
 # ---------------------------------------------------------------------------
-# System memory (stdlib only, psutil optional)
+# System memory (stdlib only)
 # ---------------------------------------------------------------------------
 
 def system_snapshot():
     """Return (total_mb, avail_mb) or (None, None) when unavailable."""
-    try:
-        import psutil  # type: ignore
-        vm = psutil.virtual_memory()
-        return (vm.total // (1 << 20), vm.available // (1 << 20))
-    except Exception:
-        pass
     if sys.platform == "win32":
         try:
             import ctypes
