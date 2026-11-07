@@ -95,7 +95,7 @@ Orbit source
 
 ## Where this work is tracked
 
-Optimization work is not planned here. [ENGINEERING.md](../ENGINEERING.md) §7
+Optimization work is not planned here. [DEFECTS.md](DEFECTS.md)
 owns the per-finding record, including the measured ship decisions and why a
 change was reverted. This page answers one question only: what the compiler
 actually does to your program today.

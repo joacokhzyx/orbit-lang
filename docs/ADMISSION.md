@@ -127,7 +127,7 @@ arena line and exits 3 -- and so does a refusal where the reservation itself is
 gone, since an exhausted arena has no room to answer with. That case belongs to
 the reservation, not to this boundary.
 
-Before/after and the fixture are in `ENGINEERING.md` §7 row `admission-lease-abort`.
+Before/after and the fixture are in `docs/internals/DEFECTS.md` row `admission-lease-abort`.
 `python scripts/kynx_gate.py live` and `runtime/test_admission.c` (T15) pin it.
 
 ## Verifying it yourself

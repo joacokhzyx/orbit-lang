@@ -62,7 +62,7 @@ table names the document that decides each topic.
 | IR text and semantics | `IR_SPEC.md` |
 | Commands and their output | `COMMANDS.md` |
 | Platforms, versions and limits | `SUPPORTED.md` |
-| Gates, invariants and debt | `../ENGINEERING.md` |
+| Gates, invariants and debt | `../ENGINEERING.md`, `internals/DEFECTS.md` |
 | Branches, review and releases | `../CONTRIBUTING.md` |
 | Test corpora | `tests/*/README.md` and the runner output |
 

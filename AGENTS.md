@@ -95,7 +95,7 @@ What may run in parallel, and why:
 | `runtime/*.c` | yes, carefully | the CI step compiles them by filename, so a shared `-D` is a shared change |
 | `docs/*.md` | yes, different files | |
 | `scripts/*.py` | yes, with one condition | a new script arrives with its `alive_check` row in the same commit |
-| `ENGINEERING.md` §7/§8, `AGENTS.md` | **no** | they are contracts; two agents editing the debt table step on each other |
+| `docs/internals/DEFECTS.md`, `ENGINEERING.md` §8, `AGENTS.md` | **no** | they are contracts; two agents editing the debt table step on each other |
 
 Use `git worktree` for two agents editing `compiler/**/*.orb` at once. The merge point is a commit, which is where `verify_seed` has something to say again. Without it, whichever agent promotes deletes the other's working binary.
 
@@ -120,7 +120,7 @@ A NO to any of the three means redo, with no argument about whether the case "sh
 Stop and ask rather than push on, when:
 
 - **A ratchet turns green.** That is good news: you fixed something recorded as broken. Re-declare the header with the diagnostic you measured and move the program to `tests/suite/` if it is no longer a defect.
-- **`ENGINEERING.md` §7 says something your change contradicts.** The debt table is the contract. Update it in the same commit, or ask first. Do not leave it lying to keep your diff smaller.
+- **An open row in `docs/internals/DEFECTS.md` says something your change contradicts.** That table is the contract. Update it in the same commit, or ask first. Do not leave it lying to keep your diff smaller.
 - **`verify_seed` fails after your `--promote`.** The sources do not converge to the canonical. Do not hand-edit the canonical to make it pass.
 - **A gate you did not run comes back red.** `gh run list --limit 3`, then `gh run view <id> --log`, and the STEP NAME is the finding. If it is not yours, do not fix it.
 - **You are about to do "one more thing" in the same place.** Every class of bug found here is the same loop: fixing A revealed B, fixing B revealed C. One commit is one defect. When you want to open the second, stop.
@@ -151,7 +151,7 @@ Write for the maintainer who joined yesterday. They read English; they do not re
 
 - Documentation is impersonal. The page says what was measured, not who measured it. A commit body may say "I".
 - One idea per sentence. Average under 22 words, none over 40. A semicolon usually means two sentences.
-- Write what the reader can act on. A §7 row holds a defect, its measurement and its decision. It is not a diary, and the list of everything checked is not the finding.
+- Write what the reader can act on. A row in `docs/internals/DEFECTS.md` holds a defect, its measurement and its decision. It is not a diary, and the list of everything checked is not the finding.
 - A table is for more than two columns. Two facts are a sentence.
 - Name the thing. "The 99 `return ""` sites", not "the surface". "What is left", not "the residual". "The line the gate checks", not "the witness".
 - Every claim carries a command, a number or a line. "Faster", "cleaner" and "more robust" carry nothing.
@@ -161,7 +161,7 @@ Write for the maintainer who joined yesterday. They read English; they do not re
 
 Banned in new text: shape, surface, lane, load-bearing, battery, premise, clause, witness, residual, honest. They are our own metaphors, and a reader cannot look them up. Generic AI vocabulary is not the problem here: counting this repository on 2026-10-19 found none of it, so do not spend lines banning it.
 
-Defined once, used freely: **contract** (ENGINEERING.md §7, which a change must not contradict), **gate** (a check that fails the build), **row** (one line of the §7 table), **ceiling** (a measured upper bound on a named machine).
+Defined once, used freely: **contract** (`docs/internals/DEFECTS.md` and `ENGINEERING.md` §8, which a change must not contradict), **gate** (a check that fails the build), **row** (one line of the `DEFECTS.md` table), **ceiling** (a measured upper bound on a named machine).
 
 ## Commits
 
