@@ -91,6 +91,10 @@ On Windows:
 
 The first argument is the port; with none, the service uses 3000 (or the `port` its file declares). Open <http://localhost:8080/health> and the service answers `{"status":"UP","version":"0.1.0","uptime_seconds":N}`. `0` asks the system for a free port, and the banner prints the one it got.
 
+Measured on 2026-11-07 from a clean clone at `0c1c3bc`: the bootstrap converged
+on its first iteration against the committed canonical, `hello` exited 0, and
+`/health` answered 200 with `{"status":"UP","version":"0.1.0","uptime_seconds":0}`.
+
 Database examples require the SQLite support described in [Platform Support](SUPPORTED.md#platforms).
 
 ## 5. Editor Setup
