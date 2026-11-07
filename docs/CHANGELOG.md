@@ -35,6 +35,17 @@ Native backend:
 
 Runtime and services:
 
+- **The runtime reads its own standard input.** A language server needs the
+  protocol stream, and the runtime had no read of stdin: the editor story
+  stopped at `orbit check` on save. `orbit_stdin_read_line` returns one line
+  without its terminator and drops a CR, `orbit_stdin_read_bytes(n)` keeps
+  asking until it has n bytes or the stream ends, and `orbit_stdin_at_end`
+  separates an empty line from EOF. `runtime/test_stdin.c` drives the three
+  through a file handed to `stdin`, and the same four assertions run on both
+  hosts. A program reaches them through `extern fn`; the backend injects the
+  arena by name. Measured: an Orbit program that reads `Content-Length: 8`, the
+  blank line and the body prints `{"a": 1}` and the end flag.
+
 - **The admission layer is named after what it does.** `Kynx` was the codename
   of the lease and admission code: every server printed `- Secured by Kynx.`,
   a blocked request answered `429 Too Many Requests - Kynx admission control`,

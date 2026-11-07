@@ -630,4 +630,62 @@ OrbitResult orbit_random_bytes(OrbitArena* arena, orbit_int n) {
     }
 }
 
+/* ── Standard input ───────────────────────────────────────────────────────
+ * A language that hosts a language server has to read the protocol stream,
+ * and the runtime had no read of stdin at all. `read_line` stops at LF and
+ * drops a CR before it, so a stream written by a Windows client and one
+ * written by a POSIX client read the same. `read_bytes` takes exactly what
+ * the caller asks for, because a JSON-RPC body has no line structure and may
+ * contain any byte but NUL: an orbit_string is NUL-terminated, so a body with
+ * a NUL truncates and the caller sees a short read as an empty one.
+ * `at_end` is what tells an empty line from the end of the stream. */
+orbit_string orbit_stdin_read_line(OrbitArena* arena) {
+    orbit_int cap = 128;
+    orbit_int len = 0;
+    char* buf;
+    int c;
+    if (!arena) return "";
+    buf = (char*)orbit_alloc_try(arena, (size_t)cap);
+    if (!buf) return "";
+    while ((c = fgetc(stdin)) != EOF && c != '\n') {
+        if (len + 1 >= cap) {
+            char* grown = (char*)orbit_alloc_try(arena, (size_t)cap * 2);
+            if (!grown) return "";
+            memcpy(grown, buf, (size_t)len);
+            buf = grown;
+            cap *= 2;
+        }
+        if (c != '\r') {
+            buf[len] = (char)c;
+            len++;
+        }
+    }
+    if (c == EOF && len == 0) return "";
+    buf[len] = 0;
+    return buf;
+}
+
+orbit_string orbit_stdin_read_bytes(OrbitArena* arena, orbit_int n) {
+    char* buf;
+    size_t got;
+    if (!arena || n <= 0) return "";
+    buf = (char*)orbit_alloc_try(arena, (size_t)n + 1);
+    if (!buf) return "";
+    got = 0;
+    /* A pipe may deliver less than asked in one call; a protocol reader has to
+       keep asking until the body it was promised has arrived, or the stream
+       ends. */
+    while (got < (size_t)n) {
+        size_t r = fread(buf + got, 1, (size_t)n - got, stdin);
+        if (r == 0) break;
+        got += r;
+    }
+    buf[got] = 0;
+    return buf;
+}
+
+bool orbit_stdin_at_end(void) {
+    return feof(stdin) != 0;
+}
+
 #endif

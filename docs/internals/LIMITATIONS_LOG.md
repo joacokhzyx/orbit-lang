@@ -391,13 +391,14 @@ The VS Code extension in `editors/vscode/` registers syntax highlighting and run
 `orbit check <file>` on save, and that is the whole editor story. There is no
 `orbit lsp` subcommand and no server behind one.
 
-A minimal server needs two things the language does not have today. The runtime
-exposes argv, `exec`, the environment, cwd, temp and the clock, and nothing that
-reads the process's own standard input: `compiler/host/extern.orb` names
-`orbit_os_argv_selfhost`, `orbit_os_exec_selfhost`, `orbit_os_env_selfhost`,
-`orbit_os_cwd_selfhost` and `orbit_os_temp_dir_selfhost`, and no read of stdin
-or of N bytes. On top of that read, JSON-RPC needs a Content-Length framer;
-`std/json/json.orb` already parses the bodies.
+A minimal server needs the process's own standard input. The runtime exposes
+argv, `exec`, the environment, cwd, temp and the clock, and since 2026-11-07
+three reads of stdin: `orbit_stdin_read_line` (one line, CR dropped),
+`orbit_stdin_read_bytes(n)` (exactly n bytes, looping over short reads) and
+`orbit_stdin_at_end` (`feof`). `runtime/test_stdin.c` drives all three through a
+file handed to `stdin`, so the same four assertions run on both hosts. On top of
+that read, JSON-RPC needs a Content-Length framer; `std/json/json.orb` already
+parses the bodies.
 
 A server written in another language would bring back the dependency this
 project exists to remove. The order is the two reads, a gate that feeds them,

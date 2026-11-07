@@ -79,6 +79,7 @@ def prog(name: str, *, vendor: bool = False, defines=(), warnings=False,
 # CI ran them in, so a failure names the same neighbour it always did.
 PROGRAMS = [
     prog("arena"),
+    prog("stdin"),
     prog("file"),
     prog("oom", posix_only=True),
     prog("http_parse", vendor=True),
