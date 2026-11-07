@@ -112,7 +112,7 @@ SQLite DLL (git-ignored), not part of the repository.
 ## Contributing
 
 Start with the [Contributing Guide](CONTRIBUTING.md), the
-[Code of Conduct](CODE_OF_CONDUCT.md) and the [branch rules](docs/BRANCHES.md).
+[Code of Conduct](CODE_OF_CONDUCT.md) and the [branch rules](CONTRIBUTING.md#branches).
 Security reports follow [SECURITY.md](SECURITY.md).
 
 `scripts/dev.py` (through `make`) is the entry point and owns the gate flags.

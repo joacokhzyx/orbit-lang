@@ -1446,7 +1446,7 @@ Nothing else. No environment variable, no search path you can set, no
 
 **Consequence: a released compiler cannot import `std/`.** The release ships
 three things - the platform binary, `orbit_bootstrap.c`, and the seed
-artifacts. There is no `std/` in it (see [Release Artifacts](RELEASES.md)), and
+artifacts. There is no `std/` in it (see [Release Artifacts](../CONTRIBUTING.md#releases)), and
 no installation step puts one next to the binary. So this is the state of a
 freshly downloaded compiler:
 
