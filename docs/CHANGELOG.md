@@ -334,7 +334,7 @@ causes: the DB subset rule it keeps, and a runtime symbol older than its pin.
 
 Runtime:
 
-- **A rewind refuses a checkpoint from another segment.** `orbit_alloc_try` moves `base` to a fresh reservation on the overflow path and leaves `generation` where it was, so an offset taken before one is a distance from a different base. `orbit_arena_rewind` compared only the epoch and the cursor, accepted such an offset, and put the bump pointer inside bytes the live segment had already handed out -- the next allocation returned them a second time. The arena counts the segment its cursor lives in, a checkpoint records it, and a mismatch is refused. Removing the rule in a scratch copy of `runtime/arena_checkpoint.c` makes the new test fail at `assert(!orbit_arena_rewind(arena, cp_first))` (`runtime/test_arena.c:272`), so the test is not vacuous. `runtime_c` reads 25/25 on Windows and 26/26 on Linux; `size` on the members moved `arena` 1 144 to 1 176 and `arena_checkpoint` 224 to 256, and `docs/STARTUP.md` records both and names the commit each `hello` row was measured at.
+- **A rewind refuses a checkpoint from another segment.** `orbit_alloc_try` moves `base` to a fresh reservation on the overflow path and leaves `generation` where it was, so an offset taken before one is a distance from a different base. `orbit_arena_rewind` compared only the epoch and the cursor, accepted such an offset, and put the bump pointer inside bytes the live segment had already handed out -- the next allocation returned them a second time. The arena counts the segment its cursor lives in, a checkpoint records it, and a mismatch is refused. Removing the rule in a scratch copy of `runtime/arena_checkpoint.c` makes the new test fail at `assert(!orbit_arena_rewind(arena, cp_first))` (`runtime/test_arena.c:272`), so the test is not vacuous. `runtime_c` reads 25/25 on Windows and 26/26 on Linux; `size` on the members moved `arena` 1 144 to 1 176 and `arena_checkpoint` 224 to 256, and [Program start-up](ARCHITECTURE.md#program-start-up-and-the-runtime-archive) records both and names the commit each `hello` row was measured at.
 
 - **The ceiling line names where its number came from.** The refusal always ended with `MB from ORBIT_ARENA_MAX_MB`, so a process that never set the variable was told to unset a variable nobody had set; the number was three quarters of physical memory. The arena records which source produced its cap, `orbit_oom_put_ceiling` prints that wording, and a child inherits it with the cap. `runtime/test_arena.c` asserts both texts byte for byte, and forcing that wording back to the variable name fails the assertion at `runtime/test_arena.c:345`. `docs/ARENA.md` names both sources; the two `docs/KNOWN_LIMITATIONS.md` transcripts that print the old wording are dated 2026-11-02 runs and stay. `arena_alloc` grew from 3 016 to 3 172 `.text` bytes.
 
@@ -391,7 +391,7 @@ Runtime:
   `argv`, the console mode and the crash handler only when needed. The native
   backend refuses an `r6.exe` that does not answer `--version` with a known IR
   protocol within 5 s, and stops an `r6.exe` build after 300 s
-  (`ORBIT_R6_TIMEOUT_MS`). See [Program start-up](STARTUP.md).
+  (`ORBIT_R6_TIMEOUT_MS`). See [Program start-up](ARCHITECTURE.md#program-start-up-and-the-runtime-archive).
 
 Native backend:
 

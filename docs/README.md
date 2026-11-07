@@ -19,7 +19,6 @@ complete map; the second names the document that decides each topic.
 | How does memory management work? | [`ARENA.md`](ARENA.md) | The arena allocator and its retention policy |
 | How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
 | What is experimental? | [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Compiler research, with no plan attached |
-| What does a program start? | [`STARTUP.md`](STARTUP.md) | The start-up rules the emitter applies |
 | How do I write a library? | [`LIBRARIES.md`](LIBRARIES.md) | Imports, the flat namespace and visibility |
 | What do error codes mean? | [`ERROR_CODES.md`](ERROR_CODES.md) | Compiler diagnostics by code |
 | What do the doctor checks mean? | [`DOCTOR.md`](DOCTOR.md) | The check catalogue and its fixes |
