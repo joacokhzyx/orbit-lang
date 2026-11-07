@@ -12,8 +12,6 @@ complete map; the second names the document that decides each topic.
 | Which commands exist? | [`COMMANDS.md`](COMMANDS.md) | User commands, backends, errors, exit codes |
 | How does the terminal output look? | [`CLI_UI.md`](CLI_UI.md) | Three tiers, overrides, motion and snapshots |
 | How do I write Orbit? | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | The user-visible language, with limits stated |
-| I want a quick syntax tour | [`SYNTAX_GUIDE.md`](SYNTAX_GUIDE.md) | Short examples for each construct |
-| What can I build in 30 minutes? | [`TOUR.md`](TOUR.md) | Runnable snippets with expected output |
 | What is missing or surprising? | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | The measured limits, with workarounds |
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
 | How does memory management work? | [`ARENA.md`](ARENA.md) | The arena allocator and its retention policy |

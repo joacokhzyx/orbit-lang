@@ -36,7 +36,7 @@ per-route costs at `/_ledger`. On Windows use `.\orbit.exe` and
 
 ## 30 minutes: learn the language
 
-The [Language Tour](docs/TOUR.md) walks through functions, models, routes,
+The [Language Tour](docs/GETTING_STARTED.md#a-thirty-minute-tour) walks through functions, models, routes,
 SQLite reads and telemetry. Every snippet runs, and every output is verified.
 Then pick a tutorial:
 
@@ -85,7 +85,7 @@ Start at the [documentation map](docs/README.md), which lists every page by the
 question it answers. The pages reached most often:
 
 - [Getting Started](docs/GETTING_STARTED.md) · [FAQ](docs/FAQ.md) · [Known Limitations](docs/KNOWN_LIMITATIONS.md)
-- [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Language Tour](docs/TOUR.md)
+- [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Language Tour](docs/GETTING_STARTED.md#a-thirty-minute-tour)
 - [Architecture](docs/ARCHITECTURE.md) · [Performance](docs/internals/PERF.md) · [Changelog](docs/CHANGELOG.md)
 - [Platform Support](docs/SUPPORT.md) · [Versioning](docs/VERSIONING.md) · [Server Examples](examples/README.md)
 

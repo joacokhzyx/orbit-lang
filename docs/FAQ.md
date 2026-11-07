@@ -46,7 +46,7 @@ about 0.1.0 is ahead of the data.
 **6. What can I build today?**
 Read-heavy JSON services over SQLite: routes, query values,
 request bodies, filtered queries, status codes, live telemetry.
-The [Tour](TOUR.md) takes 30 minutes. The tutorials go further.
+The [Tour](GETTING_STARTED.md#a-thirty-minute-tour) takes 30 minutes. The tutorials go further.
 
 **7. What can't Orbit do yet?**
 The known list: multi-host clustering, `down` migrations, a
@@ -137,7 +137,7 @@ parity, behavior suite all in CI) and from publishing
 limits next to features, not from a claim.
 
 **20. How can I help?**
-Run the [Tour](TOUR.md), file issues with repros (small `.orb`
+Run the [Tour](GETTING_STARTED.md#a-thirty-minute-tour), file issues with repros (small `.orb`
 files plus expected vs actual), and grow the behavior suite -
 one focused test per behavior. Start with
 [Contributing](../CONTRIBUTING.md). Bug reports with failing
