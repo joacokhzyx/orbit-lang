@@ -705,6 +705,11 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     if receiverText == "list" || elementKind != "" {
                         if ma.field == "push" || ma.field == "set" { return "void" }
                     }
+                    // `s.at(i)` is the character code, which the build types
+                    // `int` (`compiler/ir/builder.orb:1984`). This pass answered
+                    // the string spelling for it, so `c - 48` over an `at` read
+                    // was two unknown operands in every lexer-shaped loop.
+                    if receiverText == "string" && ma.field == "at" { return "int" }
                     if ma.field == "slice" || ma.field == "at" { return "string" }
                 }
                 _ => {}
