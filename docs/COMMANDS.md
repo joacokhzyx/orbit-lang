@@ -12,7 +12,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit build --backend=native <file>` | The same, through R6 and without a C compiler (Windows and Linux x86-64) | `orbit build --backend=native main.orb -o main` |
 | `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
 | `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
-| `orbit dev [file]` | Watch sources, rebuild and restart on change (drains on both hosts; [the Windows ask is a named channel](KNOWN_LIMITATIONS.md#a-windows-stop-drains-through-a-named-channel)) | `orbit dev svc.orb` |
+| `orbit dev [file]` | Watch sources, rebuild and restart on change (drains on both hosts; [the Windows ask is a named channel](internals/LIMITATIONS_LOG.md#a-windows-stop-drains-through-a-named-channel)) | `orbit dev svc.orb` |
 | `orbit stop` | Stop the service recorded in `.orbit/start.pid` (idempotent) | `orbit stop` |
 | `orbit migrate <file>` | Apply the program's migrations and exit; `ORBIT_MIGRATE_DOWN=<version>` rolls back to that version | `orbit migrate main.orb` |
 | `orbit check <file>` | Parse, typecheck and verify the IR without emitting code | `orbit check main.orb` |
@@ -89,7 +89,7 @@ file's `port` declaration is used, and with neither, the default is 3000.
 `orbit dev` does the same in a watch loop. It polls a content hash every
 second over the entry file plus its transitive imports, and rebuilds on
 change. It stops the child gracefully first (SIGTERM on POSIX, a named stop
-channel on Windows, per [Known Limitations](KNOWN_LIMITATIONS.md#a-windows-stop-drains-through-a-named-channel)),
+channel on Windows, per [Known Limitations](internals/LIMITATIONS_LOG.md#a-windows-stop-drains-through-a-named-channel)),
 escalating to kill after ~3 s. A failed rebuild
 keeps watching without a child. The child pid lives in
 `.orbit/dev.pid` so the next `dev` reaps a stale child from Ctrl-C.
@@ -98,7 +98,7 @@ Stop a server with Ctrl-C or `orbit stop`. A service binary writes its pid
 to `.orbit/start.pid` at boot (only when `.orbit/` exists) and removes it
 on graceful shutdown. So `stop` in the project directory ends exactly that
 process: SIGTERM drain first on POSIX, a named stop channel on Windows per
-[Known Limitations](KNOWN_LIMITATIONS.md#a-windows-stop-drains-through-a-named-channel), escalating
+[Known Limitations](internals/LIMITATIONS_LOG.md#a-windows-stop-drains-through-a-named-channel), escalating
 to kill after ~3 s. `stop` is idempotent: nothing recorded, or a stale
 record from a killed server, both exit 0 after cleanup. `start` refuses to
 build while the recorded server is alive (`already running ... run `orbit stop`

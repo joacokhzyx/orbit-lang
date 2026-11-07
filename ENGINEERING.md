@@ -5,7 +5,7 @@
 
 ## Document Status
 
-This document is the implementation contract. It describes quality gates, invariants, and active engineering work. For the documentation map, use [docs/README.md](docs/README.md). For user-facing language behavior, use [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md). For what is not supported today, use [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
+This document is the implementation contract. It describes quality gates, invariants, and active engineering work. For the documentation map, use [docs/README.md](docs/README.md). For user-facing language behavior, use [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md). For what is not supported today, use [docs/internals/LIMITATIONS_LOG.md](docs/internals/LIMITATIONS_LOG.md).
 
 The build is the self-hosted Orbit compiler. `compiler/**/*.orb` is the only implementation of the compiler. There is no second implementation and no predecessor language in the tree. It reads `.orb` source, emits C, and bootstraps from the committed canonical C at `compiler/selfhost/stage3.exe.c`. The C runtime is `runtime/*.c`. The gates are Python 3 standard-library scripts in `scripts/`. See [docs/internals/SOVEREIGNTY.md](docs/internals/SOVEREIGNTY.md) for the trust model and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the pipeline.
 
@@ -840,7 +840,7 @@ python scripts/corpus_gates.py werror --cc "$CC" --compiler /tmp/orbit_fp
 #        defects - the last one, F-0025, flipped to expect-error when E1009 gave
 #        the assignment target a rule. The history of
 #        the 19 programs the compiler used to accept is in
-#        docs/KNOWN_LIMITATIONS.md, first section.
+#        docs/internals/LIMITATIONS_LOG.md, first section.
 python scripts/corpus_gates.py negative --compiler /tmp/orbit_fp
 
 # 6b. [CI] `orbit frontend` against tests/frontend/expected/. This had NO CI

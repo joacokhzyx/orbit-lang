@@ -329,7 +329,7 @@ memory is the proxy), graceful drain on Windows (the stop is a
 kill), and a success/error split in the latency percentiles.
 Multipart uploads and forward migrations used to be on this list
 and work now. Full list with workarounds:
-[Known Limitations](KNOWN_LIMITATIONS.md).
+[Known Limitations](internals/LIMITATIONS_LOG.md).
 
 **8. When does `create()` return `false`?**
 When the `id` already exists - it is the primary key - or when
@@ -416,3 +416,29 @@ files plus expected vs actual), and grow the behavior suite -
 one focused test per behavior. Start with
 [Contributing](../CONTRIBUTING.md). Bug reports with failing
 examples help more than feature requests right now.
+## What is not supported yet
+
+The list below is what a program cannot rely on today. Each item links to the
+measurement, its date and its command in
+[the dated record](internals/LIMITATIONS_LOG.md).
+
+- **No language server.** `editors/vscode/` highlights the language and runs
+  `orbit check` on save; there is no diagnostics server, completion or
+  navigation ([measured](internals/LIMITATIONS_LOG.md#an-editor-gets-checks-on-save-not-a-language-server)).
+- **`orbit cluster` is single-host.** It starts N copies of one service on this
+  machine: no shared state, no proxy, no failover ([measured](internals/LIMITATIONS_LOG.md#cluster-is-single-host-only)).
+- **Energy is measured only where sensors exist.** Joules come from Linux RAPL;
+  on Windows the ledger reports CPU time and memory instead
+  ([measured](internals/LIMITATIONS_LOG.md#no-joules-on-windows)).
+- **Writes cover the measured set.** `Model.create`, `update` and `delete`
+  report whether they changed a row, and a duplicate primary key or a missing
+  table is `false`; constraints and ad-hoc DDL outside that set are not
+  measured ([measured](internals/LIMITATIONS_LOG.md#writes-work-but-duplicates-and-missing-tables-fail)).
+- **Generic inference is one rule, not a solver.** `Box { v: 1 }` instantiates
+  from the value written for the field that uses `T`; a parameter written as
+  `Box` with no argument does not infer one
+  ([measured](internals/LIMITATIONS_LOG.md#a-generic-model-monomorphises-an-expression-infers-the-argument-a-signature-writes-it)).
+- **`orbit doctor` fits the machine and skips tool state.** One process
+  typechecks the tree it walks, so the scan has to fit the ceiling on committed
+  bytes; dot-directories and what `.gitignore` names are not scanned
+  ([measured](internals/LIMITATIONS_LOG.md#doctor-over-a-whole-tree-fits-the-machine-it-runs-on)).

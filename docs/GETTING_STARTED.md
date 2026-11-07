@@ -298,7 +298,7 @@ directory and seeds demo rows, so `GET /notes` answers `200`
 immediately. The `?` placeholder keeps input parameterized -
 never build SQL by concatenating query values. Writes via
 `Note.create()` store the row and answer `true` (duplicates
-answer `false`). See [Known Limitations](KNOWN_LIMITATIONS.md).
+answer `false`). See [Known Limitations](internals/LIMITATIONS_LOG.md).
 
 ### 9. Live telemetry (2 min)
 

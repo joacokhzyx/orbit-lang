@@ -53,7 +53,7 @@ The missing feature was a generic tagged union, and it closed in three
 parts: the parser reading a type parameter list on `union` (2026-11-01),
 the variant registry keyed by the owner the program wrote rather than by the
 bare variant name, so two instances could coexist (2026-11-01,
-`docs/KNOWN_LIMITATIONS.md`), and the substitution itself -- an instance
+`../../docs/internals/LIMITATIONS_LOG.md`), and the substitution itself -- an instance
 minted from the position that *writes* the type, so `Option<int>` and
 `Option<string>` are two declared tag sets with two payload types
 (2026-11-02, `8e229fe`). `tests/std/test_option.orb` covers the three

@@ -345,7 +345,7 @@ The compiler does not check everything. The rules below are the gaps to code
 around. The mechanism underneath is
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag).
 The full list of programs that compile and compute the wrong answer is in
-[known limitations](KNOWN_LIMITATIONS.md).
+[known limitations](internals/LIMITATIONS_LOG.md).
 
 ### An `int` is 64 bits and it wraps silently
 
@@ -916,7 +916,7 @@ payload, and `tests/std/test_option.orb` covers the positions that write an
 instance.
 
 What the language still cannot express is in
-[Known Limitations](KNOWN_LIMITATIONS.md). A module that would need one of those
+[Known Limitations](internals/LIMITATIONS_LOG.md). A module that would need one of those
 goes into quarantine, and its header names the feature that has to land first.
 
 ## System telemetry
@@ -979,7 +979,7 @@ the supported list and exit codes.
 
 This reference states current behavior only. History lives in git. The value
 model is described in [ARCHITECTURE.md](ARCHITECTURE.md), measured gaps in
-[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md), module APIs in the `std/`
+[the limitations log](internals/LIMITATIONS_LOG.md), module APIs in the `std/`
 headers (exercised under `tests/std/`), and command details in
 [COMMANDS.md](COMMANDS.md).
 

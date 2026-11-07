@@ -11,7 +11,6 @@ complete map; the second names the document that decides each topic.
 | How do I install it and run a first program? | [`GETTING_STARTED.md`](GETTING_STARTED.md) | Prerequisites, build, first compile and first server |
 | Which commands exist? | [`COMMANDS.md`](COMMANDS.md) | User commands, backends, errors, exit codes |
 | How do I write Orbit? | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | The user-visible language, with limits stated |
-| What is missing or surprising? | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | The measured limits, with workarounds |
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
 | How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
 | What is experimental? | [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Compiler research, with no plan attached |

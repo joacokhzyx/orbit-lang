@@ -228,7 +228,7 @@ argument types is the whole workaround.
 
 For a user, the summary is: **annotate your bindings, and treat a value that
 crosses a `string` boundary as the one place the compiler will not help you.**
-`docs/KNOWN_LIMITATIONS.md` records what this costs. `docs/LANGUAGE_REFERENCE.md#imports-and-visibility`
+`internals/LIMITATIONS_LOG.md` records what this costs. `docs/LANGUAGE_REFERENCE.md#imports-and-visibility`
 covers the other place the same missing types bite, at import boundaries.
 
 ---

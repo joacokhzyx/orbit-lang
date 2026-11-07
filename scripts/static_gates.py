@@ -500,7 +500,7 @@ def self_test_walk(args) -> int:
 # number, only quieter.
 #
 # Scope. Present-tense counts of the test corpus and the standard library, in the
-# documents that describe the tree as it is today: docs/KNOWN_LIMITATIONS.md,
+# documents that describe the tree as it is today: docs/internals/LIMITATIONS_LOG.md,
 # docs/ARCHITECTURE.md, docs/IR_SPEC.md, docs/LANGUAGE_REFERENCE.md, ENGINEERING.md (the section
 # 6 row and the section 8 command list), and the README of the two corpora that
 # count themselves.
@@ -624,16 +624,16 @@ def measure(root: pathlib.Path) -> dict:
 # (relative path, pattern with {N} per number, keys in capture order, what the
 # claim is about). Split by document, in the order a reader meets them.
 CLAIMS = [
-    # docs/KNOWN_LIMITATIONS.md.
-    ("docs/KNOWN_LIMITATIONS.md",
+    # docs/internals/LIMITATIONS_LOG.md.
+    ("docs/internals/LIMITATIONS_LOG.md",
      r"Finished negative: {N}/{N} pass \({N} known defects still accepted\)",
      ["negative_cases", "negative_cases", "negative_known_defect"],
      "negative gate transcript"),
-    ("docs/KNOWN_LIMITATIONS.md", r"(?m)^## `std/` is {N} modules;",
+    ("docs/internals/LIMITATIONS_LOG.md", r"(?m)^## `std/` is {N} modules;",
      ["std_modules"], "standard library, section heading"),
-    ("docs/KNOWN_LIMITATIONS.md", r"\*\*{N} modules, and all {N} compile",
+    ("docs/internals/LIMITATIONS_LOG.md", r"\*\*{N} modules, and all {N} compile",
      ["std_modules", "std_modules"], "standard library, merge claim"),
-    ("docs/KNOWN_LIMITATIONS.md", r"is {N} files and runs\s+{N}/{N} green",
+    ("docs/internals/LIMITATIONS_LOG.md", r"is {N} files and runs\s+{N}/{N} green",
      ["std_tests", "std_tests", "std_tests"], "tests/std coverage"),
 
     # docs/ARCHITECTURE.md.
@@ -1118,7 +1118,7 @@ _CITE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TARGETS = (
     "AGENTS.md",
     "ENGINEERING.md",
-    "docs/KNOWN_LIMITATIONS.md",
+    "docs/internals/LIMITATIONS_LOG.md",
     "docs/ARCHITECTURE.md",
     "docs/IR_SPEC.md",
     "docs/internals/ARENA.md",

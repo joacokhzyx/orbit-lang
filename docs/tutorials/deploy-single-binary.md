@@ -140,4 +140,4 @@ cluster down: all 2 nodes stopped, state removed.
 State lives in `.orbit/` (git-ignored). Logs stay in
 `.orbit/logs/` after `down`. One cluster per directory.
 `drain` and rolling restart are best-effort stops on Windows
-(drain is kill there) - see [Known Limitations](../KNOWN_LIMITATIONS.md).
+(drain is kill there) - see [Known Limitations](../internals/LIMITATIONS_LOG.md).
