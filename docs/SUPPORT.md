@@ -26,7 +26,7 @@ ORBIT_CC -> CC -> cc
 
 That is `compiler/host/pipeline.orb` and nothing else. `orbit doctor` is the one
 exception: it reports a finding when no compiler answers, so it also probes
-`gcc` and `clang` off `PATH` - see [orbit doctor](DOCTOR.md).
+`gcc` and `clang` off `PATH` - see [orbit doctor](COMMANDS.md#orbit-doctor-checks).
 
 Set `ORBIT_CC` when the compiler is not discoverable or when a specific compiler must be tested.
 

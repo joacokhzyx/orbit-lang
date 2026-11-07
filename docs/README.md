@@ -10,13 +10,11 @@ complete map; the second names the document that decides each topic.
 | What is Orbit, and how do I run a service? | [`../README.md`](../README.md) | A statically typed language for services, with a five-minute start |
 | How do I install it and run a first program? | [`GETTING_STARTED.md`](GETTING_STARTED.md) | Prerequisites, build, first compile and first server |
 | Which commands exist? | [`COMMANDS.md`](COMMANDS.md) | User commands, backends, errors, exit codes |
-| How does the terminal output look? | [`CLI_UI.md`](CLI_UI.md) | Three tiers, overrides, motion and snapshots |
 | How do I write Orbit? | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | The user-visible language, with limits stated |
 | What is missing or surprising? | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | The measured limits, with workarounds |
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
 | How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, limits and request handling |
 | What is experimental? | [`internals/OPTIMIZER_EXPERIMENTS.md`](internals/OPTIMIZER_EXPERIMENTS.md) | Compiler research, with no plan attached |
-| What do the doctor checks mean? | [`DOCTOR.md`](DOCTOR.md) | The check catalogue and its fixes |
 | How does `orbit cluster` work? | [`CLUSTER.md`](CLUSTER.md) | Single-host process orchestration |
 | How is the compiler bootstrapped? | [`internals/SELF_HOSTING.md`](internals/SELF_HOSTING.md) | Why and how the compiler compiles itself |
 | What is trusted in the bootstrap? | [`internals/SOVEREIGNTY.md`](internals/SOVEREIGNTY.md) | Root of trust, fixed point, recovery |

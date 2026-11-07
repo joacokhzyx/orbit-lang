@@ -237,7 +237,7 @@ server ever opened a session, so they were structurally zero.
 of their own, and the module is gone.
 `tests/doctor/golden/d032_arena_overflow` and its new negative
 `d032_silent_without_overflow` pin the measured behaviour, and D032's row in
-`docs/DOCTOR.md` now states the narrow condition under which the column can be
+`docs/COMMANDS.md#orbit-doctor-checks` now states the narrow condition under which the column can be
 non-zero at all.
 
 **The join is exact, and it is deferred by one request per worker.** The gate is

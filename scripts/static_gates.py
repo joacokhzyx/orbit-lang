@@ -1124,7 +1124,6 @@ TARGETS = (
     "docs/internals/ARENA.md",
     "docs/LANGUAGE_REFERENCE.md",
     "docs/COMMANDS.md",
-    "docs/DOCTOR.md",
     "docs/internals/PERF.md",
     "tests/negative/README.md",
     "std/README.md",

@@ -526,7 +526,7 @@ lists files that need formatting. `orbit doctor` is a read-only project scan
 reporting findings `D001` through `D008` (toolchain, route conflicts, unused
 `private fn`, unused `model`, unknown `system` member, trailing whitespace,
 missing final newline, and files that do not compile). See
-[DOCTOR.md](DOCTOR.md).
+[orbit doctor checks](COMMANDS.md#orbit-doctor-checks).
 
 ### There Is No Build Cache and No Config Loader
 
