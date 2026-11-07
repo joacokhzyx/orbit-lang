@@ -79,15 +79,17 @@ The repository includes service examples in [examples/README.md](../examples/REA
 
 ```sh
 ./orbit build examples/health_service.orb -o health_service
-./health_service
+./health_service 8080
 ```
 
 On Windows:
 
 ```powershell
 .\orbit.exe build examples/health_service.orb -o health_service.exe
-.\health_service.exe
+.\health_service.exe 8080
 ```
+
+The first argument is the port; with none, the service uses 3000 (or the `port` its file declares). Open <http://localhost:8080/health> and the service answers `{"status":"UP","version":"0.1.0","uptime_seconds":N}`. `0` asks the system for a free port, and the banner prints the one it got.
 
 Database examples require the SQLite support described in [Platform Support](SUPPORTED.md#platforms).
 

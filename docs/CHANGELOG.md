@@ -62,6 +62,17 @@ Native backend:
 
 Runtime and services:
 
+- **A service checks its port argument, and `0` names the port it got.**
+  `./app 8080` always worked, but the argument went through `atoi`, so
+  `./app --port 8080` answered 0: the server bound a port the caller was never
+  told about and the banner printed `Local: http://localhost:0`. The argument
+  is read with `strtol` now and refused, one diagnostic and exit 2, when it is
+  not a number in 0..65535. `0` asks the system for a free port, and the banner
+  prints the one the socket got, from `getsockname`.
+  `scripts/admission_gate.py live` carries both halves: a word where the port
+  goes exits 2, and a server started with `0` names a port that answers
+  `/health`. Found by running [Getting Started](GETTING_STARTED.md) as written.
+
 - **The runtime reads its own standard input.** A language server needs the
   protocol stream, and the runtime had no read of stdin: the editor story
   stopped at `orbit check` on save. `orbit_stdin_read_line` returns one line

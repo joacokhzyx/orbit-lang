@@ -391,7 +391,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   `compiler/emit/c_backend.orb:2377-2398`). With migrations or DB use, the preamble
   initializes `orbit_db_init(".orbit/data/app.db")`
   (`compiler/emit/route_runtime.orb:647`) and closes with `orbit_db_close()`
-  (`compiler/emit/route_runtime.orb:802`).
+  (`compiler/emit/route_runtime.orb:822`).
 
 ## 3. Calling convention
 

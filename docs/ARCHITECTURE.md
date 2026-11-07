@@ -115,8 +115,11 @@ the one with a runtime effect. Sema requires an integer literal in 1..65535
 (`checkConfigDecl` in `compiler/front/sema.orb`, with diagnostic E1008 otherwise). The
 builder reads it into `IRModule.configPort` (`compiler/ir/builder.orb`), and the
 generated `main` (`compiler/emit/route_runtime.orb`) initializes `int port` from
-it — with `argv[1]` still the override. A program that declares no port emits
-exactly the old `port = 3000`, byte for byte.
+it — with `argv[1]` still the override. The argument is read strictly: a word,
+a flag such as `--port`, or a number outside 0..65535 is refused with one
+diagnostic and exit 2. `0` asks the system for a free port, and the banner
+prints the one the socket got, from `getsockname`. A program that declares no
+port starts at 3000.
 
 `cors`, `db`, and `env` parse and typecheck with no runtime effect. The emitted
 server always initializes the database at `.orbit/data/app.db` when models are

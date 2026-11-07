@@ -864,6 +864,46 @@ def live_main(args):
         stop_server(proc)
         log.close()
 
+    # A port argument used to reach `atoi`, which answers 0 for a word: the
+    # server bound a port the caller was never told about, and `--port 8080`
+    # looked like it worked. A word is refused now, with one diagnostic.
+    refused = subprocess.run([str(decl_srv), "--port"], cwd=str(ROOT),
+                             capture_output=True, text=True, timeout=60)
+    if refused.returncode != 2 or "between 0 and 65535" not in (refused.stderr or ""):
+        print(f"Failed: a port argument that is not a number exited "
+              f"{refused.returncode} (want 2 and one diagnostic).",
+              file=sys.stderr)
+        return 1
+    print("port argument: a word where the port goes is refused with exit 2.")
+
+    # `0` asks the system for a free port, and the banner has to name the one
+    # the socket got. Before `getsockname` answered, the pair disagreed and the
+    # reader had no port to open.
+    auto = subprocess.Popen([str(decl_srv), "0"], cwd=str(ROOT),
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace")
+    bound = 0
+    banner = []
+    try:
+        for _ in range(12):
+            line = auto.stdout.readline()
+            if not line:
+                break
+            banner.append(line.rstrip())
+            found = re.search(r"localhost:(\d+)", line)
+            if found:
+                bound = int(found.group(1))
+                break
+        if bound <= 0 or not wait_ready(bound):
+            print(f"Failed: a server started with port 0 named {bound} and "
+                  f"did not answer there (banner: {' | '.join(banner)}).",
+                  file=sys.stderr)
+            return 1
+        print(f"port 0: the banner named the port the system assigned ({bound}).")
+    finally:
+        stop_server(auto)
+        auto.stdout.close()
+
     # The request boundary (ENGINEERING.md section 7, admission-lease-abort): a
     # request that asks for more than its admission lease allows is answered, not
     # fatal. The route grows one string past the lease's 16 MB default, which
