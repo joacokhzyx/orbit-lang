@@ -274,7 +274,7 @@ with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 
 ### 2.2 `IRInstruction` (`compiler/ir/ir.orb:118-147`)
 
-- `opcode`: one of the 66 (§1), or in a runtime module one of the four of §7.
+- `opcode`: one of the 66 (§1), or a §7 name in a runtime module.
 - `dest`: `int`. `-1` means no destination. Default factory value `-1`
   (`ir_init_instr`, `compiler/ir/ir.orb:184-186`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
@@ -649,7 +649,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 |---|---|
 | V-01 | The document is UTF-8 JSON (RFC 8259), a single root object, no BOM, trailing LF; it contains no elision marker. |
 | V-02 | The root object has exactly `irVersion` (`"1"`) and `module`; unknown keys are rejected. |
-| V-03 | `opcode` is one of the 66 names in §1, or in a runtime module one of the four names in §7, spelled exactly (no aliases, no case folding). |
+| V-03 | `opcode` is one of the 66 names in §1, or a §7 name in a runtime module, spelled exactly (no aliases, no case folding). |
 | V-04 | `elemKind` is an integer in `0..5`; non-collection opcodes must carry `0`. |
 | V-05 | Every operand is a `{"kind":…}` object with one of the 8 kinds in §2.1 and a correctly typed `value` (absent only for `None`). |
 | V-06 | Integer values have no fraction/exponent and fit in signed 64 bits. |
