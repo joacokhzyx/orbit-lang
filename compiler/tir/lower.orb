@@ -1343,7 +1343,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         // in, so the instructions after it are the ok path, and the value is read
         // from the block the branch names.
         ASTNode.Try(tryNode) => {
-            return lowerTryValue(module, function, blockId, bindings, tryNode, declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr)))
+            return lowerTryValue(module, function, blockId, bindings, tryNode, declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr)), -1, -1)
         }
         // `if c then 1 else 2` in value position: the two arms write one join name
         // and the block after them reads it. The type is the then branch's, the way
@@ -1786,26 +1786,57 @@ fn lowerMatchValue(module: TirModule, function: TirFunction, blockId: int, bindi
     return lowerMatchStatement(module, function, blockId, bindings, m, -1, -1, joinName)
 }
 
+// The bindings a branch adds before it answers: every `val` it declares, in
+// order, typed the way the statement reader types one. Without this the last
+// expression of `{ val doubled = n * 2  doubled + 1 }` asked about a name the
+// branch had just introduced, and the answer was nothing.
+// orbit-walk: none -- reads the block's declarations; it visits no children
+fn branchBindings(module: TirModule, bindings: list < TirBinding >, body: ASTNode) -> list < TirBinding > {
+    val copied = copyBindings(bindings)
+    match body {
+        ASTNode.Block(b) => {
+            var i = 0
+            while i < b.statements.len() {
+                match b.statements.get(i) {
+                    ASTNode.VarDecl(declaration) => {
+                        var boundType = typeOfExpression(module, copied, declaration.value)
+                        if boundType == "unknown" {
+                            val annotated = bindingAnnotationType(declaration.typeAnnotation)
+                            if annotated != "" { boundType = annotated }
+                        }
+                        copied.push(TirBinding(declaration.name, boundType))
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return copied
+}
+
 // The value an `if` branch is worth, and the type it answers. Two shapes: a branch
 // that IS an expression (`if c then 1 else 2`) and a branch that is a block ending
 // in one (`if c { log(); 1 }`). A branch ending in a declaration or a `return`
 // answers nothing, because there is no value left to join.
 fn ifBranchType(module: TirModule, bindings: list < TirBinding >, body: ASTNode) -> string {
+    val bodyBindings = branchBindings(module, bindings, body)
     match body {
         ASTNode.Block(b) => {
             val n = b.statements.len()
             if n == 0 { return "" }
             val last: ASTNode = b.statements.get(n - 1)
             match last {
-                ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bindings, e.expr) }
+                ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bodyBindings, e.expr) }
                 // A brace block can keep its last expression unwrapped, and a bare
                 // value is the same answer. A `return` or a declaration in that place
                 // answers `unknown` here, so the branch stays the give-up it was.
-                _ => { return typeOfExpression(module, bindings, last) }
+                _ => { return typeOfExpression(module, bodyBindings, last) }
             }
         }
-        ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bindings, e.expr) }
-        _ => { return typeOfExpression(module, bindings, body) }
+        ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bodyBindings, e.expr) }
+        _ => { return typeOfExpression(module, bodyBindings, body) }
     }
 }
 
@@ -1890,7 +1921,7 @@ fn lowerIfValue(module: TirModule, function: TirFunction, blockId: int, bindings
 // read yields comes from the signature when it writes a payload and from the binding
 // annotation otherwise; `lowerTryValue` is handed whichever answer the caller found, so
 // one lowering covers both.
-fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, tryNode: TryNode, unwrapType: string) -> int {
+fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, tryNode: TryNode, unwrapType: string, breakTarget: int, continueTarget: int) -> int {
     if unwrapType == "" {
         tirError(module, "E3001", "try needs the value type written inside the result, which this pass does not keep", 0, 0)
         return -1
@@ -1915,7 +1946,10 @@ fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, binding
         return unwrapped
     }
     val handlerBindings = enterTryHandler(function, handlerBlock, bindings, tryNode, resultValue)
-    val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, -1, -1)
+    // The handler is part of the block the `try` was written in, so a `continue`
+    // there leaves the same loop the statements beside it leave. Handing it -1
+    // refused the handler and, with it, the binding the `try` was read into.
+    val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, breakTarget, continueTarget)
     if handlerEnd >= 0 {
         tirError(module, "E3001", "a handler that falls through needs a merge value, which this pass does not model", 0, 0)
         return -1
@@ -1964,7 +1998,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                     if unwrapType == "" {
                         unwrapType = bindingAnnotationType(declaration.typeAnnotation)
                     }
-                    val tryValue = lowerTryValue(module, function, blockId, bindings, tryNode, unwrapType)
+                    val tryValue = lowerTryValue(module, function, blockId, bindings, tryNode, unwrapType, breakTarget, continueTarget)
                     if tryValue < 0 { return blockId }
                     tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(tryValue))
                     bindings.push(TirBinding(declaration.name, unwrapType))

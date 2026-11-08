@@ -868,7 +868,7 @@ that would remove the requirement.
 
 ## 0.01% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-08 over 215 files and 149,578
+`scripts/measure.py census`, run on 2026-11-08 over 215 files and 149,684
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 lets the two rates fall and the instruction total only grow -- a rule that makes
 the pass give up earlier lowers the total, not the rate -- so this is the
@@ -876,7 +876,7 @@ measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 6 | **0.0%** |
+| instructions the front end types `unknown` | 3 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -961,16 +961,32 @@ names a declared instance types the value beside it, so
 `val p: Pair<int, string> = Pair.Both(3, "three")` carries the arguments the
 construction leaves bare. The count fell to 6 over 149,578 instructions, E2002
 from 5 to 2, E2001 from 2 to 1 and E3001 from 9 to 4: two matches that could not
-find their variant table lower now, and `tests/std/test_option.orb` came to 0.
+find their variant table lower now, and `tests/std/test_option.orb` came to 0. A
+`try` handler then kept the loop its `try` sits in, so a `continue` inside it
+resolves and the value the `try` is bound to exists; and the reader of an `if`
+branch bound the `val`s that branch declares before asking what it answers. The
+count fell to 3 over 149,684 instructions, E2002 from 2 to 0 and E2001 from 1 to
+0: `tests/suite/result_in_loop.orb` and `tests/suite/if_expression_return.orb`
+came to 0.
+
+The three that remain are the floor of this pass, and each is a question another
+module has to answer. `Box<T>`'s field `v` read inside `fn get[T](b: Box<T>)`
+needs the instance a call site writes, and this pass reads one file's text
+rather than every instantiation. `Option.None()` is a construction whose
+instance only the binding annotation names, and the call is emitted before that
+annotation is read. `doctorClosureRefs` reads a list a callee filled, so the
+element kind has to travel from the callee's parameter back to the caller. All
+three print a diagnostic and the silent count is 0, which is the property the
+census exists to keep.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 1 load), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 2), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 0 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 0), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 2). Their sum, 6, is the whole unknown count. The five
+(call result, 2). Their sum, 3, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:1044`, `:1057`, `:1065`, `:1089` and `:1229`, and
 each sits on the branch that emits the instruction.
 
@@ -1421,15 +1437,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 64/64
+## The frontend gate is 65/65
 
-`scripts/corpus_gates.py frontend` runs 64 fixtures and all 64 pass (two of
+`scripts/corpus_gates.py frontend` runs 65 fixtures and all 65 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Ten pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 54 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 55 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
@@ -1441,6 +1457,8 @@ arm, and `match_value_branch_types.orb` is its refusal control.
 it, and `list_refinement_callee.orb` is the boundary: a push the callee performs
 does not type the caller's local. `generic_union_payload.orb` pins `data int`
 for an arm on `Box<int>`, where the declaration writes `T`.
+`if_value_block_local.orb` pins an `if` whose branch declares the local it
+answers.
 `crossfile_field.orb` is the boundary case: a field whose type is
 a model declared in another file keeps E2004, and the fixture prints only when
 the refusal names that code, so an input that stopped reaching the member-read

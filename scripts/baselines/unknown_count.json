@@ -4,12 +4,12 @@
   "totals": {
     "unknown_per_mille": 0,
     "silent_per_mille": 0,
-    "instructions": 149578
+    "instructions": 149684
   },
   "files": 215,
-  "instructions": 149578,
+  "instructions": 149684,
   "context": {
-    "unknown_instructions": 6,
+    "unknown_instructions": 3,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -139,7 +139,7 @@
     "tests/suite/if_branch.orb": 0,
     "tests/suite/if_expression_else_if.orb": 0,
     "tests/suite/if_expression_no_phantom_branch.orb": 0,
-    "tests/suite/if_expression_return.orb": 1,
+    "tests/suite/if_expression_return.orb": 0,
     "tests/suite/if_expression_value.orb": 0,
     "tests/suite/imports.orb": 0,
     "tests/suite/int_wrap_64.orb": 0,
@@ -192,7 +192,7 @@
     "tests/suite/result_catch.orb": 0,
     "tests/suite/result_catch_binding_scope.orb": 0,
     "tests/suite/result_chain.orb": 0,
-    "tests/suite/result_in_loop.orb": 2,
+    "tests/suite/result_in_loop.orb": 0,
     "tests/suite/result_message.orb": 0,
     "tests/suite/result_payload_int.orb": 0,
     "tests/suite/result_payload_written.orb": 0,
