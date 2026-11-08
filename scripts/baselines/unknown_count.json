@@ -4,12 +4,12 @@
   "totals": {
     "unknown_per_mille": 0,
     "silent_per_mille": 0,
-    "instructions": 149336
+    "instructions": 149371
   },
   "files": 215,
-  "instructions": 149336,
+  "instructions": 149371,
   "context": {
-    "unknown_instructions": 15,
+    "unknown_instructions": 10,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -28,7 +28,7 @@
     "compiler/host/main.orb": 0,
     "compiler/host/pipeline.orb": 0,
     "compiler/host/start.orb": 0,
-    "compiler/ir/builder.orb": 1,
+    "compiler/ir/builder.orb": 0,
     "compiler/ir/cteval.orb": 0,
     "compiler/ir/ir.orb": 0,
     "compiler/ir/optimizer.orb": 0,
@@ -37,7 +37,7 @@
     "compiler/tir/entry.orb": 0,
     "compiler/tir/format.orb": 0,
     "compiler/tir/lower.orb": 0,
-    "compiler/tools/doctor.orb": 4,
+    "compiler/tools/doctor.orb": 1,
     "compiler/tools/fmt.orb": 0,
     "compiler/tools/lsp.orb": 0,
     "compiler/tools/palette.orb": 0,
@@ -150,7 +150,7 @@
     "tests/suite/list_index_out_of_range.orb": 0,
     "tests/suite/list_large_loop.orb": 0,
     "tests/suite/list_param_element_types.orb": 0,
-    "tests/suite/list_push.orb": 1,
+    "tests/suite/list_push.orb": 0,
     "tests/suite/list_stack_queue.orb": 0,
     "tests/suite/match.orb": 0,
     "tests/suite/match_binding_payload_type.orb": 0,

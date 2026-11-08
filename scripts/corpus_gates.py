@@ -900,6 +900,9 @@ EMPTY_EXPECTATIONS = {
     # Arms that answer different types are not one value, so a match in value
     # position gives up the way the `if` control above does.
     "match_value_branch_types.orb": "arms that disagree stay a give-up",
+    # The branch carry is intraprocedural: a push the callee performs types the
+    # callee's parameter, not the caller's local, so the read stays untyped.
+    "list_refinement_callee.orb": "a callee's push does not type the caller's list",
     # The read of a field declared as a type parameter answers the argument the
     # instance writes. A generic literal writes none, so `b.v` under
     # `val b = Box { v: 3 }` has no type to print and the file stays suppressed.

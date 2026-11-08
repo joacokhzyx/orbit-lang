@@ -1,0 +1,19 @@
+// The boundary of the branch carry: a `push` the callee performs does not type
+// the caller's local. `fill(out)` hands `out` to a `list<string>` parameter, and
+// the element the callee writes there is a property of the parameter's declared
+// type, not of the argument the caller wrote. Reading `out.get(0)` after the
+// call therefore stays untyped, E2005 names it, and the file prints nothing.
+//
+// The carry this fixture guards is intraprocedural on purpose: the build's
+// registry is also keyed by name inside one function, so a rule that reached
+// through the call would answer a question neither implementation keeps a table
+// for.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn fill(xs: list<string>) { xs.push(\"a\") } fn take() -> string { val out = [] fill(out) return out.get(0) }"
+    val output = compileFrontendSource("fixture", source)
+    if output == "" {
+        print("a callee's push does not type the caller's list")
+    }
+}

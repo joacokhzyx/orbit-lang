@@ -868,7 +868,7 @@ that would remove the requirement.
 
 ## 0.01% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-08 over 215 files and 149,336
+`scripts/measure.py census`, run on 2026-11-08 over 215 files and 149,371
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 lets the two rates fall and the instruction total only grow -- a rule that makes
 the pass give up earlier lowers the total, not the rate -- so this is the
@@ -876,7 +876,7 @@ measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 15 | **0.0%** |
+| instructions the front end types `unknown` | 10 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -945,7 +945,13 @@ the same source, so the handler is not a give-up. The count fell to 18 over
 149,050 instructions. A `match` used as a value lowers the way the statement
 form does, with each arm binding the join name and the merge block loading it --
 and the corpus grew 286 instructions in the same change, which the ratchet's
-third number now records. The count fell to 15 over 149,336 instructions.
+third number now records. The count fell to 15 over 149,336 instructions. A
+`push` inside an `if` branch or a `match` arm then typed the local after it, the
+way a push inside a `while` body already did: all three bodies lower with a copy
+of the bindings, so the copy's refinements come back out. The count fell to 10
+over 149,371 instructions, E2005 from 7 to 2, the three `.get` reads in
+`doctorRun` and the one in `compiler/ir/builder.orb` answered, and
+`tests/suite/list_push.orb` came to 0.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
@@ -954,7 +960,7 @@ the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier
 (binary operands, 5), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 7). Their sum, 15, is the whole unknown count. The five
+(call result, 2). Their sum, 10, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:1044`, `:1057`, `:1065`, `:1089` and `:1229`, and
 each sits on the branch that emits the instruction.
 
@@ -1405,15 +1411,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 61/61
+## The frontend gate is 63/63
 
-`scripts/corpus_gates.py frontend` runs 61 fixtures and all 61 pass (two of
+`scripts/corpus_gates.py frontend` runs 63 fixtures and all 63 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
-fail before. Nine pin an absence of output rather than a text, and the gate
+fail before. Ten pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 52 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 53 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
@@ -1421,6 +1427,9 @@ gate's test plumbing rather than as a language escape.
 `variant_match_payload.orb` moved from the absence list to a golden when the payload arm started lowering on 2026-11-06, and `variant_match_bindless.orb` took its place as the refusal control.
 `match_value_join.orb` pins the join a `match` in value position writes on every
 arm, and `match_value_branch_types.orb` is its refusal control.
+`list_refinement_branch.orb` pins a push inside an `if` typing the read after
+it, and `list_refinement_callee.orb` is the boundary: a push the callee performs
+does not type the caller's local.
 `crossfile_field.orb` is the boundary case: a field whose type is
 a model declared in another file keeps E2004, and the fixture prints only when
 the refusal names that code, so an input that stopped reaching the member-read

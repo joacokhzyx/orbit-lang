@@ -1572,6 +1572,10 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
     }
     val mergeBlock = tirCreateBlock(function)
     var testBlock = blockId
+    // Every arm copies these, so a refinement carried out of one arm is not
+    // visible while the next one lowers.
+    val baseCount = bindings.len()
+    val matchBindings = copyBindings(bindings)
     var i = 0
     while i < m.cases.len() {
         val arm: ASTNode = m.cases.get(i)
@@ -1590,26 +1594,28 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
             _ => {}
         }
         if isWildcard {
+            val wildBindings = copyBindings(matchBindings)
             if valueJoin != "" {
                 // An arm that ends the block answers no value, so no join is bound
                 // for it and nothing falls through -- the same rule the statement
                 // form applies to an arm that returns.
-                val wildValue = lowerIfArm(module, function, testBlock, copyBindings(bindings), body)
+                val wildValue = lowerIfArm(module, function, testBlock, wildBindings, body)
                 if wildValue >= 0 {
                     tirEmit(function, testBlock, "bind", "unit", valueJoin + " " + tirValue(wildValue))
                 }
                 tirEmit(function, testBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
             } else {
-                val wildEnd = lowerStatement(module, function, testBlock, copyBindings(bindings), body, breakTarget, continueTarget)
+                val wildEnd = lowerStatement(module, function, testBlock, wildBindings, body, breakTarget, continueTarget)
                 if wildEnd >= 0 {
                     tirEmit(function, wildEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
                 }
             }
+            carryListRefinements(bindings, wildBindings, baseCount)
             return matchJoinBlock(function, mergeBlock, valueJoin, matchValueType(module, bindings, m))
         }
         val armBlock = tirCreateBlock(function)
         val nextBlock = tirCreateBlock(function)
-        var bodyBindings = copyBindings(bindings)
+        var bodyBindings = copyBindings(matchBindings)
         match pattern {
             ASTNode.Literal(l) => {
                 // `NoInt => ...` on a union is one of its variants, so the arm
@@ -1710,6 +1716,7 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
                 tirEmit(function, armEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
             }
         }
+        carryListRefinements(bindings, bodyBindings, baseCount)
         testBlock = nextBlock
         i = i + 1
     }
@@ -1865,6 +1872,26 @@ fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, binding
         return -1
     }
     return unwrapped
+}
+
+// A `push` inside a loop body or an `if` branch refines the local's element kind
+// in that body's copy of the bindings, and the copy dies with the body. The
+// statements after it read the same local, so the refinement comes back out --
+// and only that shape: a name the body declared is out of scope here, and an
+// assignment is not a type. `bindingType` answers the last binding that names
+// the local, so the first refinement carried wins, which is the rule
+// `recordListKind` (`compiler/ir/builder.orb:1857`) applies: a name that already
+// has a kind keeps it.
+// orbit-walk: none -- reads binding names; it visits no children
+fn carryListRefinements(bindings: list < TirBinding >, bodyBindings: list < TirBinding >, baseCount: int) {
+    var carried = baseCount
+    while carried < bodyBindings.len() {
+        val refined: TirBinding = bodyBindings.get(carried)
+        if bindingType(bindings, refined.name) == "list" && listSpellingWithElement(refined.typeName) {
+            bindings.push(refined)
+        }
+        carried = carried + 1
+    }
 }
 
 // `breakTarget` and `continueTarget` are the blocks the enclosing loop jumps to,
@@ -2046,6 +2073,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             val mergeBlock = tirCreateBlock(function)
             tirEmit(function, blockId, "branch", "unit", tirValue(condition) + " b" + tirIntText(thenBlock) + " b" + tirIntText(elseBlock))
 
+            val baseCount = bindings.len()
             val thenBindings = copyBindings(bindings)
             val thenEnd = lowerStatement(module, function, thenBlock, thenBindings, branch.thenBody, breakTarget, continueTarget)
             if thenEnd >= 0 {
@@ -2057,6 +2085,10 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             if elseEnd >= 0 {
                 tirEmit(function, elseEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
             }
+            // The then body is copied before the then carry, so a refinement the
+            // then branch made is not visible while the else body lowers.
+            carryListRefinements(bindings, thenBindings, baseCount)
+            carryListRefinements(bindings, elseBindings, baseCount)
             return mergeBlock
         }
         // A `try` in statement position reads no value, so no merge value is wanted
@@ -2096,19 +2128,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             if bodyEnd >= 0 {
                 tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(conditionBlock))
             }
-            // A `push` inside the body refines the local's element kind in the
-            // body's copy of the bindings, and that copy dies with the loop. The
-            // statements after the loop read the same local, so the refinement
-            // comes back out -- and only that shape: a name the body declared is
-            // out of scope here, and an assignment is not a type.
-            var carried = baseCount
-            while carried < bodyBindings.len() {
-                val refined: TirBinding = bodyBindings.get(carried)
-                if bindingType(bindings, refined.name) == "list" && listSpellingWithElement(refined.typeName) {
-                    bindings.push(refined)
-                }
-                carried = carried + 1
-            }
+            carryListRefinements(bindings, bodyBindings, baseCount)
             return exitBlock
         }
         // `for x in lo..hi` counts an int between the bounds, so every value the
