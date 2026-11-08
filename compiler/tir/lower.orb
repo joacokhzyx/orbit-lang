@@ -760,6 +760,10 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                         if modelQueryHelper(ma.field) { return "string" }
                     }
                     if ma.field == "len" || ma.field == "length" || ma.field == "indexOf" { return "int" }
+                    // `s.to_int()` reads the number the text spells, and both
+                    // `compiler/ir/builder.orb:1982` and `compiler/front/sema.orb:4623`
+                    // answer `int` for it.
+                    if ma.field == "to_int" { return "int" }
                     // An element of a list is the kind the receiver's declared
                     // type writes. This answered `string` for every receiver,
                     // including a list, because the only `at` and `slice` sites

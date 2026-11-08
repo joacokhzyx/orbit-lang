@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,736
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,744
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 58 | **0.0%** |
+| instructions the front end types `unknown` | 55 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -917,16 +917,18 @@ model literal writes the argument its model declares -- `Box { v: 1 }` is a
 fell to 58 over 148,736 instructions, E2004 from 14 to 1 and E2002 from 12 to
 9. `tests/frontend/generic_literal_field_read.orb` held the other branch open as
 an empty expectation; it is an emit fixture with its golden now, and it was the
-only expectation this work flipped.
+only expectation this work flipped. `s.to_int()` answers `int`, the type the
+build and the checker already give it; the count fell to 55 over 148,744
+instructions, E2005 from 31 to 30 and E2001 from 17 to 15.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 17 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 15 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 9), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 31). Their sum, 58, is the whole unknown count. The five
+(call result, 30). Their sum, 55, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:881`, `:894`, `:902`, `:926` and `:1028`, and
 each sits on the branch that emits the instruction.
 
