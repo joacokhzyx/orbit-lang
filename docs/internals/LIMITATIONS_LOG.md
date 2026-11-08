@@ -870,7 +870,9 @@ that would remove the requirement.
 
 `scripts/measure.py census`, run on 2026-11-07 over 215 files and 149,050
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
-only lets the numbers fall, so this is the measured state:
+lets the two rates fall and the instruction total only grow -- a rule that makes
+the pass give up earlier lowers the total, not the rate -- so this is the
+measured state:
 
 | | count | share |
 |---|---|---|

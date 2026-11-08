@@ -1,9 +1,10 @@
 {
   "schema": 1,
-  "note": "Ratchet baseline for the unknown-type count. Every number in totals may only go down. Written by scripts/measure.py ratchet --write-baseline. Do not hand-edit a number up; that is what the gate is for.",
+  "note": "Ratchet baseline for the unknown-type count. The two rates may only go down and the instruction total may only go up. Written by scripts/measure.py ratchet --write-baseline. Do not hand-edit a number the wrong way; that is what the gate is for.",
   "totals": {
     "unknown_per_mille": 0,
-    "silent_per_mille": 0
+    "silent_per_mille": 0,
+    "instructions": 149050
   },
   "files": 215,
   "instructions": 149050,

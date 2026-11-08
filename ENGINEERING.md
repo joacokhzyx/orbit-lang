@@ -849,7 +849,8 @@ python scripts/measure.py census --cc "$CC" --compiler /tmp/orbit_fp
 #     if either went UP; does not fail for being high, because the unknown rate
 #     is the number the type work is scoped against -- read it from the census
 #     or from the baseline -- and a zero-bar gate is a gate everybody deletes.
-#     The two ratcheted counts are `unknown_per_mille` and `silent_per_mille`,
+#     The ratcheted counts are `unknown_per_mille` and `silent_per_mille` (down)
+#     and `instructions` (up: a corpus that shrinks is TIR that went missing),
 #     the shares of `unknown_instructions` and `unknown_without_diagnostic` in
 #     the instruction total; the total itself is deliberately not ratcheted,
 #     because the corpus legitimately grows and a gate that fails when a file

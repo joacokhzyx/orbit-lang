@@ -729,10 +729,13 @@ def cmd_census(args) -> int:
 # today and a zero-bar gate is a gate everybody disables, so the only thing that
 # fails here is a count that went UP relative to a committed baseline.
 #
-# Two numbers are ratcheted, both already emitted by scripts/measure.py census:
+# Three numbers are ratcheted, all already emitted by scripts/measure.py census:
 #
-#     unknown_instructions         every instruction the front end typed `unknown`
-#     unknown_without_diagnostic   the ones it did not even complain about
+#     unknown_per_mille            every instruction the front end typed `unknown`,
+#                                  per thousand  -- may only go DOWN
+#     silent_per_mille             the ones it did not even complain about,
+#                                  per thousand  -- may only go DOWN
+#     instructions                 the corpus itself  -- may only go UP
 #
 # The second is the sharper one: those reach codegen silently, and a silent
 # defect is by definition one the compiler accepts. It measures 0 on the whole
@@ -773,6 +776,16 @@ DEFAULT_BASELINE = os.path.join(ROOT, "scripts", "baselines", "unknown_count.jso
 # regression. See the note in read_measurement() for why the first version was
 # wrong.
 RATCHETED = ("unknown_per_mille", "silent_per_mille")
+
+# One number is ratcheted the other way: the instruction total may only GROW.
+# A rule that makes the front end give up earlier does not type more, it lowers
+# less, and the rate it leaves behind looks better only because the corpus
+# shrank. Measured 2026-11-08: an attempt at `match` in value position took the
+# total from 149,050 to 105,504 instructions while the rate stayed at 0 per
+# mille, so the rate ratchet alone would have called it an improvement. A file
+# added to the corpus moves this number up and must never fail the gate; a
+# number that falls means TIR the corpus used to have is gone.
+GROW_ONLY = ("instructions",)
 
 SCHEMA = 1
 
@@ -860,7 +873,7 @@ def read_measurement(from_json=None, compiler=None, cc="gcc", dirs=None):
     data["silent_per_mille"] = int(
         round(1000.0 * data["unknown_without_diagnostic"] / total_instructions))
 
-    missing = [k for k in RATCHETED if not isinstance(data.get(k), int)]
+    missing = [k for k in RATCHETED + GROW_ONLY if not isinstance(data.get(k), int)]
     if missing:
         return None, ("census output has no integer %s. The reader in "
                       "read_measurement() needs those keys and will not guess."
@@ -903,7 +916,7 @@ def load_baseline(path):
     totals = base.get("totals")
     if not isinstance(totals, dict):
         return None, "baseline %s has no totals" % path
-    for key in RATCHETED:
+    for key in RATCHETED + GROW_ONLY:
         if not isinstance(totals.get(key), int):
             return None, "baseline %s has no integer totals.%s" % (path, key)
     by_file = base.get("by_file")
@@ -928,22 +941,26 @@ def load_baseline(path):
 
 def write_baseline(path, data, allow_regression, prev):
     """Record today's measurement. Refuses to raise a number by accident."""
-    totals = {k: data[k] for k in RATCHETED}
+    totals = {k: data[k] for k in RATCHETED + GROW_ONLY}
     if prev is not None:
         raised = {k: totals[k] - prev["totals"][k] for k in RATCHETED
                   if totals[k] > prev["totals"][k]}
-        if raised and not allow_regression:
-            out.fail("Refusing to raise the baseline: " +
-                     ", ".join("%s +%d" % (k, v) for k, v in sorted(raised.items())))
-            out.tip("if the rise is real and intended, re-run with "
+        shrank = {k: totals[k] - prev["totals"][k] for k in GROW_ONLY
+                  if totals[k] < prev["totals"][k]}
+        moved = dict(raised)
+        moved.update(shrank)
+        if moved and not allow_regression:
+            out.fail("Refusing to move the baseline the wrong way: " +
+                     ", ".join("%s %+d" % (k, v) for k, v in sorted(moved.items())))
+            out.tip("if the move is real and intended, re-run with "
                     "--allow-regression and say why in the commit message")
             return 1
     payload = {
         "schema": SCHEMA,
-        "note": ("Ratchet baseline for the unknown-type count. Every number in "
-                 "totals may only go down. Written by "
-                 "scripts/measure.py ratchet --write-baseline. Do not hand-edit "
-                 "a number up; that is what the gate is for."),
+        "note": ("Ratchet baseline for the unknown-type count. The two rates "
+                 "may only go down and the instruction total may only go up. "
+                 "Written by scripts/measure.py ratchet --write-baseline. Do not "
+                 "hand-edit a number the wrong way; that is what the gate is for."),
         "totals": totals,
         # Context, not ratcheted: the corpus legitimately grows, so the absolute
         # count is recorded for information and the RATE is what is gated.
@@ -997,6 +1014,19 @@ def judge(data, base, per_file_mode=False, top=8):
     rose, fell = movers(measured, base["by_file"], top)
     lines = []
     ok = True
+    for key in GROW_ONLY:
+        got, want = data[key], base["totals"].get(key)
+        if want is None:
+            ok = False
+            lines.append("  %-28s %6d  baseline has no %s" % (key, got, key))
+        elif got < want:
+            ok = False
+            lines.append("  %-28s %6d  baseline %6d  %+d  the corpus shrank"
+                         % (key, got, want, got - want))
+        else:
+            lines.append("  %-28s %6d  baseline %6d  %s"
+                         % (key, got, want, "unchanged" if got == want
+                            else "+%d" % (got - want)))
     for key in RATCHETED:
         got, want = data[key], base["totals"][key]
         if got > want:
@@ -1029,19 +1059,20 @@ def judge(data, base, per_file_mode=False, top=8):
 # --------------------------------------------------------------------------
 # --self-test: prove the verdict logic can say no.
 # --------------------------------------------------------------------------
-def _measurement(total, silent, files=None):
+def _measurement(total, silent, files=None, instructions=100):
     files = files or {"a.orb": total}
     return {"unknown_instructions": total,
             "unknown_without_diagnostic": silent,
             "unknown_per_mille": total * 10,
             "silent_per_mille": silent * 10,
-            "files": len(files), "instructions": 100,
+            "files": len(files), "instructions": instructions,
             "files_detail": [{"path": p, "unknown_instructions": n}
                              for p, n in files.items()]}
 
 
 _BASE = {"schema": SCHEMA,
-         "totals": {"unknown_per_mille": 1000, "silent_per_mille": 400},
+         "totals": {"unknown_per_mille": 1000, "silent_per_mille": 400,
+                    "instructions": 100},
          "by_file": {"a.orb": 100}}
 
 
@@ -1067,6 +1098,12 @@ def self_test_ratchet():
          _measurement(100, 40, {"a.orb": 99, "b.orb": 1}), _BASE, True, False, "per-file"),
         ("the same rise is tolerated with per-file mode off",
          _measurement(100, 40, {"a.orb": 99, "b.orb": 1}), _BASE, False, True, None),
+        # The rate can hold while the corpus shrinks, which is what a rule that
+        # gives up earlier looks like. This is the case the rate alone missed.
+        ("a corpus that lost instructions fails",
+         _measurement(90, 30, instructions=90), _BASE, False, False, "shrank"),
+        ("a corpus that grew holds", _measurement(90, 30, instructions=120),
+         _BASE, False, True, None),
     ]
     passed = 0
     total = len(cases)
