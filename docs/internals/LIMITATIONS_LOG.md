@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,474
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,736
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 74 | **0.0%** |
+| instructions the front end types `unknown` | 58 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -910,16 +910,23 @@ other `val`, so `val o: object = try parse(t) catch { ... }` binds `object` and
 before the dot is a construction of the one type that declares `Circle`, and
 `NoInt =>` in a match arm is a tag test rather than a load of a name nothing
 declares. A name two unions share is not guessed at. The count fell to 74 over
-148,474 instructions, E2001 from 28 to 17 and E2005 from 36 to 31.
+148,474 instructions, E2001 from 28 to 17 and E2005 from 36 to 31. A named
+model literal writes the argument its model declares -- `Box { v: 1 }` is a
+`Box<int>` -- which is the inference the build already made, so `b.v` answers
+`int`. A literal that leaves the argument out keeps the bare name. The count
+fell to 58 over 148,736 instructions, E2004 from 14 to 1 and E2002 from 12 to
+9. `tests/frontend/generic_literal_field_read.orb` held the other branch open as
+an empty expectation; it is an emit fixture with its golden now, and it was the
+only expectation this work flipped.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
 (unknown identifier, 17 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 12), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
+(binary operands, 9), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
-(member read, 14) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 31). Their sum, 74, is the whole unknown count. The five
+(member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
+(call result, 31). Their sum, 58, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:881`, `:894`, `:902`, `:926` and `:1028`, and
 each sits on the branch that emits the instruction.
 
@@ -1013,14 +1020,14 @@ per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 arms that bind a payload.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:775`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:851`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
 `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The `try` class is answered from two
-places now. `declaredPayloadType` (`compiler/tir/lower.orb:400`) reads the payload the
+places now. `declaredPayloadType` (`compiler/tir/lower.orb:476`) reads the payload the
 signature writes -- `int`, `bool`, `string`, `float`, `object`. Where the signature writes
 nothing, the annotation on the binding is the promise, and the build retypes the read to
 it (`compiler/ir/builder.orb:3140`), so `val n: int = try digit(c) catch { return 9 }`

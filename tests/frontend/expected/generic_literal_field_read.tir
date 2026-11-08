@@ -1,0 +1,11 @@
+orbit-tir 1
+module fixture
+function 0 useBox int
+block 0 0
+instr 0 0 0 const int 3
+instr 0 0 1 construct Box<int> 1 v v0
+instr 0 0 2 bind unit b v1
+instr 0 0 3 load Box<int> b
+instr 0 0 4 member int v3 v
+instr 0 0 5 return unit v4
+end-function 0

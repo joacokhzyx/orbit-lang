@@ -1,20 +1,18 @@
-// The control for the rule `tests/frontend/generic_instance_field_read.orb`
-// pins. A field declared as a type parameter answers the argument the instance
-// writes, and a literal writes none: `val b = Box { v: 3 }` keeps the bare name
-// the source wrote, so the field's declared text is still `T` and the read of
-// `b.v` has no type to print.
+// A literal writes the argument its model declares: `val b = Box { v: 3 }` is a
+// `Box<int>`, and `b.v` answers `int`. This fixture used to hold the branch open
+// the other way -- the literal kept the bare name the source wrote, `b.v` had no
+// type to print, and the file's text was suppressed -- because the argument lives
+// in the value and the pass reported the source. Reading the value's own type for
+// the field that names the parameter is the same inference
+// `compiler/ir/builder.orb` makes for the build, so the read is answered and the
+// text prints.
 //
-// Answering it would mean inferring the element from the value -- the build does
-// that for a generic call site, and this pass reports the source -- so the read
-// keeps its E2004 and the file prints nothing. That is the branch this fixture
-// holds open: a future rule that guesses the argument would make this print text
-// and the gate would fail.
+// A literal that leaves an argument out still keeps the bare name: there is no
+// value to infer from, and guessing one would print a type the source never
+// wrote.
 import "../../compiler/tir/entry.orb"
 
 fn main() {
     val source = "model Box[T] { v: T }  fn useBox() -> int { val b = Box { v: 3 } return b.v }"
-    val output = compileFrontendSource("fixture", source)
-    if output == "" {
-        print("a generic literal names no argument")
-    }
+    print(compileFrontendSource("fixture", source))
 }

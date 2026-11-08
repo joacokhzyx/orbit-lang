@@ -392,6 +392,82 @@ fn tirStatedType(module: TirModule, typeText: string) -> string {
     return ""
 }
 
+// The argument one literal writes for one declared parameter: the type of the
+// value written for a field declared as that parameter, or the element of a
+// `list<T>` field. "" when the literal writes neither, or writes a value with no
+// stated type.
+fn literalArgumentType(module: TirModule, bindings: list < TirBinding >, field: TirField, body: ObjectLiteralNode) -> string {
+    val elementField = listSpellingWithElement(field.declaredType)
+    var fi = 0
+    while fi < body.fields.len() {
+        match body.fields.get(fi) {
+            ASTNode.FieldInit(init) => {
+                if init.name == field.name {
+                    val valueType = tirStatedType(module, typeOfExpression(module, bindings, init.value))
+                    if elementField {
+                        val element = listElementKind(valueType)
+                        if element != "" { return element }
+                    } else if valueType != "" {
+                        return valueType
+                    }
+                }
+            }
+            _ => {}
+        }
+        fi = fi + 1
+    }
+    return ""
+}
+
+// The instance a named model literal writes: `Box { v: 1 }` is `Box<int>`.
+// `compiler/ir/builder.orb` infers the argument from the value written for the
+// field that uses it, and a field read is answered from the instance, so the
+// read needs the same argument here. A literal that leaves one out -- no initial
+// for that field, or a value the pass cannot state -- keeps the bare name the
+// source wrote, and the field read stays the E2004 it was.
+fn typedLiteralInstanceType(module: TirModule, bindings: list < TirBinding >, typed: TypedLiteralNode) -> string {
+    val declaredName = typed.declaredType
+    var declaredIndex = -1
+    var t = 0
+    while t < module.types.len() {
+        val candidate: TirType = module.types.get(t)
+        if candidate.name == declaredName { declaredIndex = t }
+        t = t + 1
+    }
+    if declaredIndex < 0 { return declaredName }
+    val declared: TirType = module.types.get(declaredIndex)
+    if declared.params.len() == 0 { return declaredName }
+    var instance = declaredName + "<"
+    var p = 0
+    while p < declared.params.len() {
+        val param = declared.params.get(p)
+        var argType = ""
+        var f = 0
+        while f < declared.fields.len() {
+            val field: TirField = declared.fields.get(f)
+            var namesParam = false
+            if field.declaredType == param { namesParam = true }
+            if listSpellingWithElement(field.declaredType) {
+                if field.declaredType.slice(5, field.declaredType.length - 1) == param { namesParam = true }
+            }
+            if namesParam && argType == "" {
+                match typed.value {
+                    ASTNode.ObjectLiteral(body) => {
+                        argType = literalArgumentType(module, bindings, field, body)
+                    }
+                    _ => {}
+                }
+            }
+            f = f + 1
+        }
+        if argType == "" { return declaredName }
+        if p > 0 { instance = instance + ", " }
+        instance = instance + argType
+        p = p + 1
+    }
+    return instance + ">"
+}
+
 // The value type written inside a declared `result`. `typeOfExpression` answers
 // a call to a function this file declares with the text after `->`, so the payload
 // a `try` reads is in the file's own bytes. Only a builtin is an answer: this rule
@@ -633,7 +709,7 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         // the two must agree: a `val` bound to a literal this reader calls
         // `unknown` loads back `unknown` at every later use of the name.
         ASTNode.TypedLiteral(typedNode) => {
-            return typedNode.declaredType
+            return typedLiteralInstanceType(module, bindings, typedNode)
         }
         // The anonymous spelling of the same value. The build IR calls it
         // `object` (`buildObjectLiteralAsModel`'s type answer in
@@ -1124,7 +1200,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 ASTNode.ObjectLiteral(body) => {
                     val fieldText = tirFieldText(module, function, blockId, bindings, body)
                     if fieldText == "" { return -1 }
-                    return tirEmit(function, blockId, "construct", typed.declaredType, fieldText)
+                    return tirEmit(function, blockId, "construct", typedLiteralInstanceType(module, bindings, typed), fieldText)
                 }
                 _ => {}
             }

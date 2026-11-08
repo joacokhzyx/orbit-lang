@@ -5,9 +5,10 @@
 // -- no type the pass could state -- and the read came back `unknown` (E2004),
 // which suppresses the canonical text of the whole file.
 //
-// The instance has to write its argument. `val b = Box { v: 3 }` keeps the bare
-// name the source wrote, so `b.v` stays unanswered here: the element is in the
-// value, not in the text, and this pass reports the source.
+// A named literal writes its argument too: `val b = Box { v: 3 }` is a
+// `Box<int>` and `b.v` answers `int` (`generic_literal_field_read.orb`). What the
+// pass still will not do is guess: a literal that leaves the field out keeps the
+// bare name.
 import "../../compiler/tir/entry.orb"
 
 fn main() {

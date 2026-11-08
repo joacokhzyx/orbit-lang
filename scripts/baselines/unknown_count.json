@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 148474,
+  "instructions": 148736,
   "context": {
-    "unknown_instructions": 74,
+    "unknown_instructions": 58,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -130,9 +130,9 @@
     "tests/suite/for_range.orb": 0,
     "tests/suite/function_pointers.orb": 0,
     "tests/suite/generic_functions.orb": 1,
-    "tests/suite/generic_models.orb": 13,
-    "tests/suite/generic_multi.orb": 2,
-    "tests/suite/generic_nested_argument.orb": 1,
+    "tests/suite/generic_models.orb": 0,
+    "tests/suite/generic_multi.orb": 0,
+    "tests/suite/generic_nested_argument.orb": 0,
     "tests/suite/generic_union_option.orb": 4,
     "tests/suite/global_const.orb": 4,
     "tests/suite/if_branch.orb": 0,
