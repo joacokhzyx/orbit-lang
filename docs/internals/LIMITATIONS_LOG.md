@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,999
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 149,012
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 25 | **0.0%** |
+| instructions the front end types `unknown` | 24 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -934,7 +934,10 @@ declared is out of scope and an assignment is not a type. The count fell to 27
 over 148,984 instructions, E2005 from 20 to 8. An assignment keeps the type the
 declaration gave the name: `var ratio: float = 1.5` followed by `ratio = 3` is
 still a float, and only a name with no declared type takes the value's. The
-count fell to 25 over 148,999 instructions, E2002 from 9 to 7.
+count fell to 25 over 148,999 instructions, E2002 from 9 to 7. A member call
+naming a declared function answers that function's return type, which is the
+builder's default method path; the count fell to 24 over 149,012 instructions
+and E2005 from 8 to 7.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
@@ -943,12 +946,12 @@ the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier
 (binary operands, 7), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 8). Their sum, 25, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:1037`, `:1050`, `:1058`, `:1082` and `:1222`, and
+(call result, 7). Their sum, 24, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:1044`, `:1057`, `:1065`, `:1089` and `:1229`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
-guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:134`) answers a
+guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:135`) answers a
 call from the function the file itself declares, so the `call` class fell from
 6,756 to 4,259; a `val` bound to such a call carries that type into every later
 load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
@@ -1037,14 +1040,14 @@ per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 arms that bind a payload.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:919`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:926`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
 `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The `try` class is answered from two
-places now. `declaredPayloadType` (`compiler/tir/lower.orb:530`) reads the payload the
+places now. `declaredPayloadType` (`compiler/tir/lower.orb:531`) reads the payload the
 signature writes -- `int`, `bool`, `string`, `float`, `object`. Where the signature writes
 nothing, the annotation on the binding is the promise, and the build retypes the read to
 it (`compiler/ir/builder.orb:3140`), so `val n: int = try digit(c) catch { return 9 }`
@@ -1116,7 +1119,7 @@ instructions left the unknown count with the first step, and the rate moved from
 19.3% to 18.3% (193 per mille to 183). 15 reads are still untyped, and the
 census names the field each one asks for: `.v` 5, `.right` 4, `.left` 3.
 Four left on 2026-11-05, when the type table began to carry the parameters the
-model declares. `declaredFieldType` (`compiler/tir/lower.orb:258`) matches an
+model declares. `declaredFieldType` (`compiler/tir/lower.orb:259`) matches an
 instance by the base of its type text -- `Box<int>` is the model `Box` with the
 argument `int` -- and a field whose declared text is one of `TirType.params`
 answers that argument. `list<T>` substitutes inside the container it names, so

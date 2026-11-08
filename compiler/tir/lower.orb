@@ -860,6 +860,13 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     // `compiler/ir/builder.orb:4803` allocates an `object`
                     // register for exactly this call.
                     if receiverText == "object" { return "object" }
+                    // A member call naming a declared function is that function
+                    // with the receiver as its first argument -- the builder's
+                    // default method path, which `compiler/front/sema.orb:4676`
+                    // describes. Nothing above answered, so the name is read as a
+                    // function.
+                    val asFunction = declaredReturnType(module, ma.field)
+                    if asFunction != "" { return asFunction }
                 }
                 _ => {}
             }
