@@ -400,15 +400,23 @@ fn tirSubstitutedFieldType(module: TirModule, declared: TirType, field: TirField
     if args.len() == 0 {
         return ""
     }
+    return tirSubstituteText(module, declared, field.declaredType, args)
+}
+
+// The instance argument a declaration's text writes, or "" when the text names
+// no parameter. A field and a variant payload read this the same way; the
+// answer is only a type this pass already states, because a text it cannot read
+// back would put a new spelling into the file's canonical text.
+fn tirSubstituteText(module: TirModule, declared: TirType, text: string, args: list < string >) -> string {
     var p = 0
     while p < declared.params.len() && p < args.len() {
-        if declared.params.get(p) == field.declaredType {
+        if declared.params.get(p) == text {
             return tirStatedType(module, args.get(p))
         }
-        if field.declaredType.length >= 7 {
-            if field.declaredType.slice(0, 5) == "list<" {
-                if field.declaredType.slice(field.declaredType.length - 1, field.declaredType.length) == ">" {
-                    if field.declaredType.slice(5, field.declaredType.length - 1) == declared.params.get(p) {
+        if text.length >= 7 {
+            if text.slice(0, 5) == "list<" {
+                if text.slice(text.length - 1, text.length) == ">" {
+                    if text.slice(5, text.length - 1) == declared.params.get(p) {
                         val inner = tirStatedType(module, args.get(p))
                         if inner != "" {
                             return "list<" + inner + ">"
@@ -445,6 +453,20 @@ fn tirStatedType(module: TirModule, typeText: string) -> string {
         }
     }
     return ""
+}
+
+// Whether the file declares a type by this name: a model or a union, with or
+// without arguments. A binding annotation the source wrote is a type this pass
+// can print only when the file declares it.
+fn tirDeclaresType(module: TirModule, name: string) -> bool {
+    val baseName = tirTypeBaseName(name)
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == baseName { return true }
+        t = t + 1
+    }
+    return false
 }
 
 // The argument one literal writes for one declared parameter: the type of the
@@ -602,7 +624,11 @@ fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
         }
         i = i + 1
     }
-    module.types.push(TirType(typeDecl.name, fields, [], names, payloads))
+    // The parameters the declaration writes, so a payload declared `T` can
+    // answer the argument the instance names: `Some(T)` under `Option<int>` is
+    // `int`. A model field has been read this way since the model's table kept
+    // its parameters; a union's did not, so every matching arm bound `T`.
+    module.types.push(TirType(typeDecl.name, fields, tirGenericParamNames(typeDecl.genericParams), names, payloads))
 }
 
 // The element kind a list type text carries. `list<int>` answers `int`; `list`
@@ -1395,10 +1421,11 @@ fn bindingAnnotationType(annotation: string) -> string {
 // position in the declaration, payload or not (`compiler/emit/c_backend.orb:2082`).
 // "" when this file declares neither the type or not that variant in it.
 fn declaredVariantTag(module: TirModule, typeName: string, variant: string) -> string {
+    val baseName = tirTypeBaseName(typeName)
     var t = 0
     while t < module.types.len() {
         val declared: TirType = module.types.get(t)
-        if declared.name == typeName {
+        if declared.name == baseName {
             var v = 0
             while v < declared.variants.len() {
                 if declared.variants.get(v) == variant { return tirIntText(v) }
@@ -1439,15 +1466,33 @@ fn declaredVariantOwner(module: TirModule, variant: string) -> string {
 // this file declares neither the type nor that variant in it. A `match` arm that
 // binds the payload names this type, and the arm's body reads fields from it.
 fn declaredVariantPayload(module: TirModule, typeName: string, variant: string) -> string {
+    val baseName = tirTypeBaseName(typeName)
+    val args = tirTypeArguments(typeName)
     var t = 0
     while t < module.types.len() {
         val declared: TirType = module.types.get(t)
-        if declared.name == typeName {
+        if declared.name == baseName {
             var v = 0
             while v < declared.variants.len() {
                 if declared.variants.get(v) == variant {
-                    if v < declared.payloads.len() { return declared.payloads.get(v) }
-                    return ""
+                    if v >= declared.payloads.len() { return "" }
+                    val payload: string = declared.payloads.get(v)
+                    if args.len() == 0 { return payload }
+                    // A variant with several payloads packs them tab-separated,
+                    // and each part substitutes on its own: `Both(A, B)` under
+                    // `Pair<int, string>` is `int` and `string`, not one text.
+                    val parts = tirSplitPayloadTypes(payload)
+                    var out = ""
+                    var pi = 0
+                    while pi < parts.len() {
+                        var part: string = parts.get(pi)
+                        val substituted = tirSubstituteText(module, declared, part, args)
+                        if substituted != "" { part = substituted }
+                        if pi > 0 { out = out + "\t" }
+                        out = out + part
+                        pi = pi + 1
+                    }
+                    return out
                 }
                 v = v + 1
             }
@@ -1668,7 +1713,11 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
                 val tagNumber = tirEmit(function, testBlock, "const", "int", tagName)
                 val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
                 tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
-                val payloadText = declaredVariantPayload(module, owner, variant)
+                // The instance the scrutinee names supplies the declaration's
+                // arguments; the pattern writes only the bare type.
+                var payloadOwner = owner
+                if tirTypeBaseName(scrutineeType) == owner { payloadOwner = scrutineeType }
+                val payloadText = declaredVariantPayload(module, payloadOwner, variant)
                 val payloads = tirSplitPayloadTypes(payloadText)
                 if callPattern.args.len() > 0 && payloads.len() == 0 {
                     tirError(module, "E3001", "a match arm binds a payload and the variant declares none", 0, 0)
@@ -1931,9 +1980,18 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             // what the binding carries; without it every read of the local is
             // E2001 and every rule downstream of the register is skipped.
             var boundType = typeOfExpression(module, bindings, declaration.value)
-            val annotated = bindingAnnotationType(declaration.typeAnnotation)
+            var annotated = bindingAnnotationType(declaration.typeAnnotation)
+            // `val p: Pair<int, string> = Pair.Both(3, "three")` names the
+            // instance the construction leaves bare: the value is typed `Pair`,
+            // and the arguments are the ones the annotation writes.
+            if annotated == "" && tirDeclaresType(module, declaration.typeAnnotation) {
+                annotated = declaration.typeAnnotation
+            }
             if boundType == "unknown" {
                 if annotated != "" { boundType = annotated }
+            } else if tirTypeArguments(boundType).len() == 0 && tirTypeArguments(annotated).len() > 0 && tirTypeBaseName(boundType) == tirTypeBaseName(annotated) {
+                // The same name with the arguments the source wrote beside it.
+                boundType = annotated
             } else if boundType == "list" && listSpellingWithElement(annotated) {
                 // `val out: list<DoctorEdit> = []` types its literal as the
                 // bare `list`, which says nothing a later `.get` can answer.

@@ -4,12 +4,12 @@
   "totals": {
     "unknown_per_mille": 0,
     "silent_per_mille": 0,
-    "instructions": 149371
+    "instructions": 149578
   },
   "files": 215,
-  "instructions": 149371,
+  "instructions": 149578,
   "context": {
-    "unknown_instructions": 10,
+    "unknown_instructions": 6,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -93,7 +93,7 @@
     "tests/std/test_io.orb": 0,
     "tests/std/test_json.orb": 0,
     "tests/std/test_log.orb": 0,
-    "tests/std/test_option.orb": 1,
+    "tests/std/test_option.orb": 0,
     "tests/std/test_process.orb": 0,
     "tests/std/test_process_exit.orb": 0,
     "tests/std/test_random.orb": 0,
@@ -134,7 +134,7 @@
     "tests/suite/generic_models.orb": 0,
     "tests/suite/generic_multi.orb": 0,
     "tests/suite/generic_nested_argument.orb": 0,
-    "tests/suite/generic_union_option.orb": 4,
+    "tests/suite/generic_union_option.orb": 1,
     "tests/suite/global_const.orb": 0,
     "tests/suite/if_branch.orb": 0,
     "tests/suite/if_expression_else_if.orb": 0,

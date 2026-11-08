@@ -868,7 +868,7 @@ that would remove the requirement.
 
 ## 0.01% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-08 over 215 files and 149,371
+`scripts/measure.py census`, run on 2026-11-08 over 215 files and 149,578
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 lets the two rates fall and the instruction total only grow -- a rule that makes
 the pass give up earlier lowers the total, not the rate -- so this is the
@@ -876,7 +876,7 @@ measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 10 | **0.0%** |
+| instructions the front end types `unknown` | 6 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -951,16 +951,26 @@ way a push inside a `while` body already did: all three bodies lower with a copy
 of the bindings, so the copy's refinements come back out. The count fell to 10
 over 149,371 instructions, E2005 from 7 to 2, the three `.get` reads in
 `doctorRun` and the one in `compiler/ir/builder.orb` answered, and
-`tests/suite/list_push.orb` came to 0.
+`tests/suite/list_push.orb` came to 0. A generic union's payload then answered
+the argument its instance writes. The type table records a union's parameters
+the way a model's already did, the tag lookup reads the declaration's base name
+so an instance finds its table, and an arm reads each packed payload part and
+substitutes it: `Box.Has(n)` under `Box<int>` binds `int`, and `Pair.Both(n, t)`
+under `Pair<int, string>` binds `int` and `string`. A binding annotation that
+names a declared instance types the value beside it, so
+`val p: Pair<int, string> = Pair.Both(3, "three")` carries the arguments the
+construction leaves bare. The count fell to 6 over 149,578 instructions, E2002
+from 5 to 2, E2001 from 2 to 1 and E3001 from 9 to 4: two matches that could not
+find their variant table lower now, and `tests/std/test_option.orb` came to 0.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 2 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 5), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 1 load), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 2), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 2). Their sum, 10, is the whole unknown count. The five
+(call result, 2). Their sum, 6, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:1044`, `:1057`, `:1065`, `:1089` and `:1229`, and
 each sits on the branch that emits the instruction.
 
@@ -1054,14 +1064,14 @@ per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 arms that bind a payload.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:926`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:954`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
 `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The `try` class is answered from two
-places now. `declaredPayloadType` (`compiler/tir/lower.orb:531`) reads the payload the
+places now. `declaredPayloadType` (`compiler/tir/lower.orb:553`) reads the payload the
 signature writes -- `int`, `bool`, `string`, `float`, `object`. Where the signature writes
 nothing, the annotation on the binding is the promise, and the build retypes the read to
 it (`compiler/ir/builder.orb:3140`), so `val n: int = try digit(c) catch { return 9 }`
@@ -1411,15 +1421,15 @@ payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 63/63
+## The frontend gate is 64/64
 
-`scripts/corpus_gates.py frontend` runs 63 fixtures and all 63 pass (two of
+`scripts/corpus_gates.py frontend` runs 64 fixtures and all 64 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
 fail before. Ten pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. 53 `.tir` goldens sit in `tests/frontend/expected/`.
+the wrong artifact. 54 `.tir` goldens sit in `tests/frontend/expected/`.
 `interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
@@ -1429,7 +1439,8 @@ gate's test plumbing rather than as a language escape.
 arm, and `match_value_branch_types.orb` is its refusal control.
 `list_refinement_branch.orb` pins a push inside an `if` typing the read after
 it, and `list_refinement_callee.orb` is the boundary: a push the callee performs
-does not type the caller's local.
+does not type the caller's local. `generic_union_payload.orb` pins `data int`
+for an arm on `Box<int>`, where the declaration writes `T`.
 `crossfile_field.orb` is the boundary case: a field whose type is
 a model declared in another file keeps E2004, and the fixture prints only when
 the refusal names that code, so an input that stopped reaching the member-read
