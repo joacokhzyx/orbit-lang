@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,939
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,946
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 49 | **0.0%** |
+| instructions the front end types `unknown` | 39 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -923,7 +923,10 @@ instructions, E2005 from 31 to 30 and E2001 from 17 to 15. A file-scope
 `val`/`const` written with a literal is a `#define` in the build, so it emitted
 no instruction and a read of it was E2001; the module keeps those names and their
 literal's type, and the read is answered. The count fell to 49 over 148,939
-instructions, E2001 from 15 to 9.
+instructions, E2001 from 15 to 9. A member call on an `object` answers
+`object`, which is the register the build allocates for it; the value model is
+one word with no tag, so the callee's name is not the type of what it returns.
+The count fell to 39 over 148,946 instructions, E2005 from 30 to 20.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
@@ -932,8 +935,8 @@ the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier
 (binary operands, 9), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 30). Their sum, 49, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:881`, `:894`, `:902`, `:926` and `:1028`, and
+(call result, 20). Their sum, 39, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:1037`, `:1050`, `:1058`, `:1082` and `:1222`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -1026,7 +1029,7 @@ per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 arms that bind a payload.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:913`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:919`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been

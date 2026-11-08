@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 148939,
+  "instructions": 148946,
   "context": {
-    "unknown_instructions": 49,
+    "unknown_instructions": 39,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -164,7 +164,7 @@
     "tests/suite/model_fields.orb": 0,
     "tests/suite/model_list_field.orb": 0,
     "tests/suite/model_list_of_models.orb": 0,
-    "tests/suite/model_literal_fields.orb": 2,
+    "tests/suite/model_literal_fields.orb": 0,
     "tests/suite/model_local_named_mid.orb": 0,
     "tests/suite/model_mutation.orb": 0,
     "tests/suite/model_nested.orb": 0,
@@ -172,10 +172,10 @@
     "tests/suite/model_two_fields.orb": 0,
     "tests/suite/nesting_legal.orb": 0,
     "tests/suite/numeric_literals.orb": 0,
-    "tests/suite/object_float_missing_key.orb": 2,
+    "tests/suite/object_float_missing_key.orb": 0,
     "tests/suite/object_literal_cross_function.orb": 0,
-    "tests/suite/object_literal_missing_key.orb": 5,
-    "tests/suite/object_literals.orb": 1,
+    "tests/suite/object_literal_missing_key.orb": 0,
+    "tests/suite/object_literals.orb": 0,
     "tests/suite/parallel_lists_table.orb": 0,
     "tests/suite/parameter_type_fallback.orb": 0,
     "tests/suite/peephole_folds.orb": 0,

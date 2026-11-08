@@ -855,6 +855,11 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     // was two unknown operands in every lexer-shaped loop.
                     if receiverText == "string" && ma.field == "at" { return "int" }
                     if ma.field == "slice" || ma.field == "at" { return "string" }
+                    // A member call on an `object` answers `object`: the value
+                    // model is one word with no tag, and
+                    // `compiler/ir/builder.orb:4803` allocates an `object`
+                    // register for exactly this call.
+                    if receiverText == "object" { return "object" }
                 }
                 _ => {}
             }
