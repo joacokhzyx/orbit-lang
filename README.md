@@ -9,8 +9,8 @@
 Orbit is a statically typed language for APIs and microservices. Every request gets its own memory arena, its own compute budget and its own line in a cost ledger. The compiler is written in Orbit and rebuilds itself from a single C file.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/architecture/SOVEREIGNTY.md)
-[![Status](https://img.shields.io/badge/status-0.1.0%20pre--release-orange)](docs/KNOWN_LIMITATIONS.md)
+[![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/internals/SOVEREIGNTY.md)
+[![Status](https://img.shields.io/badge/status-0.1.0%20pre--release-orange)](docs/SUPPORTED.md#what-is-not-supported-yet)
 
 ## A service in one file
 
@@ -45,7 +45,7 @@ A server can be fast without burning so much energy. Orbit is a bet on that idea
 
 In most stacks, admission control, memory limits and per-route cost accounting are libraries and habits. Orbit puts them in the language, so every service has them from the first line and every service can be measured the same way.
 
-It is a bet, not a result. No energy saving is claimed until it has been measured with the hardware, workload and method written down ([`docs/ENERGY.md`](docs/ENERGY.md)). What the project does publish is what works, what does not, and how each number was taken.
+It is a bet, not a result. No energy saving is claimed until it has been measured with the hardware, workload and method written down ([`docs/internals/ENERGY.md`](docs/internals/ENERGY.md)). What the project does publish is what works, what does not, and how each number was taken.
 
 ## Where Orbit is going
 
@@ -75,7 +75,7 @@ On Windows use `.\orbit.exe` and `.\health_service.exe 8080`. Details are in [Ge
 
 ## Learn the language
 
-The [Language Tour](docs/TOUR.md) takes about thirty minutes and covers functions, models, routes, SQLite reads and telemetry. Every snippet runs and every output was checked. After it, pick a tutorial:
+The [Language Tour](docs/GETTING_STARTED.md#a-thirty-minute-tour) takes about thirty minutes and covers functions, models, routes, SQLite reads and telemetry. Every snippet runs and every output was checked. After it, pick a tutorial:
 
 - [Blog API with auth](docs/tutorials/blog-api.md)
 - [File server and uploads](docs/tutorials/file-server.md)
@@ -90,7 +90,7 @@ The [Language Tour](docs/TOUR.md) takes about thirty minutes and covers function
 
 **Native backend on Windows x64:** it is the default for the programs R6 accepts, and it needs no C compiler. R6 refuses every program that declares a route, so a service build needs `--backend=c`. On other platforms the C backend is the default.
 
-Orbit is pre-1.0. Minor releases may include documented breaking changes, so pin your compiler version. The full list of limits, each with a workaround, is in [Known Limitations](docs/KNOWN_LIMITATIONS.md). Twenty plain questions are answered in the [FAQ](docs/FAQ.md).
+Orbit is pre-1.0. Minor releases may include documented breaking changes, so pin your compiler version. The full list of limits, each with a workaround, is in [Known Limitations](docs/SUPPORTED.md#what-is-not-supported-yet). Twenty plain questions are answered in the [FAQ](docs/SUPPORTED.md#frequently-asked-questions).
 
 ## Commands
 
@@ -109,16 +109,16 @@ See the [Command Reference](docs/COMMANDS.md).
 
 One maintainer builds Orbit, working with AI coding agents under written rules ([`AGENTS.md`](AGENTS.md)). The rules keep the work checkable: the compiler must rebuild itself byte for byte, the behavior suite and the negative suite must pass, and the writing rules require every claim in the documentation to carry a command or a number.
 
-The trusted root is C source you can read, not a binary. See [Compiler Sovereignty](docs/architecture/SOVEREIGNTY.md).
+The trusted root is C source you can read, not a binary. See [Compiler Sovereignty](docs/internals/SOVEREIGNTY.md).
 
 ## Documentation
 
 The [documentation map](docs/README.md) lists every page by the question it answers. The ones people open most:
 
-- [Getting Started](docs/GETTING_STARTED.md), [FAQ](docs/FAQ.md), [Known Limitations](docs/KNOWN_LIMITATIONS.md)
-- [Language Reference](docs/LANGUAGE_REFERENCE.md), [Language Tour](docs/TOUR.md)
-- [Architecture](docs/ARCHITECTURE.md), [Performance](docs/PERF.md), [Changelog](docs/CHANGELOG.md)
-- [Platform Support](docs/SUPPORT.md), [Versioning](docs/VERSIONING.md), [Server Examples](examples/README.md)
+- [Getting Started](docs/GETTING_STARTED.md), [FAQ](docs/SUPPORTED.md#frequently-asked-questions), [Known Limitations](docs/SUPPORTED.md#what-is-not-supported-yet)
+- [Language Reference](docs/LANGUAGE_REFERENCE.md), [Language Tour](docs/GETTING_STARTED.md#a-thirty-minute-tour)
+- [Architecture](docs/ARCHITECTURE.md), [Performance](docs/internals/PERF.md), [Changelog](docs/CHANGELOG.md)
+- [Platform Support](docs/SUPPORTED.md#platforms), [Versioning](docs/SUPPORTED.md#versions-and-compatibility), [Server Examples](examples/README.md)
 
 ## Repository layout
 
@@ -138,7 +138,7 @@ assets/       Logo, banner and icon
 
 ## Contributing
 
-Start with the [Contributing Guide](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md) and the [branch rules](docs/BRANCHES.md). Report security issues as described in [SECURITY.md](SECURITY.md).
+Start with the [Contributing Guide](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md) and the [branch rules](CONTRIBUTING.md#branches). Report security issues as described in [SECURITY.md](SECURITY.md).
 
 `scripts/dev.py`, through `make`, is the entry point and owns the gate flags. Do not pass `--cc` or `--compiler` by hand.
 
