@@ -1779,6 +1779,19 @@ fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, binding
     val handlerBlock = tirCreateBlock(function)
     tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
     val unwrapped = tirEmit(function, okBlock, "result_unwrap", unwrapType, tirValue(resultValue))
+    // A `try` with no `catch` propagates: the error path returns the original
+    // result unchanged, which is the `ret` the build emits for the same source
+    // (`compiler/ir/builder.orb:5935`). A handler the source wrote runs in the
+    // error block instead, and one that falls through still needs a merge value.
+    var hasHandler = true
+    match tryNode.catchBody {
+        ASTNode.Empty => { hasHandler = false }
+        _ => {}
+    }
+    if hasHandler == false {
+        tirEmit(function, handlerBlock, "return", "unit", tirValue(resultValue))
+        return unwrapped
+    }
     val handlerBindings = enterTryHandler(function, handlerBlock, bindings, tryNode, resultValue)
     val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, -1, -1)
     if handlerEnd >= 0 {

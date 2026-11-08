@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 149,012
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 149,050
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 24 | **0.0%** |
+| instructions the front end types `unknown` | 18 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -937,7 +937,10 @@ still a float, and only a name with no declared type takes the value's. The
 count fell to 25 over 148,999 instructions, E2002 from 9 to 7. A member call
 naming a declared function answers that function's return type, which is the
 builder's default method path; the count fell to 24 over 149,012 instructions
-and E2005 from 8 to 7.
+and E2005 from 8 to 7. A `try` with no `catch` propagates: the error path
+returns the original result unchanged, which is the `ret` the build emits for
+the same source, so the handler is not a give-up. The count fell to 18 over
+149,050 instructions.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
@@ -946,7 +949,7 @@ the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier
 (binary operands, 7), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 7). Their sum, 24, is the whole unknown count. The five
+(call result, 7). Their sum, 18, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:1044`, `:1057`, `:1065`, `:1089` and `:1229`, and
 each sits on the branch that emits the instruction.
 

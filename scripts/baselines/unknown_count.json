@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 149012,
+  "instructions": 149050,
   "context": {
-    "unknown_instructions": 24,
+    "unknown_instructions": 18,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -190,7 +190,7 @@
     "tests/suite/result_binding.orb": 0,
     "tests/suite/result_catch.orb": 0,
     "tests/suite/result_catch_binding_scope.orb": 0,
-    "tests/suite/result_chain.orb": 6,
+    "tests/suite/result_chain.orb": 0,
     "tests/suite/result_in_loop.orb": 2,
     "tests/suite/result_message.orb": 0,
     "tests/suite/result_payload_int.orb": 0,
