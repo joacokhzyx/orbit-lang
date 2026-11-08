@@ -868,13 +868,13 @@ that would remove the requirement.
 
 ## 0.1% of instructions are `unknown`, and every one of them says so
 
-`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,744
+`scripts/measure.py census`, run on 2026-11-07 over 215 files and 148,939
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 55 | **0.0%** |
+| instructions the front end types `unknown` | 49 | **0.0%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 A `match` arm that binds a payload lowers since 2026-11-06: the files that
@@ -919,21 +919,25 @@ fell to 58 over 148,736 instructions, E2004 from 14 to 1 and E2002 from 12 to
 an empty expectation; it is an emit fixture with its golden now, and it was the
 only expectation this work flipped. `s.to_int()` answers `int`, the type the
 build and the checker already give it; the count fell to 55 over 148,744
-instructions, E2005 from 31 to 30 and E2001 from 17 to 15.
+instructions, E2005 from 31 to 30 and E2001 from 17 to 15. A file-scope
+`val`/`const` written with a literal is a `#define` in the build, so it emitted
+no instruction and a read of it was E2001; the module keeps those names and their
+literal's type, and the read is answered. The count fell to 49 over 148,939
+instructions, E2001 from 15 to 9.
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](LANGUAGE_REFERENCE.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 15 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 9 loads), [E2002](LANGUAGE_REFERENCE.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 9), [E2003](LANGUAGE_REFERENCE.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](LANGUAGE_REFERENCE.md#e2004--untypable-member-read-frontend)
 (member read, 1) and [E2005](LANGUAGE_REFERENCE.md#e2005--untypable-call-result-frontend)
-(call result, 30). Their sum, 55, is the whole unknown count. The five
+(call result, 30). Their sum, 49, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:881`, `:894`, `:902`, `:926` and `:1028`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
-guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:80`) answers a
+guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:134`) answers a
 call from the function the file itself declares, so the `call` class fell from
 6,756 to 4,259; a `val` bound to such a call carries that type into every later
 load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
@@ -1022,14 +1026,14 @@ per-file rows differ -- `compiler/tools/doctor.orb` has 61 untyped instructions
 and 29 arms that bind a payload.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:851`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:913`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class") and, since 2026-11-04, the file each class sits in. The tally said
 what the pass gives up on; it did not say where, so a class of 93 could have been
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
 `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29. The `try` class is answered from two
-places now. `declaredPayloadType` (`compiler/tir/lower.orb:476`) reads the payload the
+places now. `declaredPayloadType` (`compiler/tir/lower.orb:530`) reads the payload the
 signature writes -- `int`, `bool`, `string`, `float`, `object`. Where the signature writes
 nothing, the annotation on the binding is the promise, and the build retypes the read to
 it (`compiler/ir/builder.orb:3140`), so `val n: int = try digit(c) catch { return 9 }`
@@ -1101,7 +1105,7 @@ instructions left the unknown count with the first step, and the rate moved from
 19.3% to 18.3% (193 per mille to 183). 15 reads are still untyped, and the
 census names the field each one asks for: `.v` 5, `.right` 4, `.left` 3.
 Four left on 2026-11-05, when the type table began to carry the parameters the
-model declares. `declaredFieldType` (`compiler/tir/lower.orb:204`) matches an
+model declares. `declaredFieldType` (`compiler/tir/lower.orb:258`) matches an
 instance by the base of its type text -- `Box<int>` is the model `Box` with the
 argument `int` -- and a field whose declared text is one of `TirType.params`
 answers that argument. `list<T>` substitutes inside the container it names, so

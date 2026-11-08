@@ -80,6 +80,15 @@ model TirSignature {
     returnType: string
 }
 
+// A file-scope `val` or `const` with a literal. The C backend emits it as a
+// `#define`, so it has no instruction of its own, and a read of the name still
+// has a type -- the one the literal writes. Resolution only, like `types` and
+// `ctors`: never printed.
+model TirConstant {
+    name: string
+    typeName: string
+}
+
 model TirModule {
     name: string
     functions: list < TirFunction >
@@ -91,10 +100,11 @@ model TirModule {
     // the type when it is called, and it answers nothing when it is read, so
     // this is kept apart from `types` rather than filed beside the constants.
     ctors: list < string >
+    constants: list < TirConstant >
 }
 
 fn initTirModule(name: string) -> TirModule {
-    return TirModule(name, [], [], [], [], [])
+    return TirModule(name, [], [], [], [], [], [])
 }
 
 fn initTirFunction(id: int, name: string, returnType: string) -> TirFunction {

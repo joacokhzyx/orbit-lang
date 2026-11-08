@@ -23,6 +23,61 @@ fn tirLiteralType(node: LiteralNode) -> string {
     return node.valType
 }
 
+// The type a file-scope `val`/`const` carries, from the literal it is written
+// with. A negated or complemented literal is the operand's type, and a negated
+// boolean is not a value. "" keeps the name out of the table.
+// orbit-walk: none -- answers the type a literal writes
+fn constantValueType(value: ASTNode) -> string {
+    match value {
+        ASTNode.Literal(literal) => {
+            if literal.valType == "identifier" { return "" }
+            if literal.valType == "string_chunk" { return "string" }
+            return literal.valType
+        }
+        ASTNode.UnaryOp(unary) => {
+            if unary.op == "-" || unary.op == "~" { return constantValueType(unary.operand) }
+            if unary.op == "!" { return "bool" }
+        }
+        _ => {}
+    }
+    return ""
+}
+
+// Every file-scope `val` and `const` written with a literal. The C backend makes
+// each one a `#define`, so no instruction emits it and a read of the name used to
+// be E2001; the type is in the source, beside the value.
+fn collectConstants(module: TirModule, program: ProgramNode) {
+    var i = 0
+    while i < program.decls.len() {
+        match program.decls.get(i) {
+            ASTNode.VarDecl(declaration) => {
+                val constantType = constantValueType(declaration.value)
+                if constantType != "" {
+                    module.constants.push(TirConstant(declaration.name, constantType))
+                }
+            }
+            ASTNode.ConstDecl(constant) => {
+                val constantType = constantValueType(constant.value)
+                if constantType != "" {
+                    module.constants.push(TirConstant(constant.name, constantType))
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+}
+
+fn declaredConstantType(module: TirModule, name: string) -> string {
+    var i = 0
+    while i < module.constants.len() {
+        val constant: TirConstant = module.constants.get(i)
+        if constant.name == name { return constant.typeName }
+        i = i + 1
+    }
+    return ""
+}
+
 fn tirBinaryType(op: string, leftType: string, rightType: string) -> string {
     if op == "==" { return "bool" }
     if op == "!=" { return "bool" }
@@ -641,6 +696,10 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                 if bound != "unknown" { return bound }
                 val fromDeclaration = declaredReturnType(module, literal.text)
                 if fromDeclaration != "" { return fromDeclaration }
+                // A file-scope `val`/`const` is a `#define` in the build and a
+                // name with a type here.
+                val fromConstant = declaredConstantType(module, literal.text)
+                if fromConstant != "" { return fromConstant }
                 if literal.text == "system" { return "system" }
                 return "unknown"
             }
@@ -953,6 +1012,13 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                     // tests/frontend/unresolved_type.orb pins.
                     val fromDeclaration = declaredReturnType(module, literal.text)
                     if fromDeclaration != "" { typeName = fromDeclaration }
+                }
+                if typeName == "unknown" {
+                    // A file-scope `val`/`const` is a `#define` in the build and
+                    // a name with a type here. A local of that name wins above,
+                    // the way the checker reads a local as a local.
+                    val fromConstant = declaredConstantType(module, literal.text)
+                    if fromConstant != "" { typeName = fromConstant }
                 }
                 if typeName == "unknown" {
                     // `system` is the telemetry receiver the checker resolves by
@@ -2181,6 +2247,7 @@ fn lowerProgramWithImportsToTir(moduleName: string, root: ASTNode, imported: lis
         ASTNode.Program(program) => {
             collectSignatures(module, program)
             collectModels(module, program)
+            collectConstants(module, program)
             var i = 0
             while i < program.decls.len() {
                 val declaration: ASTNode = program.decls.get(i)

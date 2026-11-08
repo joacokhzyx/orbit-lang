@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 148744,
+  "instructions": 148939,
   "context": {
-    "unknown_instructions": 55,
+    "unknown_instructions": 49,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -59,7 +59,7 @@
     "std/collections/lists.orb": 0,
     "std/convert/codec.orb": 0,
     "std/convert/convert.orb": 0,
-    "std/fs/file.orb": 1,
+    "std/fs/file.orb": 0,
     "std/hash/hash.orb": 0,
     "std/io/io.orb": 0,
     "std/json/json.orb": 0,
@@ -108,7 +108,7 @@
     "tests/suite/bom_utf8.orb": 0,
     "tests/suite/bool_and_or.orb": 0,
     "tests/suite/bool_short_circuit.orb": 0,
-    "tests/suite/c_names_user_defined.orb": 1,
+    "tests/suite/c_names_user_defined.orb": 0,
     "tests/suite/call_arg_types.orb": 0,
     "tests/suite/compound_assignment.orb": 0,
     "tests/suite/div_mod_signed.orb": 0,
@@ -134,7 +134,7 @@
     "tests/suite/generic_multi.orb": 0,
     "tests/suite/generic_nested_argument.orb": 0,
     "tests/suite/generic_union_option.orb": 4,
-    "tests/suite/global_const.orb": 4,
+    "tests/suite/global_const.orb": 0,
     "tests/suite/if_branch.orb": 0,
     "tests/suite/if_expression_else_if.orb": 0,
     "tests/suite/if_expression_no_phantom_branch.orb": 0,
