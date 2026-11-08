@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 148946,
+  "instructions": 148984,
   "context": {
-    "unknown_instructions": 39,
+    "unknown_instructions": 27,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -20,14 +20,14 @@
     "compiler/front/literal.orb": 0,
     "compiler/front/parser.orb": 0,
     "compiler/front/resolver.orb": 0,
-    "compiler/front/sema.orb": 2,
+    "compiler/front/sema.orb": 0,
     "compiler/front/token.orb": 0,
-    "compiler/host/cluster.orb": 3,
+    "compiler/host/cluster.orb": 0,
     "compiler/host/extern.orb": 0,
     "compiler/host/main.orb": 0,
     "compiler/host/pipeline.orb": 0,
     "compiler/host/start.orb": 0,
-    "compiler/ir/builder.orb": 5,
+    "compiler/ir/builder.orb": 1,
     "compiler/ir/cteval.orb": 0,
     "compiler/ir/ir.orb": 0,
     "compiler/ir/optimizer.orb": 0,
@@ -36,7 +36,7 @@
     "compiler/tir/entry.orb": 0,
     "compiler/tir/format.orb": 0,
     "compiler/tir/lower.orb": 0,
-    "compiler/tools/doctor.orb": 7,
+    "compiler/tools/doctor.orb": 4,
     "compiler/tools/fmt.orb": 0,
     "compiler/tools/lsp.orb": 0,
     "compiler/tools/palette.orb": 0,

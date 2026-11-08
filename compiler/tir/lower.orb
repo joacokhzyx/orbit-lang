@@ -1996,10 +1996,24 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             }
             tirEmit(function, conditionBlock, "branch", "unit", tirValue(condition) + " b" + tirIntText(bodyBlock) + " b" + tirIntText(exitBlock))
 
+            val baseCount = bindings.len()
             val bodyBindings = copyBindings(bindings)
             val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body, exitBlock, conditionBlock)
             if bodyEnd >= 0 {
                 tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(conditionBlock))
+            }
+            // A `push` inside the body refines the local's element kind in the
+            // body's copy of the bindings, and that copy dies with the loop. The
+            // statements after the loop read the same local, so the refinement
+            // comes back out -- and only that shape: a name the body declared is
+            // out of scope here, and an assignment is not a type.
+            var carried = baseCount
+            while carried < bodyBindings.len() {
+                val refined: TirBinding = bodyBindings.get(carried)
+                if bindingType(bindings, refined.name) == "list" && listSpellingWithElement(refined.typeName) {
+                    bindings.push(refined)
+                }
+                carried = carried + 1
             }
             return exitBlock
         }
