@@ -7,6 +7,7 @@
 #include "arena.h"
 #include "ledger.h"
 #include "admission.h"
+#include "os.h"
 #include <sqlite3.h>
 #include <stdarg.h>
 #include <stdio.h>

@@ -246,7 +246,7 @@ def build_lib(cc, out_path, work, defines=(), modules=None, r6=None, compiler=No
 
 
 def self_test(cc):
-    """The tool must be able to say no twice: bad C, missing runtime."""
+    """The tool must be able to say no twice, and the --db recipe must build."""
     with tempfile.TemporaryDirectory(prefix="mklib_selftest_") as td:
         work = pathlib.Path(td)
         bad_src = work / "bad.c"
@@ -272,8 +272,29 @@ def self_test(cc):
         if "Traceback (most recent call last)" in (proc.stdout + proc.stderr):
             print("self-test FAILED: missing runtime died with a traceback")
             return 1
-    out.finish("mklib self-test", 2, 2,
-               extra="compile failure and missing runtime are both reported")
+        # The plain archive never compiles these two, so a call into another
+        # module whose header is not included stays invisible until a consumer
+        # asks for --db (the release does, and so does the native backend).
+        # Compiling them alone is the cheapest place that failure shows up.
+        for module in DB_MODULES:
+            argv = [cc, "-O2", "-Wall", "-DORBIT_RUNTIME_MODULE"]
+            for define in MODULE_DEFINES.get(module, ()):
+                argv.append("-D" + define)
+            argv += ["-I", str(RUNTIME), "-I", str(RUNTIME / "vendor"),
+                     str(RUNTIME / (module + ".c")), "-c", "-o",
+                     str(work / (module + ".o"))]
+            built = subprocess.run(argv, cwd=str(ROOT), capture_output=True,
+                                   text=True, errors="replace")
+            if built.returncode != 0:
+                print(f"self-test FAILED: the {module} module does not "
+                      f"compile on its own, and --db needs it to")
+                sys.stdout.write(built.stdout or "")
+                sys.stderr.write(built.stderr or "")
+                return 1
+    checks = 2 + len(DB_MODULES)
+    out.finish("mklib self-test", checks, checks,
+               extra="compile failure and missing runtime are both reported, "
+                     "and every DB-only module compiles on its own")
     return 0
 
 
