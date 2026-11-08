@@ -1886,7 +1886,15 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             }
             if storeName != "" {
                 tirEmit(function, blockId, "bind", "unit", storeName + " " + tirValue(value))
-                bindings.push(TirBinding(storeName, typeOfExpression(module, bindings, assignment.value)))
+                // A write goes into the slot the declaration made, so the name
+                // keeps the type it already had: `var ratio: float = 1.5` then
+                // `ratio = 3` is still a float, and the integer is the value the
+                // store converts. Only a name with no declared type takes the
+                // value's.
+                var assignedType = typeOfExpression(module, bindings, assignment.value)
+                val previous = bindingType(bindings, storeName)
+                if previous != "unknown" { assignedType = previous }
+                bindings.push(TirBinding(storeName, assignedType))
                 return blockId
             }
             tirError(module, "E3001", "cannot lower this assignment to TIR: " + astNodeKind(assignment.target), 0, 0)

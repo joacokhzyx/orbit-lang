@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 215,
-  "instructions": 148984,
+  "instructions": 148999,
   "context": {
-    "unknown_instructions": 27,
+    "unknown_instructions": 25,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -121,7 +121,7 @@
     "tests/suite/float_boundaries.orb": 0,
     "tests/suite/float_call_result_binding.orb": 0,
     "tests/suite/float_literals.orb": 0,
-    "tests/suite/float_local_int_assign.orb": 2,
+    "tests/suite/float_local_int_assign.orb": 0,
     "tests/suite/float_results.orb": 0,
     "tests/suite/fn_named_like_c_keyword.orb": 0,
     "tests/suite/fn_recursive.orb": 0,
