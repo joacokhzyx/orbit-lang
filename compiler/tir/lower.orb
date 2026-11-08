@@ -889,6 +889,8 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
             if unwrapType != "" { return unwrapType }
             return "unknown"
         }
+        // A `match` used as a value answers the type its arms agree on.
+        ASTNode.Match(m) => { return matchValueType(module, bindings, m) }
         _ => return "unknown"
     }
 }
@@ -1001,7 +1003,7 @@ fn tirFieldText(module: TirModule, function: TirFunction, blockId: int, bindings
 // The field initials of an object or model literal are visited by `tirFieldText`, which
 // arms FieldInit; this function has no arm of its own for it, which is what the list
 // below records per walk.
-// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
@@ -1340,6 +1342,11 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             val positionValue = lowerExpression(module, function, blockId, bindings, indexNode.index)
             return tirEmit(function, blockId, "call", indexType, "get " + tirValue(containerValue) + " " + tirValue(positionValue))
         }
+        // `match n { 0 => 10  _ => 30 }` as a value: the statement chain with the
+        // arms binding the join name, and the merge block loading it.
+        ASTNode.Match(matchNode) => {
+            return lowerMatchValue(module, function, blockId, bindings, matchNode)
+        }
         _ => {
             tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
             return -1
@@ -1515,6 +1522,33 @@ fn matchTestsVariants(module: TirModule, scrutineeType: string, cases: list < AS
     return false
 }
 
+// The value a `match` used as an expression is worth: every arm answers the same
+// stated type, which is the rule `ifValueType` applies to two branches.
+fn matchValueType(module: TirModule, bindings: list < TirBinding >, m: MatchNode) -> string {
+    var valueType = ""
+    var i = 0
+    while i < m.cases.len() {
+        match m.cases.get(i) {
+            ASTNode.MatchCase(c) => {
+                val armType = ifBranchType(module, bindings, c.body)
+                if armType == "" || armType == "unknown" { return "" }
+                if valueType == "" { valueType = armType }
+                else if valueType != armType { return "" }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return valueType
+}
+
+// The block a match converges to: the merge block itself for a match used as a
+// statement, and the load of the join name for one used as a value.
+fn matchJoinBlock(function: TirFunction, mergeBlock: int, valueJoin: string, valueType: string) -> int {
+    if valueJoin == "" { return mergeBlock }
+    return tirEmit(function, mergeBlock, "load", valueType, valueJoin)
+}
+
 // `match s { Shape.Empty => …  _ => … }` in statement position. One test per arm,
 // each in the block the previous test fell through to: read the tag once, name the
 // variant's declared number, compare, and `branch` into the arm or into the next
@@ -1529,7 +1563,7 @@ fn matchTestsVariants(module: TirModule, scrutineeType: string, cases: list < AS
 // resolves it the way the build path does. A variant that declares no payload
 // cannot be bound, and a pattern with more than one argument cannot be a union
 // variant: both are refused rather than lowered to a name with no value.
-fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, m: MatchNode, breakTarget: int, continueTarget: int) -> int {
+fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, m: MatchNode, breakTarget: int, continueTarget: int, valueJoin: string) -> int {
     val scrutineeType = typeOfExpression(module, bindings, m.expr)
     val scrutineeValue = lowerExpression(module, function, blockId, bindings, m.expr)
     var tagValue = -1
@@ -1556,11 +1590,22 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
             _ => {}
         }
         if isWildcard {
-            val wildEnd = lowerStatement(module, function, testBlock, copyBindings(bindings), body, breakTarget, continueTarget)
-            if wildEnd >= 0 {
-                tirEmit(function, wildEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            if valueJoin != "" {
+                // An arm that ends the block answers no value, so no join is bound
+                // for it and nothing falls through -- the same rule the statement
+                // form applies to an arm that returns.
+                val wildValue = lowerIfArm(module, function, testBlock, copyBindings(bindings), body)
+                if wildValue >= 0 {
+                    tirEmit(function, testBlock, "bind", "unit", valueJoin + " " + tirValue(wildValue))
+                }
+                tirEmit(function, testBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+            } else {
+                val wildEnd = lowerStatement(module, function, testBlock, copyBindings(bindings), body, breakTarget, continueTarget)
+                if wildEnd >= 0 {
+                    tirEmit(function, wildEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+                }
             }
-            return mergeBlock
+            return matchJoinBlock(function, mergeBlock, valueJoin, matchValueType(module, bindings, m))
         }
         val armBlock = tirCreateBlock(function)
         val nextBlock = tirCreateBlock(function)
@@ -1653,15 +1698,36 @@ fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, b
                 return -1
             }
         }
-        val armEnd = lowerStatement(module, function, armBlock, bodyBindings, body, breakTarget, continueTarget)
-        if armEnd >= 0 {
-            tirEmit(function, armEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+        if valueJoin != "" {
+            val armValue = lowerIfArm(module, function, armBlock, bodyBindings, body)
+            if armValue >= 0 {
+                tirEmit(function, armBlock, "bind", "unit", valueJoin + " " + tirValue(armValue))
+            }
+            tirEmit(function, armBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+        } else {
+            val armEnd = lowerStatement(module, function, armBlock, bodyBindings, body, breakTarget, continueTarget)
+            if armEnd >= 0 {
+                tirEmit(function, armEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            }
         }
         testBlock = nextBlock
         i = i + 1
     }
     tirEmit(function, testBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
-    return mergeBlock
+    return matchJoinBlock(function, mergeBlock, valueJoin, matchValueType(module, bindings, m))
+}
+
+// `match n { 0 => 10  _ => 30 }` where the value is wanted: the same test chain as
+// the statement form, with each arm binding the join name instead of ending its
+// block. Every arm answers one stated type, which is what the merge loads.
+fn lowerMatchValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, m: MatchNode) -> int {
+    val valueType = matchValueType(module, bindings, m)
+    if valueType == "" {
+        tirError(module, "E3001", "a match in value position needs the same type in every arm, which this pass does not keep", 0, 0)
+        return -1
+    }
+    val joinName = "join" + tirIntText(function.nextValueId)
+    return lowerMatchStatement(module, function, blockId, bindings, m, -1, -1, joinName)
 }
 
 // The value an `if` branch is worth, and the type it answers. Two shapes: a branch
@@ -1968,7 +2034,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         // `match s { ... }` in statement position: a test chain, one arm block per
         // case, and the merge block the arms that fall through jump to.
         ASTNode.Match(m) => {
-            return lowerMatchStatement(module, function, blockId, bindings, m, breakTarget, continueTarget)
+            return lowerMatchStatement(module, function, blockId, bindings, m, breakTarget, continueTarget, "")
         }
         ASTNode.If(branch) => {
             val condition = lowerExpression(module, function, blockId, bindings, branch.condition)
@@ -2257,7 +2323,7 @@ fn lowerFunction(module: TirModule, declaration: FunctionDeclNode) {
 // collectors only add, so running them over another program's declarations
 // widens the answers without lowering a single foreign body: the text this pass
 // prints stays the text of the file named on the command line.
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, BlockNode, BreakNode, ConfigDeclNode, ConstDeclNode, ContinueNode, DecoratorNode, EmptyNode, ExpressionStmtNode, FieldDeclNode, FieldInitNode, ForNode, FunctionDeclNode, GenericParamNode, IfNode, ImportStmtNode, IndexAccessNode, InterpNode, ListLiteralNode, LiteralNode, MatchCaseNode, MatchNode, MemberAccessNode, MigrationDeclNode, ModelDeclNode, ObjectLiteralNode, ProgramNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypeAnnotationNode, TypedLiteralNode, UnaryOpNode, UseStmtNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, BlockNode, BreakNode, ConfigDeclNode, ConstDeclNode, ContinueNode, DecoratorNode, EmptyNode, ExpressionStmtNode, FieldDeclNode, FieldInitNode, ForNode, FunctionDeclNode, GenericParamNode, IfNode, ImportStmtNode, IndexAccessNode, InterpNode, ListLiteralNode, LiteralNode, MatchCaseNode, MemberAccessNode, MigrationDeclNode, ModelDeclNode, ObjectLiteralNode, ProgramNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypeAnnotationNode, TypedLiteralNode, UnaryOpNode, UseStmtNode, VarDeclNode, WhileNode
 fn registerImportedDeclarations(module: TirModule, programs: list < ASTNode >) {
     var i = 0
     while i < programs.len() {

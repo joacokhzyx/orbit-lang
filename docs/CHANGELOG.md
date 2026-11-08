@@ -101,6 +101,8 @@ Runtime and services:
 
 Language front end:
 
+- **A `match` in value position carries its arm's value out.** `val v = match n { 0 => 10 _ => 30 }` reached the expression reader, which had no arm for `Match`, so every such site gave up. The statement form takes a join name now: every arm binds it with `bind unit join0 <value>` and jumps to the merge block, the merge block reads it with `load int join0`, and the wildcard binds it in the block the last test fell through to. The type is the one every arm answers, read the way the `if` join reads its two branches, and arms that disagree are refused by E3001 rather than printed. The join name is the function's next value id, so it cannot collide with a register an arm wrote. Over the corpus the census reads 15 unknown over 149,336 instructions, down from 18 over 149,050: `tests/suite/match.orb` fell 2 to 0 and `tests/suite/union_match_exhaustive.orb` 1 to 0, and the corpus grew by 286 instructions where the arm bodies now lower. The rate holds at 0 per mille and the silent count stays 0. `tests/frontend/match_value_join.orb` pins the text and `tests/frontend/match_value_branch_types.orb` is the refusal control. The frontend gate is 61/61.
+
 - **A written `list` names its element.** `fn take(xs: list)` compiled, and
   every read through `xs` answered `unknown`: `.get` reported E2005 and the C
   backend stored a `void*`. The parser refuses a bare `list` (or `List`) in a

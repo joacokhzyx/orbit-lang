@@ -28,7 +28,9 @@ module.  A valid module contains:
    The name is the join, is unique within the function, and is written by every
    branch that can reach the read. A branch that ends in `return` writes nothing,
    because control never reaches the merge; a join whose branches answer different
-   types is refused rather than printed.
+   types is refused rather than printed. A `match` used as a value follows the same
+   convention with one join per match: every arm binds it and jumps to the merge
+   block, and the wildcard binds it in the block the last test fell through to.
 - stable numeric ids for functions, values and blocks;
 - structured diagnostics with source coordinates.
 

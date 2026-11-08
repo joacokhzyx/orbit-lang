@@ -4,12 +4,12 @@
   "totals": {
     "unknown_per_mille": 0,
     "silent_per_mille": 0,
-    "instructions": 149050
+    "instructions": 149336
   },
   "files": 215,
-  "instructions": 149050,
+  "instructions": 149336,
   "context": {
-    "unknown_instructions": 18,
+    "unknown_instructions": 15,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -152,7 +152,7 @@
     "tests/suite/list_param_element_types.orb": 0,
     "tests/suite/list_push.orb": 1,
     "tests/suite/list_stack_queue.orb": 0,
-    "tests/suite/match.orb": 2,
+    "tests/suite/match.orb": 0,
     "tests/suite/match_binding_payload_type.orb": 0,
     "tests/suite/member_and_index_store.orb": 0,
     "tests/suite/member_resolution.orb": 0,
@@ -214,7 +214,7 @@
     "tests/suite/type_spellings.orb": 0,
     "tests/suite/unary_neg.orb": 0,
     "tests/suite/union_bare_variant_pattern.orb": 0,
-    "tests/suite/union_match_exhaustive.orb": 1,
+    "tests/suite/union_match_exhaustive.orb": 0,
     "tests/suite/union_model_payload.orb": 0,
     "tests/suite/union_multi_payload.orb": 0,
     "tests/suite/union_multi_payload_unit_variant.orb": 0,

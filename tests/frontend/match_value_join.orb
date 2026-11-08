@@ -1,0 +1,13 @@
+// A `match` in value position joins its arms on one name.
+//
+// The statement form returns from its arms, so nothing follows a return; this
+// form has to carry a value out of each arm. Every arm binds the same name
+// (`bind unit join0 vN`), every arm jumps to the merge block, and the merge
+// block reads it with `load int join0`. The wildcard takes the block the last
+// test fell through to, the same way the statement form does.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn pick(n: int) -> int { val v = match n { 0 => 10 1 => 20 _ => 30 } return v }"
+    print(compileFrontendSource("fixture", source))
+}

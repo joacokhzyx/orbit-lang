@@ -897,6 +897,9 @@ EMPTY_EXPECTATIONS = {
     # An arm that binds a payload on a variant that declares none: the name would
     # hold no value, so the pass refuses rather than print TIR for it.
     "variant_match_bindless.orb": "a bindless arm is refused",
+    # Arms that answer different types are not one value, so a match in value
+    # position gives up the way the `if` control above does.
+    "match_value_branch_types.orb": "arms that disagree stay a give-up",
     # The read of a field declared as a type parameter answers the argument the
     # instance writes. A generic literal writes none, so `b.v` under
     # `val b = Box { v: 3 }` has no type to print and the file stays suppressed.
