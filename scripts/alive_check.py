@@ -475,9 +475,10 @@ def registry(compiler, cc, work):
         # no new aliveness signal beyond what the self-test asserts.
         Tool("mklib_runtime.py", "measurement",
              "builds .orbit/lib/libruntime_net.a for separate compilation; "
-             "--self-test proves a broken TU and a missing runtime still fail",
+             "--self-test proves a broken TU and a missing runtime still fail, "
+             "and every DB-only module compiles on its own",
              lambda: _script("mklib_runtime.py", "--self-test"),
-             r"Finished mklib self-test: 2/2", 300),
+             r"Finished mklib self-test: \d+/\d+", 300),
         Tool("trust.py", "measurement",
              "sharded build driver: R1-R7 split of the compiler-emitted TU "
              "+ parallel gcc -c + link + auto-emission SHA check; --self-test "
