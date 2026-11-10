@@ -4138,6 +4138,25 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 }
                 i = i + 1
             }
+            // A program may declare at most 32 route limits, the
+            // ADMISSION_MAX_ROUTE_LIMITS of runtime/admission.h. Past that the
+            // runtime counts a drop and serves the route under the global gate,
+            // which is weaker than the policy the source declared. Refuse the
+            // program instead of starting with a policy silently discarded.
+            var limitedRoutes = 0
+            i = 0
+            while i < prog.decls.len() {
+                match prog.decls.get(i) {
+                    ASTNode.RouteDecl(r) => {
+                        if r.has_limit { limitedRoutes = limitedRoutes + 1 }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            if limitedRoutes > 32 {
+                reportError(sema, "This program declares " + orbit_int_to_string_selfhost(limitedRoutes) + " route limits, and 32 is the most the server can enforce: remove " + orbit_int_to_string_selfhost(limitedRoutes - 32) + ". Past 32 the runtime drops the extra limits and serves those routes under the global gate.")
+            }
             // Pass 4: Function bodies, routes, impls
             i = 0
             while i < prog.decls.len() {
