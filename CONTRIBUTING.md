@@ -183,6 +183,11 @@ A merge commit is gated as well: the tree after the merge is what the gate
 runs on. When `develop` moved while a feature branch was open, merge `develop`
 into the feature branch first and re-run the full gate there.
 
+CI does not set `ORBIT_R6`, so `.github/workflows/ci-gate.yml` skips
+`suite_native`, `suite_std_native` and `runtime_module_native` on every run.
+A green CI covers the gates it ran and does not include the native path. That
+half is the local full gate in the row above.
+
 ### A feature, start to end
 
 ```bash
