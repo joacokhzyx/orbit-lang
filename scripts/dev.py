@@ -1289,7 +1289,7 @@ def main() -> int:
     missing = [t for t in (1, 2, 3) if t not in tiers]
     if missing and args.target != "report":
         names = ", ".join(f"T{t}" for t in missing)
-        want = "make check" if missing == [3] else "make all"
+        want = "make all" if missing == [3] else "make check"
         say(paint(f"  {names} did not run, so this is not a green CI. `{want}`.",
                   YELLOW))
     if args.target == "all" and use_shared_chain:
