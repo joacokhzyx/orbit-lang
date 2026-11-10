@@ -9,6 +9,29 @@ Versioning rules: [Versioning and Compatibility](SUPPORTED.md#versions-and-compa
 Current: `0.1.0` (`orbit --version` prints `orbit 0.1.0`, and the
 startup banner says `Orbit 0.1.0`).
 
+## 0.1.0-rc.5 (2026-11-08)
+
+Documentation cut, condensed from the tag message. The README is rewritten
+around what Orbit is for, and its links follow the pages that moved.
+`docs/IR_SPEC.md` V-03 stops counting the runtime opcodes and names the
+section instead: the table defines eleven, and both lines still said four.
+No compiler, runtime or std source changed.
+
+## 0.1.0-rc.4 (2026-11-08)
+
+Runtime-module cut, condensed from the tag message. `runtime/database.c`
+called `orbit_os_mkdir_p` without including `os.h`, which `--db` hits because
+it compiles `database` and `auth` alone. `mklib_runtime.py --self-test` now
+compiles every DB module on its own, so the recipe that asks for them proves
+they build. No compiler source changed.
+
+## 0.1.0-rc.3 (2026-11-08)
+
+First stability cut, condensed from the tag message. A match in value position
+joins its arms, a push in any branch types the list after it, a generic
+union's payload answers its instance, and a value keeps the block it comes
+from. IRv1 gains eleven runtime-module opcodes and ir-protocol 3.
+
 ## 0.1.0 (2026-11-01)
 
 Language server:
@@ -805,7 +828,8 @@ Developer commands and runtime hardening:
 
 ## Tags
 
-- `v0.1.0-rc.2`, `v0.1.0-rc.1`, `v0.1-rc.2` - release
-  candidates.
-- `legacy-seed` - the retired alternate seed lineage,
+- `v0.1.0-rc.5`, `v0.1.0-rc.4`, `v0.1.0-rc.3` (2026-11-08) - release
+  candidates, listed above.
+- `v0.1.0-rc.2`, `v0.1.0-rc.1` - earlier release candidates.
+- `legacy-zig-seed` - the retired alternate seed lineage,
   historical only.
