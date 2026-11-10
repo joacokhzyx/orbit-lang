@@ -230,7 +230,7 @@ jobs:
   # by design: where tcc is unavailable the acquire step exits 0 after
   # printing TCC-SKIP (a visible skip, never a silent pass), and this job
   # has no `needs:` edge into the gates, so it cannot turn another job
-  # red. What tcc may and may not do is docs/TOOLCHAIN.md.
+  # red. What tcc may and may not do is docs/SUPPORTED.md.
   tcc-shim:
     name: tcc shim smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -260,7 +260,7 @@ jobs:
           set -e
           cat tcc_setup.log
           if [ $rc -eq 2 ]; then
-            echo "TCC-SKIP: no tcc on this runner; lane skipped, gcc/clang lanes unaffected (docs/TOOLCHAIN.md)"
+            echo "TCC-SKIP: no tcc on this runner; lane skipped, gcc/clang lanes unaffected (docs/SUPPORTED.md)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -366,7 +366,7 @@ jobs:
           set -e
           cat tcc_setup.log
           if [ $rc -eq 2 ]; then
-            echo "DUAL-SKIP: no tcc on this runner; gcc/clang lanes unaffected (docs/TOOLCHAIN.md)"
+            echo "DUAL-SKIP: no tcc on this runner; gcc/clang lanes unaffected (docs/SUPPORTED.md)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
