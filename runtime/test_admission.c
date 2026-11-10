@@ -306,6 +306,32 @@ static void test_route_limit(void) {
     g_passed++;
 }
 
+/* T10b: a route bucket caps at burst, not at its refill rate. The bucket
+ * is created at burst and the refill clamped tokens to rate, so a route
+ * declaring rate=2/s burst=10 lost its capacity on the first refill. */
+static void test_route_burst_capacity(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/api/burst", 2, 1000, 10);
+
+    const char* ip = "10.9.9.10";
+    /* The declared burst of 10 is available immediately. */
+    for (int i = 0; i < 10; i++) {
+        assert(orbit_admission_check_route(ip, "GET", "/api/burst") == true);
+    }
+    assert(orbit_admission_check_route(ip, "GET", "/api/burst") == false);
+
+    /* Three idle seconds at 2/s add 6 tokens. The bucket holds all 6; a cap
+     * of rate would hold 2 and deny the third request below. */
+    step_ms(3000);
+    for (int i = 0; i < 6; i++) {
+        assert(orbit_admission_check_route(ip, "GET", "/api/burst") == true);
+    }
+    assert(orbit_admission_check_route(ip, "GET", "/api/burst") == false);
+    printf("T10b per-route bucket caps at burst: PASSED\n");
+    g_passed++;
+}
+
 /* T11: the lease carries an energy baseline at creation and an attributed
  * ESTIMATE at destroy. This box has no RAPL sensor, so joules must read
  * exactly 0 (cpu-proxy: cycles are a proxy, never converted to joules). */
@@ -516,12 +542,13 @@ int main(void) {
     test_disabled_fails_open();
     test_effective_ip_and_header();
     test_route_limit();
+    test_route_burst_capacity();
     test_lease_energy();
     test_pool_fraction_states();
     test_custom_ban_duration();
     test_route_limit_overflow_counted();
     test_lease_refusal_returns_to_boundary();
     test_v6_span_never_overruns();
-    printf("admission property tests: %d/16 PASSED\n", g_passed);
-    return g_passed == 16 ? 0 : 1;
+    printf("admission property tests: %d/17 PASSED\n", g_passed);
+    return g_passed == 17 ? 0 : 1;
 }

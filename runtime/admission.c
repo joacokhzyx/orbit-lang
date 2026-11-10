@@ -412,7 +412,7 @@ static unsigned admission_route_shard(const OrbitAdmissionIP* ip, int route_idx)
         % ADMISSION_ROUTE_SHARD_COUNT;
 }
 
-static void admission_route_refill(AdmissionRouteBucket* b, int rate, int window_ms, uint64_t now) {
+static void admission_route_refill(AdmissionRouteBucket* b, int rate, int window_ms, int burst, uint64_t now) {
     if (b->last_refill_ns == 0 || now <= b->last_refill_ns) {
         b->last_refill_ns = now;
         return;
@@ -424,7 +424,10 @@ static void admission_route_refill(AdmissionRouteBucket* b, int rate, int window
     int64_t gained = (int64_t)((elapsed * (uint64_t)rate * 1000ULL) /
                                ((uint64_t)window_ms * 1000000ULL));
     b->tokens_milli += gained;
-    int64_t cap = (int64_t)(rate > 0 ? rate : 1) * 1000;
+    /* Capacity is what the route declared as burst. Capping at the refill
+     * rate discarded the declaration on the first refill, so a route with
+     * rate=2/s burst=10 answered with 2 after any idle time. */
+    int64_t cap = (int64_t)(burst > 0 ? burst : (rate > 0 ? rate : 1)) * 1000;
     if (b->tokens_milli > cap) b->tokens_milli = cap;
 }
 
@@ -505,7 +508,7 @@ bool orbit_admission_check_route(const char* ip_str, const char* method, const c
         return orbit_admission_check(ip_str); /* still run global gate */
     }
 
-    admission_route_refill(b, rate, win, now);
+    admission_route_refill(b, rate, win, burst, now);
     if (b->tokens_milli >= 1000) {
         b->tokens_milli -= 1000;
         admission_lock_release(&rshard->lock);
