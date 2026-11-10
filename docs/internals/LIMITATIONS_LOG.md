@@ -97,7 +97,7 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 118/118 pass (0 known defects still accepted)
+Finished negative: 119/119 pass (0 known defects still accepted)
 ```
 
 One hundred and twelve programs: every one must be rejected and is. The last one

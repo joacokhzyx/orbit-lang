@@ -316,14 +316,14 @@ argument, not open work.
 
 - **Duplicate `match` arm.** (Record, shipped as `D022`.) The original argument
   was that it is not a doctor check: `patternVariantName`
-  (`compiler/front/sema.orb:3214`) and `qualifiedVariantName`
-  (`compiler/front/sema.orb:3241`) need a `Sema`, and doctor's only door to it is
-  `checkSourceWithFile(...) -> bool` (`compiler/host/pipeline.orb:183`). It would
-  belong beside `checkMatchExhaustive` (`compiler/front/sema.orb:3260`) as a
+  (`compiler/front/sema.orb:3233`) and `qualifiedVariantName`
+  (`compiler/front/sema.orb:3258`) need a `Sema`, and doctor's only door to it is
+  `checkSourceWithFile(...) -> bool` (`compiler/host/pipeline.orb:184`). It would
+  belong beside `checkMatchExhaustive` (`compiler/front/sema.orb:3277`) as a
   second E-code.
-  `covered` (`compiler/front/sema.orb:3265`) accumulates variant names and never
+  `covered` (`compiler/front/sema.orb:3282`) accumulates variant names and never
   checks for a repeat. Note the wildcard bails first
-  (`compiler/front/sema.orb:3277`, `:3288`), so a check placed after that bail
+  (`compiler/front/sema.orb:3295`, `:3306`), so a check placed after that bail
   would skip exactly the dead arms.
 - **Shadowing.** (Record, shipped as `D023`.) Shadowing is intended:
   `variableSymbol` (`compiler/ir/builder.orb:279`) and `resolveSymbol`
@@ -782,12 +782,12 @@ python scripts/corpus_gates.py werror --cc "$CC" --compiler /tmp/orbit_fp
 
 # 6a. [CI] Negative corpus: every program in tests/negative/ must FAIL to
 #        compile, with the diagnostic text its header names. One program per
-#        defect class; 118 today. The gate also fails when a diagnostic
+#        defect class; 119 today. The gate also fails when a diagnostic
 #        IMPROVES, so the wording of every rejection is pinned - a better error
 #        message is a red build until the header is updated. A program the
 #        compiler wrongly accepts declares `known-defect: <ref>` and the gate
 #        asserts the bug is STILL there, so nothing improves silently. The
-#        summary prints how many are outstanding; today 118/118 pass with 0 known
+#        summary prints how many are outstanding; today 119/119 pass with 0 known
 #        defects - the last one, F-0025, flipped to expect-error when E1009 gave
 #        the assignment target a rule. The history of
 #        the 19 programs the compiler used to accept is in

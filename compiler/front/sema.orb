@@ -1850,6 +1850,24 @@ fn compatTypeResultPayload(t: string) -> string {
     return orbit_string_slice(t, lt + 1, t.len() - 1)
 }
 
+// A bare `-> result` writes no payload, so `compatTypeResultPayload` answered
+// "" and `try` answered `unknown`, which checkCompatibility accepts against any
+// annotation. The builder then retyped the unwrap register from that annotation
+// and the emitter cast the word to it: `ok(5)` read back as a string pointer is
+// a fault, not a value. What `ok` put there is the payload, and recording it on
+// the function symbol lets the existing try and compatibility rules refuse a
+// mismatch before codegen. Only a bare result is refined; a signature that
+// already names a payload is the declaration and wins.
+fn recordResultPayload(sema: Sema, bodyType: string) {
+    if compatTypeResultPayload(sema.currentReturnType) != "" { return }
+    if bodyType == "" || bodyType == "unknown" { return }
+    if sema.currentFunction == "" { return }
+    val sym = resolveFunctionSymbol(sema, sema.currentFunction)
+    if sym == NULL { return }
+    if sym.typeName != "result" { return }
+    sym.typeName = "result<" + bodyType + ">"
+}
+
 // A `result` of one payload satisfies a signature that names another only when
 // one of the two wrote no payload, which is what `compatibleListElement` already
 // does for a list. The emitted C is one struct in both spellings, so the rule
@@ -3847,7 +3865,11 @@ fn checkGenericModelFields(sema: Sema, modelName: string, node: ASTNode) {
 // result. `unknown` stays accepted, the way every other comparison here does.
 fn checkReturnValue(sema: Sema, expectedType: string, actualType: string) {
     if expectedType == "result" {
-        if actualType == "result" { return }
+        // A callee whose payload was inferred answers `result<T>`, and that is
+        // a result: the declaration names no payload, so it accepts any. The
+        // exact spelling comparison refused it and turned a valid return into
+        // a diagnostic.
+        if compatTypeBase(actualType) == "result" { return }
         if semaKnownType(actualType) == false { return }
         reportError(sema, "Return type mismatch: expected result, got " + actualType + ": build one with ok(value) or err(message), or return a result bound with `val`")
         return
@@ -3913,7 +3935,7 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     // rule fire for it -- `ok(42)` was refused as
                     // `ok response body must be a string or an object, got int`.
                     if compatTypeBase(sema.currentReturnType) == "result" {
-                        // body built and type-checked; result fn acceptance
+                        recordResultPayload(sema, bodyType)
                     } else {
                         // orbit_response_json takes a C string body: a known
                         // non-string body (e.g. an int register) would compile

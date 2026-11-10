@@ -206,7 +206,7 @@ there is nothing to ask. A function parameter declared `s: string` produces
 **An unannotated binding is assumed to be a string.** Sema does not track the
 type of a local bound to a literal, so `val v = f()` reads back as `unknown`.
 Such a binding is allowed through on purpose (`isInterpolatable`,
-`compiler/front/sema.orb:3966`, which returns true for `unknown` and says why in the
+`compiler/front/sema.orb:3989`, which returns true for `unknown` and says why in the
 comment above it). Where the backend then has to guess, it guesses
 string. Passing such a binding to a `string` parameter compiles cleanly and
 dereferences an integer as a pointer:

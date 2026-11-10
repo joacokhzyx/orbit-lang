@@ -1,0 +1,16 @@
+// case: bare-result-payload-is-not-the-annotation
+// what: `fn wrong() -> result` returns `ok(5)` and the consumer binds the try
+//      as string. A bare `result` writes no payload, so `try` answered
+//      `unknown` and checkCompatibility accepted the annotation. The builder
+//      retyped the unwrap register from that annotation, and the emitter cast
+//      the int word to orbit_string. The binary died with 0xC0000005, exit 139.
+// expect-error: is declared string but the value is int
+fn wrong() -> result {
+    return ok(5)
+}
+
+fn main() -> int {
+    val v: string = try wrong() catch { return 7 }
+    print(v)
+    return 0
+}
