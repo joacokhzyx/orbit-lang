@@ -560,7 +560,7 @@ second printed its own banner and was still serving when `timeout 4` killed it
 (exit 124). Measured after, with a fixed point built from the new canonical:
 exit 1, the two-line port message, and one listener
 (`ss -lntp | grep -c 47812` prints `1`). The live gate pins it on both hosts
-now: `scripts/kynx_gate.py live` starts a second server against the occupied
+now: `scripts/admission_gate.py live` starts a second server against the occupied
 port while the first is listening, and fails unless that second process refuses
 with the port message.
 
@@ -1349,7 +1349,7 @@ mechanism is worth keeping: the driver prints `instructions with a real type`
 (104,752) one line below `instructions typed unknown` (317), and 104,752 + 317 is
 the total 105,069. The sum is the check that was not taken. The baseline and this
 page carry the run that was also handed to the gate as a document
-(`unknown_ratchet.py --from-json`), so the two agree by construction. The run
+(`measure.py ratchet --from-json`), so the two agree by construction. The run
 before it read 321 over
 104,610 instructions, after a list literal began answering its own element kind:
 33 loads, 35 calls and 4 binary operands left the count, and 18 give-ups with
@@ -1399,7 +1399,7 @@ as the worst by share; that file is no longer in the ten first, so the claim was
 record of an older tree. Re-run the census rather than trusting these numbers.
 
 Two tools, and the difference matters. `unknown_census.py` is the
-**measurement** and never fails anything. `scripts/unknown_ratchet.py`
+**measurement** and never fails anything. `scripts/measure.py ratchet`
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
@@ -1408,7 +1408,7 @@ zero-bar gate is a gate everybody deletes. Run on 2026-11-02, after the
 baseline moved down to the measured numbers:
 
 ```console
-$ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
+$ python scripts/measure.py ratchet --compiler <orbit> --cc gcc
   unknown_per_mille               168  baseline    168  unchanged
   silent_per_mille                  0  baseline      0  unchanged
 Finished unknown-count: 168 (baseline 168, ratchet holds)
@@ -1416,7 +1416,7 @@ Finished unknown-count: 168 (baseline 168, ratchet holds)
 Run again on 2026-11-04, after fourteen baseline moves the same day:
 
 ```console
-$ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
+$ python scripts/measure.py ratchet --compiler <orbit> --cc gcc
   unknown_per_mille                 4  baseline      4  unchanged
   silent_per_mille                  0  baseline      0  unchanged
 Finished unknown-count: 4 (baseline 4, ratchet holds)
@@ -1425,7 +1425,7 @@ Finished unknown-count: 4 (baseline 4, ratchet holds)
 The run on 2026-11-05, after the list literal answered its own element kind:
 
 ```console
-$ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
+$ python scripts/measure.py ratchet --compiler <orbit> --cc gcc
   unknown_per_mille                 3  baseline      4  -1
   silent_per_mille                  0  baseline      0  unchanged
 Finished unknown-count: 3 (baseline 4, ratchet holds)
