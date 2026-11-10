@@ -1119,8 +1119,8 @@ own type, and the write lowers under a receiver that has one.
 <index> <value>`. The container's own type is the condition, as it is for the field
 write: 22 of these write positions were give-ups and 5 stayed that way under a
 receiver this pass cannot read, measured 2026-11-04. The *read* `xs[i]` is the same
-instruction the build emits for `xs.get(i)` -- `IROpcode.list_get`,
-`compiler/ir/builder.orb:5820` -- and it travels as `call <kind> get <container>
+instruction the build emits for `xs.get(i)` -- `IROpcode.list_get` in
+`compiler/ir/builder.orb` -- and it travels as `call <kind> get <container>
 <index>`, with the element kind read from the receiver's type text.
 `tests/frontend/list_index_read.orb` pins it. The 8 reads that stayed give-ups sat
 over a `list` written without an element kind, and the message said so: `index read
@@ -1191,7 +1191,7 @@ file prints nothing and the gate requires that silence. Its first function is th
 with `E2004 at 0:0: cannot type the member read .v` and suppress the file.
 The count fell 44 to 23
 on 2026-11-04, when a field read of an `object` stopped asking: the register the
-build allocates for that read is declared `object` (`compiler/ir/builder.orb:4804`),
+build allocates for that read is declared `object` (`compiler/ir/builder.orb`),
 which is the answer the same pass already gives the literal itself; which field
 the run time then finds is not a type this pass can claim from the reader.
 `tests/frontend/object_field_member_read.orb` pins the text. The element kind of a list left that list on 2026-11-04:
@@ -1236,7 +1236,7 @@ form plus an increment block, and the increment is where a `continue` lands --
 jumping to the condition with the counter unchanged repeats one item forever.
 `tests/frontend/range_loop.orb` pins both loops and an index binding.
 A loop over a value whose type text writes the element kind lowers as the
-build's own list loop: `buildForList` (`compiler/ir/builder.orb:3530`) emits the hidden
+build's own list loop: `buildForList` (`compiler/ir/builder.orb`) emits the hidden
 `<item>_idx` counter, one length read before the loop and the item through `get`, with an
 increment block for a `continue` to reach. `tests/frontend/list_iteration_typed.orb` pins
 that.

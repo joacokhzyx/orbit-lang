@@ -74,7 +74,7 @@ that case into a fatal error, never into a comment.
     them still means C `&&` / `||` over two evaluated operands (§1.2).
   - `nop` is produced by constant folding (`compiler/ir/cteval.orb:978,1023`).
   - Language-level DB access does NOT use `db_*`. It lowers through `call` to a
-    helper named by `modelBuiltin` (`compiler/ir/builder.orb:4708-4733`):
+    helper named by `modelBuiltin` (`compiler/ir/builder.orb`):
     `orbit_db_query_*`, `orbit_db_insert`, `orbit_db_update`,
     `orbit_db_delete`. The `db_*` opcodes have no producer anywhere in
     `compiler/**/*.orb` at this pin.
@@ -693,7 +693,7 @@ builder whose producers are pinned in §1.1.
   and no symbol in the net runtime. No corpus file is removed: the single
   suite file touching DB access, `peephole_no_fold_side_effects.orb`
   (via `Item.all()`/`Item.where()`, which lower through `call` to
-  `orbit_db_query_all` and its siblings at `compiler/ir/builder.orb:4711-4732`), stays
+  `orbit_db_query_all` and its siblings in `compiler/ir/builder.orb`), stays
   as `call`-opcode coverage.
   No `tests/std/*.orb` file uses DB access.
 

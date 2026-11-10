@@ -2589,7 +2589,7 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
         ASTNode.RouteDecl(r) => {
             val m = unquoteString(r.http_method)
             val p = unquoteString(r.path)
-            val routeName = "route_" + m + "_" + p
+            val routeName = "route_" + m + "_" + routeSymbolPath(p)
             val func = initRouteFunction(routeName, m, p)
             if r.has_limit {
                 func.routeHasLimit = true
@@ -2956,10 +2956,39 @@ fn getOrCreateRouteFunction(builder: IRBuilder, name: string, method: string, pa
     return func
 }
 
+// The C symbol for a route is `o_` plus its name with every
+// non-alphanumeric replaced by `_` (c_backend.orb sanitizeChars), so `/a/b`
+// and `/a_b` both became `o_route_GET__a_b` and the C step refused the
+// program with "redefinition of 'o_route_GET__a_b'". A character outside
+// [A-Za-z0-9] is written here as `_` and two hex digits, which is
+// unambiguous because `_` is one of them: `/a/b` is `_2Fa_2Fb` and `/a_b` is
+// `_2Fa_5Fb`. The escaped spelling is the route function's name, so the IR
+// carries it and the fast path in `initRouteFunction` matches it.
+fn routeSymbolPath(p: string) -> string {
+    var out = ""
+    var i = 0
+    val len = p.len()
+    val digits = "0123456789abcdef"
+    while i < len {
+        val ch = p.at(i)
+        if (ch >= 48 && ch <= 57) || (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) {
+            out = out + p.slice(i, i + 1)
+        } else {
+            var b = ch
+            if b < 0 { b = b + 256 }
+            val hi = b / 16
+            val lo = b % 16
+            out = out + "_" + digits.slice(hi, hi + 1) + digits.slice(lo, lo + 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
 fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
     val method = unquoteString(r.http_method)
     val path = unquoteString(r.path)
-    val routeName = "route_" + method + "_" + path
+    val routeName = "route_" + method + "_" + routeSymbolPath(path)
     val func = getOrCreateRouteFunction(builder, routeName, method, path)
     if r.has_limit {
         func.routeHasLimit = true
