@@ -396,7 +396,15 @@ static bool admission_path_match(const char* pattern, const char* path) {
     const char* p = pattern;
     const char* s = path;
     while (*p && *s) {
-        if (p[0] == '*' && p[1] == '\0') return true;
+        if (p[0] == '*' && p[1] == '\0') {
+            /* A trailing `*` is one segment, which is what the router's
+             * wildcard is (http.c:859). Returning true here matched across
+             * slashes, so `/files/*` charged its bucket to `/files/a/b`,
+             * which the router served from another route. */
+            while (*s && *s != '/') s++;
+            p++;
+            continue;
+        }
         if (p[0] == ':' || p[0] == '{') {
             const char* seg = p;
             while (*p && *p != '/') p++;
@@ -412,7 +420,10 @@ static bool admission_path_match(const char* pattern, const char* path) {
         if (*p != *s) return false;
         p++; s++;
     }
-    if (*p == '*' && p[1] == '\0') return true;
+    if (*p == '*' && p[1] == '\0') {
+        while (*s && *s != '/') s++;
+        p++;
+    }
     return *p == '\0' && *s == '\0';
 }
 

@@ -385,6 +385,24 @@ static void test_route_trailing_slash(void) {
     g_passed++;
 }
 
+/* T10f: a trailing `*` matches one segment, as the router's wildcard does
+ * (http.c:859). Matching across slashes charged `/files/*` to `/files/a/b`,
+ * which the router served from a different route. */
+static void test_route_wildcard_is_one_segment(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/files/*", 1, 1000, 1);
+
+    const char* ip = "10.9.9.14";
+    assert(orbit_admission_check_route(ip, "GET", "/files/a") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/files/a") == false);
+    /* Two segments is another route for the router, so this limit does not
+     * apply and only the global gate answers. */
+    assert(orbit_admission_check_route(ip, "GET", "/files/a/b") == true);
+    printf("T10f a trailing star matches one segment: PASSED\n");
+    g_passed++;
+}
+
 /* T11: the lease carries an energy baseline at creation and an attributed
  * ESTIMATE at destroy. This box has no RAPL sensor, so joules must read
  * exactly 0 (cpu-proxy: cycles are a proxy, never converted to joules). */
@@ -599,12 +617,13 @@ int main(void) {
     test_route_static_beats_param();
     test_route_multi_capture_limit();
     test_route_trailing_slash();
+    test_route_wildcard_is_one_segment();
     test_lease_energy();
     test_pool_fraction_states();
     test_custom_ban_duration();
     test_route_limit_overflow_counted();
     test_lease_refusal_returns_to_boundary();
     test_v6_span_never_overruns();
-    printf("admission property tests: %d/20 PASSED\n", g_passed);
-    return g_passed == 20 ? 0 : 1;
+    printf("admission property tests: %d/21 PASSED\n", g_passed);
+    return g_passed == 21 ? 0 : 1;
 }
