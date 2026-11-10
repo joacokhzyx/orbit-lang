@@ -273,6 +273,27 @@ static void test_injection_fragments_are_refused(void) {
     orbit_db_close();
 }
 
+/* An insert names the table's columns, so a key that is not one of them is a
+ * typo. The runtime used to drop it: `Model.create` with a misspelled field
+ * wrote a row of empty values and answered true. It is refused and names the
+ * key. Missing keys are still allowed, which is what a partial row is. */
+static void test_unknown_key_is_refused(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":3}"));
+    assert(orbit_db_insert("items", "{\"id\":\"b\",\"ghost\":1}") == false);
+    OrbitArena* arena = orbit_arena_create(131072);
+    assert(orbit_db_count_all(arena, "items") == 1);
+    /* Controls: a partial row is allowed, and so is every column. */
+    assert(orbit_db_insert("items", "{\"id\":\"c\"}"));
+    assert(orbit_db_insert("items", "{\"id\":\"d\",\"name\":\"x\",\"qty\":4}"));
+    assert(orbit_db_count_all(arena, "items") == 3);
+    /* A colon inside a value does not become a key, escaped or not. */
+    assert(orbit_db_insert("items", "{\"id\":\"e\",\"name\":\"a \\\"ghost\\\": 1 b\"}"));
+    assert(orbit_db_count_all(arena, "items") == 4);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 /* A JSON null is not the four-character string "null". The bare-value branch
  * copied it verbatim and bound the text, so `{"qty":null}` stored "null" and
  * every read answered it as a value. An absent key and an explicit null both
@@ -304,6 +325,7 @@ int main(void) {
     fflush(stdout);
     RUN_TEST(test_update_partial);
     RUN_TEST(test_escaped_values);
+    RUN_TEST(test_unknown_key_is_refused);
     RUN_TEST(test_null_is_not_the_text_null);
     RUN_TEST(test_update_missing_is_false);
     RUN_TEST(test_where_two_params);

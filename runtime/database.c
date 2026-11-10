@@ -698,6 +698,46 @@ static bool orbit_json_has_key(const char* json, const char* key) {
     return *pos == ':';
 }
 
+/** @brief Name of the first top-level key in @p json that is not one of
+ *         @p cols, or NULL when every key is a column. Caller frees.
+ *  A key is scanned at depth 1 only, so a colon inside a value or inside a
+ *  nested object cannot be read as a field name. */
+static char* orbit_json_unknown_key(const char* json, const char* const* cols, int ncols) {
+    const char* p = json;
+    int depth = 0;
+    while (*p) {
+        if (*p == '"') {
+            const char* start = p + 1;
+            const char* q = start;
+            while (*q && *q != '"') q += (*q == '\\' && q[1]) ? 2 : 1;
+            if (*q != '"') return NULL;
+            if (depth == 1) {
+                const char* after = q + 1;
+                while (*after == ' ' || *after == '\t' || *after == '\r' || *after == '\n') after++;
+                if (*after == ':') {
+                    size_t len = (size_t)(q - start);
+                    char* key = (char*)malloc(len + 1);
+                    if (!key) return NULL;
+                    memcpy(key, start, len);
+                    key[len] = '\0';
+                    bool known = false;
+                    for (int i = 0; i < ncols; i++) {
+                        if (strcmp(cols[i], key) == 0) { known = true; break; }
+                    }
+                    if (!known) return key;
+                    free(key);
+                }
+            }
+            p = q + 1;
+            continue;
+        }
+        if (*p == '{' || *p == '[') depth++;
+        else if (*p == '}' || *p == ']') depth--;
+        p++;
+    }
+    return NULL;
+}
+
 bool orbit_db_add(orbit_collection col, const char* json_data) {
     ADMISSION_DB_QUERY_CHECK(false);
     if (!col.table_name || !json_data) return false;
@@ -728,6 +768,20 @@ bool orbit_db_add(orbit_collection col, const char* json_data) {
     }
     sqlite3_finalize(col_stmt);
     if (ncols == 0) return false;
+
+    /* A field the table does not have is a typo. Dropping it wrote a row of
+     * empty values and answered true, which is the silent wrong value this
+     * runtime refuses everywhere else. */
+    {
+        char* unknown = orbit_json_unknown_key(json_data, col_names, ncols);
+        if (unknown) {
+            fprintf(stderr, "orbit: db: insert into '%s' refused: '%s' is not a column\n",
+                    col.table_name, unknown);
+            free(unknown);
+            for (int i = 0; i < ncols; i++) free((void*)col_names[i]);
+            return false;
+        }
+    }
 
     /* "INSERT INTO <table> (c1,c2,...) VALUES (?,?,...);" */
     size_t qlen = strlen("INSERT INTO ") + strlen(col.table_name)
