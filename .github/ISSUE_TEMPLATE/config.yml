@@ -4,7 +4,7 @@ contact_links:
     url: https://github.com/joacokhzyx/orbit-lang/blob/main/docs/FAQ.md
     about: Most usage questions are already answered here, with the reasons.
   - name: Known limitations
-    url: https://github.com/joacokhzyx/orbit-lang/blob/main/docs/KNOWN_LIMITATIONS.md
+    url: https://github.com/joacokhzyx/orbit-lang/blob/main/docs/internals/LIMITATIONS_LOG.md
     about: Check here first; the list is kept honest and unembellished.
   - name: How to build and verify
     url: https://github.com/joacokhzyx/orbit-lang/blob/main/CONTRIBUTING.md
