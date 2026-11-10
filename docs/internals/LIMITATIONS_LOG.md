@@ -255,6 +255,11 @@ said 42 and 0 with a pattern that could not see a payload at all, because the fo
 writes `result < string >` with spaces around the angle brackets. Counting every tracked
 `.orb` and skipping comment lines, on 2026-11-05: **67 signatures return a bare
 `-> result` and 13 write a payload**, out of 527 files.
+**Re-measured 2026-11-10:** **65 return a bare `-> result` and 8 write a payload**,
+out of 551 files. The earlier 67 and 13 added up to 80, which is the unfiltered
+total: seven `tests/frontend` harness string literals were counted as signatures.
+The count moves with the corpus, so this line is the date to trust, not the one
+above it.
 
 The half that stays open is those 67. For a bare `-> result` the read's type is the
 annotation itself: `compiler/ir/builder.orb:3140` retypes the unwrap register to it and
