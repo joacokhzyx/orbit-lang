@@ -385,6 +385,14 @@ void orbit_admission_register_route_limit(const char* method, const char* path,
 static bool admission_path_match(const char* pattern, const char* path) {
     if (!pattern || !path) return false;
     if (strcmp(pattern, path) == 0) return true;
+    /* One trailing slash is ignored on either side, which is what the router
+     * does (http.c:785-786). Without it a request for `/ingest/` missed the
+     * limit declared on `/ingest` and fell to the global gate. */
+    size_t pl = strlen(pattern);
+    size_t sl = strlen(path);
+    if (pl > 1 && pattern[pl - 1] == '/') pl--;
+    if (sl > 1 && path[sl - 1] == '/') sl--;
+    if (pl == sl && pl > 0 && strncmp(pattern, path, pl) == 0) return true;
     const char* p = pattern;
     const char* s = path;
     while (*p && *s) {

@@ -370,6 +370,21 @@ static void test_route_multi_capture_limit(void) {
     g_passed++;
 }
 
+/* T10e: one trailing slash shares the route's bucket. The router ignores it
+ * (http.c:785-786); when admission did not, `/ingest/` fell to the global
+ * gate while `/ingest` was served by the annotated handler. */
+static void test_route_trailing_slash(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/ingest", 1, 1000, 1);
+
+    const char* ip = "10.9.9.13";
+    assert(orbit_admission_check_route(ip, "GET", "/ingest") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/ingest/") == false);
+    printf("T10e a trailing slash shares the bucket: PASSED\n");
+    g_passed++;
+}
+
 /* T11: the lease carries an energy baseline at creation and an attributed
  * ESTIMATE at destroy. This box has no RAPL sensor, so joules must read
  * exactly 0 (cpu-proxy: cycles are a proxy, never converted to joules). */
@@ -583,12 +598,13 @@ int main(void) {
     test_route_burst_capacity();
     test_route_static_beats_param();
     test_route_multi_capture_limit();
+    test_route_trailing_slash();
     test_lease_energy();
     test_pool_fraction_states();
     test_custom_ban_duration();
     test_route_limit_overflow_counted();
     test_lease_refusal_returns_to_boundary();
     test_v6_span_never_overruns();
-    printf("admission property tests: %d/19 PASSED\n", g_passed);
-    return g_passed == 19 ? 0 : 1;
+    printf("admission property tests: %d/20 PASSED\n", g_passed);
+    return g_passed == 20 ? 0 : 1;
 }
