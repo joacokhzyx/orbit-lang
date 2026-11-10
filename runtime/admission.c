@@ -390,7 +390,14 @@ static bool admission_path_match(const char* pattern, const char* path) {
     while (*p && *s) {
         if (p[0] == '*' && p[1] == '\0') return true;
         if (p[0] == ':' || p[0] == '{') {
+            const char* seg = p;
             while (*p && *p != '/') p++;
+            /* `:name...` captures the remaining segments, which is what the
+             * router's multi-parameter pass does. Treated as one segment, the
+             * pattern matched only a single-segment path, so a multi-segment
+             * request fell through to the global gate and the declared limit
+             * never applied. */
+            if (p - seg >= 3 && p[-1] == '.' && p[-2] == '.' && p[-3] == '.') return true;
             while (*s && *s != '/') s++;
             continue;
         }
@@ -448,10 +455,23 @@ bool orbit_admission_check_route(const char* ip_str, const char* method, const c
         return true;
     if (!method || !path) return orbit_admission_check(ip_str);
 
-    /* Find matching route limit (linear; few annotated routes). */
+    /* Find matching route limit (linear; few annotated routes). Static wins
+     * over parametric, which is the order the router uses: c_backend.orb runs
+     * every exact path comparison before the pattern passes. A single
+     * first-match scan made the limit depend on declaration order, so a
+     * parametric route declared first charged its bucket to a static path the
+     * router served from a different handler. */
     int route_idx = -1;
     const OrbitAdmissionRouteLimit* lim = NULL;
     for (int i = 0; i < admission_route_limit_count; i++) {
+        if (strcmp(admission_route_limits[i].method, method) != 0) continue;
+        if (strcmp(admission_route_limits[i].path, path) == 0) {
+            route_idx = i;
+            lim = &admission_route_limits[i];
+            break;
+        }
+    }
+    for (int i = 0; lim == NULL && i < admission_route_limit_count; i++) {
         if (strcmp(admission_route_limits[i].method, method) != 0) continue;
         if (admission_path_match(admission_route_limits[i].path, path)) {
             route_idx = i;

@@ -332,6 +332,44 @@ static void test_route_burst_capacity(void) {
     g_passed++;
 }
 
+/* T10c: a static route wins over a parametric one regardless of declaration
+ * order. The router runs every exact path comparison before the pattern
+ * passes (c_backend.orb), and admission used a single first-match scan, so a
+ * parametric route declared first charged its bucket to a static path. */
+static void test_route_static_beats_param(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/users/:id", 1, 1000, 1);
+    orbit_admission_register_route_limit("GET", "/users/me", 100, 1000, 100);
+
+    const char* ip = "10.9.9.11";
+    /* /users/me is served by the static handler; its 100/s policy applies,
+     * not the 1/s policy of the parametric route declared first. */
+    for (int i = 0; i < 5; i++) {
+        assert(orbit_admission_check_route(ip, "GET", "/users/me") == true);
+    }
+    /* Two distinct ids share the parametric bucket and its 1/s. */
+    assert(orbit_admission_check_route(ip, "GET", "/users/42") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/users/43") == false);
+    printf("T10c static route beats parametric: PASSED\n");
+    g_passed++;
+}
+
+/* T10d: `:name...` captures the remaining segments, so a limit declared on
+ * it applies to a multi-segment path. Treated as one segment it matched
+ * nothing, the request fell to the global gate, and the limit never ran. */
+static void test_route_multi_capture_limit(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/files/:path...", 1, 1000, 1);
+
+    const char* ip = "10.9.9.12";
+    assert(orbit_admission_check_route(ip, "GET", "/files/a/b") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/files/a/b") == false);
+    printf("T10d multi-segment capture applies its limit: PASSED\n");
+    g_passed++;
+}
+
 /* T11: the lease carries an energy baseline at creation and an attributed
  * ESTIMATE at destroy. This box has no RAPL sensor, so joules must read
  * exactly 0 (cpu-proxy: cycles are a proxy, never converted to joules). */
@@ -543,12 +581,14 @@ int main(void) {
     test_effective_ip_and_header();
     test_route_limit();
     test_route_burst_capacity();
+    test_route_static_beats_param();
+    test_route_multi_capture_limit();
     test_lease_energy();
     test_pool_fraction_states();
     test_custom_ban_duration();
     test_route_limit_overflow_counted();
     test_lease_refusal_returns_to_boundary();
     test_v6_span_never_overruns();
-    printf("admission property tests: %d/17 PASSED\n", g_passed);
-    return g_passed == 17 ? 0 : 1;
+    printf("admission property tests: %d/19 PASSED\n", g_passed);
+    return g_passed == 19 ? 0 : 1;
 }
