@@ -1,0 +1,14 @@
+// case: index-a-model-is-not-a-list
+// what: `p[0]` on a model compiled clean and the IndexAccess arm answered
+//      `unknown` for every receiver that was not a list, so the read reached
+//      codegen with no kind and no refusal. Only a list, a map and a string
+//      hold elements; E1012 names the receiver.
+// expect-error: The value being indexed is a P, which holds no elements.
+model P {
+    x: int
+}
+
+fn main() -> int {
+    val p = P { x: 1 }
+    return p[0]
+}

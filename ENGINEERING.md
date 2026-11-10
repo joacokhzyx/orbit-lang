@@ -782,12 +782,12 @@ python scripts/corpus_gates.py werror --cc "$CC" --compiler /tmp/orbit_fp
 
 # 6a. [CI] Negative corpus: every program in tests/negative/ must FAIL to
 #        compile, with the diagnostic text its header names. One program per
-#        defect class; 120 today. The gate also fails when a diagnostic
+#        defect class; 121 today. The gate also fails when a diagnostic
 #        IMPROVES, so the wording of every rejection is pinned - a better error
 #        message is a red build until the header is updated. A program the
 #        compiler wrongly accepts declares `known-defect: <ref>` and the gate
 #        asserts the bug is STILL there, so nothing improves silently. The
-#        summary prints how many are outstanding; today 120/120 pass with 0 known
+#        summary prints how many are outstanding; today 121/121 pass with 0 known
 #        defects - the last one, F-0025, flipped to expect-error when E1009 gave
 #        the assignment target a rule. The history of
 #        the 19 programs the compiler used to accept is in

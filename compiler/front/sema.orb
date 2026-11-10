@@ -4806,7 +4806,14 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             val objType = checkNode(sema, ia.object)
             checkNode(sema, ia.index)
             checkConstantIndex(sema, ia.object, ia.index, ia.line, ia.col)
-            if compatTypeBase(objType) == "list" { return listElementOf(sema, objType, bareNameOf(ia.object)) }
+            val indexBase = compatTypeBase(objType)
+            if indexBase == "list" { return listElementOf(sema, objType, bareNameOf(ia.object)) }
+            /* `p[0]` on a model, an int or a bool compiled clean and returned
+             * `unknown`, so the read reached codegen with no kind and no
+             * refusal. Only a list, a map and a string hold elements. */
+            if objType != "unknown" && indexBase != "map" && indexBase != "string" {
+                reportErrorAt(sema, "E1013", "Index a list, a map or a string. A model field is read by name, and anything else has no elements to index.", ia.line, ia.col, "The value being indexed is a " + objType + ", which holds no elements.")
+            }
             return "unknown"
         }
         ASTNode.ModelDecl(m) => { checkModelDecl(sema, node)

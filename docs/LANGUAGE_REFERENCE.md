@@ -1774,6 +1774,16 @@ the element, `list<string>`. A value built from an empty literal keeps a bare
 that value is not a declaration, and the rule does not fire on it. Pinned by
 `tests/negative/n127_list_type_needs_element.orb`.
 
+### E1013 - a value with no elements is indexed
+
+Fires in `compiler/front/sema.orb`, `checkNode`'s `IndexAccess` arm, for `v[i]`
+where `v` has a known type that is not a list, a map or a string. The arm
+answered `unknown` for every other receiver, so `p[0]` on a model compiled
+clean and reached codegen with no kind to lower it. Fix hint: read a model
+field by name, and index only the three types that hold elements. A receiver
+whose type is `unknown` is left alone, because nothing has typed it yet.
+Pinned by `tests/negative/n131_index_a_model_is_not_a_list.orb`.
+
 ### E2001 - unknown identifier (frontend)
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression`: a load whose
