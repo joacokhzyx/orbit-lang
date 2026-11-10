@@ -13,5 +13,5 @@ fn handler(req: string) -> int {
 extern fn print(s: string) -> int
 extern fn orbit_int_to_string_selfhost(v: int) -> string
 extern fn orbit_os_env(n: string) -> string
-extern fn orbit_db_query_all(q: string) -> list<object>
+extern fn orbit_db_query_all(table: string) -> string
 

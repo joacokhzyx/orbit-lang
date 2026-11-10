@@ -330,10 +330,10 @@ fn doctorEndsWithNewline(s: string) -> bool {
  *    no fix, because it is a fix nobody re-reads.
  */
 fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bool, colorMode: string) -> string {
-    if checkSourceWithFile(before, file, colorMode) == false {
+    if checkSourceForDoctor(before, file, colorMode) == false {
         return "skipped: this file does not pass the compiler's own checks, so a fix could not be verified"
     }
-    if checkSourceWithFile(edited, file, colorMode) == false {
+    if checkSourceForDoctor(edited, file, colorMode) == false {
         return "not applied: the result no longer passes the compiler's checks"
     }
     if verifyBuild {
@@ -4497,10 +4497,11 @@ fn doctorUsage() {
  *  passing on another. A cache that outlives the compiler hides errors, which
  *  is the direction this must never err in.
  *
- *  The cost of not caching is measured as zero on the trees this repo has:
- *  `doctor compiler` is 7.0 s with the cache and 7.0 s without, and
- *  `doctor tests/suite` is 0.15 s against 0.13 s. A caller that measures a win
- *  names the directory; the gate's cache case does exactly that. */
+ *  The cache used to be worth nothing on the trees this repo has: on
+ *  2026-11-06 `doctor compiler` took 7.0 s with it and 7.0 s without. Once the
+ *  cached answer includes the IR verifier, a second run halves: measured
+ *  2026-11-10 on the same tree, 4.5 s warm against 9.0 s without. A caller
+ *  that measures a win names the directory; the gate's cache case does so. */
 fn doctorCacheDir() -> string {
     val override = orbit_os_env_selfhost("ORBIT_DOCTOR_CACHE")
     if doctorTrimSpace(override) == "0" { return "" }
@@ -4521,7 +4522,7 @@ fn doctorCacheDir() -> string {
  *  cannot keep. */
 /** @brief A fingerprint of everything the semantic check of `file` depends on.
  *
- *  The dependency is NOT the file. checkSourceWithFile resolves and typechecks
+ *  The dependency is NOT the file. checkSourceForDoctor resolves and typechecks
  *  the transitive import closure, so the answer changes when a module this file
  *  imports changes. Keying the cache on this file's own bytes therefore kept a
  *  stale "clean" answer alive across an edit to an imported module: doctor
@@ -4803,7 +4804,7 @@ fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string
         if probe == "bad" { return false }
     }
     val start = orbit_clock_ms()
-    val okRes = checkSourceWithFile(source, file, stats.color)
+    val okRes = checkSourceForDoctor(source, file, stats.color)
     stats.semaMs = stats.semaMs + (orbit_clock_ms() - start)
     if path != "" {
         if okRes {
@@ -5148,7 +5149,7 @@ fn doctorRun(opts: DoctorOptions) {
         val fingerprint = doctorClosureFingerprintReuse(pfile, psrc, pimps, parsedFiles, parsedImports, parsedSources, closureMemo)
         val okRes = doctorTypecheckByFingerprint(stats, pfile, psrc, fingerprint, cacheState)
         if okRes == false {
-            doctorReport(stats, pfile, 1, "D008", "this file does not pass the compiler's semantic checks.", "run `orbit check " + pfile + "` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)")
+            doctorReport(stats, pfile, 1, "D008", "this file does not pass the compiler's checks.", "run `orbit check " + pfile + "` and address the first error. (The detail is not reprinted here: it comes from the typecheck and the IR verifier, which a cached answer skips.)")
         }
         pi = pi + 1
     }

@@ -179,23 +179,32 @@ fn reportMemStage(stage: string) {
     }
 }
 
-// Parse + resolve + typecheck only. fmt and doctor call this once per
-// edit, so it stops before the IR.
+// Parse + resolve + typecheck only. `fmt` calls this once per file, so it
+// stops before the IR: a file that parses and typechecks has a shape the
+// formatter can trust, and formatting does not need it to be buildable.
 fn checkSourceWithFile(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, false, false)
+    return checkSourceStages(source, inputPath, colorMode, false, false, "orbit fmt")
 }
 
 // `orbit check` also builds the IR and runs the verifier that guards both
 // backends, on the IR before optimization: the IR the native backend
 // compiles. No C is emitted and no C compiler runs.
 fn checkSourceVerified(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, true, false)
+    return checkSourceStages(source, inputPath, colorMode, true, false, "orbit check")
 }
 
 // `orbit check --runtime-module`: the same stages, with `export fn` and the
 // rt_* builtins admitted and `main` refused.
 fn checkRuntimeModuleVerified(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, true, true)
+    return checkSourceStages(source, inputPath, colorMode, true, true, "orbit check")
+}
+
+// `orbit doctor`: the same answer `orbit check` gives, because D008 says the
+// file does not compile. Stopping at sema let doctor call a file clean that
+// `orbit build` refused in the IR verifier, so the two commands disagreed
+// about the same bytes.
+fn checkSourceForDoctor(source: string, inputPath: string, colorMode: string) -> bool {
+    return checkSourceStages(source, inputPath, colorMode, true, false, "orbit doctor")
 }
 
 // One line per verifier error, under the command that ran it.
@@ -212,7 +221,7 @@ fn reportIRVerification(irModule: IRModule, command: string, useColor: bool, ui:
     return irErrs.len() == 0
 }
 
-fn checkSourceStages(source: string, inputPath: string, colorMode: string, verifyIr: bool, runtimeModule: bool) -> bool {
+fn checkSourceStages(source: string, inputPath: string, colorMode: string, verifyIr: bool, runtimeModule: bool, command: string) -> bool {
     val useColor = paletteUseColorStderr(colorMode)
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
@@ -256,7 +265,7 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
         checkBuilder.module.runtimeModule = runtimeModule
         val irModule = buildAST(checkBuilder, ast)
         irModule.sourceName = sourceBaseName(inputPath)
-        return reportIRVerification(irModule, "orbit check", useColor, uiBuildNone())
+        return reportIRVerification(irModule, command, useColor, uiBuildNone())
     }
     return true
 }

@@ -1,6 +1,6 @@
 extern fn orbit_auth_current_role() -> string
-extern fn orbit_db_query_all(q: string) -> list<object>
-fn f() -> list<object> {
+extern fn orbit_db_query_all(table: string) -> string
+fn f() -> string {
     val role = orbit_auth_current_role()
     val q = "SELECT * FROM t WHERE role = '" + role + "'"
     return orbit_db_query_all(q)
