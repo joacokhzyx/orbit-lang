@@ -273,11 +273,38 @@ static void test_injection_fragments_are_refused(void) {
     orbit_db_close();
 }
 
+/* A JSON null is not the four-character string "null". The bare-value branch
+ * copied it verbatim and bound the text, so `{"qty":null}` stored "null" and
+ * every read answered it as a value. An absent key and an explicit null both
+ * land in the "" this runtime uses, because an Orbit string has no null. */
+static void test_null_is_not_the_text_null(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":null}"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    orbit_string row = orbit_db_query_get(arena, "items", "a");
+    assert(row != NULL);
+    assert(strstr(row, "\"qty\":\"\"") != NULL);
+    assert(strstr(row, "\"qty\":\"null\"") == NULL);
+    /* Control: a quoted "null" is a string and must still round-trip. */
+    assert(orbit_db_insert("items", "{\"id\":\"b\",\"name\":\"null\",\"qty\":3}"));
+    orbit_string quoted = orbit_db_query_get(arena, "items", "b");
+    assert(quoted != NULL);
+    assert(strstr(quoted, "\"name\":\"null\"") != NULL);
+    /* Update follows the same rule. */
+    assert(orbit_db_update("items", "b", "{\"name\":null}"));
+    orbit_string cleared = orbit_db_query_get(arena, "items", "b");
+    assert(cleared != NULL);
+    assert(strstr(cleared, "\"name\":\"\"") != NULL);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("db_ops tests\n");
     fflush(stdout);
     RUN_TEST(test_update_partial);
     RUN_TEST(test_escaped_values);
+    RUN_TEST(test_null_is_not_the_text_null);
     RUN_TEST(test_update_missing_is_false);
     RUN_TEST(test_where_two_params);
     RUN_TEST(test_where_contract);

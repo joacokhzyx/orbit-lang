@@ -669,12 +669,33 @@ static char* orbit_json_get_value(const char* json, const char* key) {
     const char* trim = end;
     while (trim > pos && (trim[-1] == ' ' || trim[-1] == '\t' || trim[-1] == '\r')) trim--;
     size_t len = (size_t)(trim - pos);
+    /* JSON null is the absence of a value, not the four-character text
+     * "null". Copied verbatim, `{"qty":null}` stored the string "null" and a
+     * read answered it as data. */
+    if (len == 4 && memcmp(pos, "null", 4) == 0) return NULL;
     char* res = (char*)malloc(len + 1);
     if (res) {
         memcpy(res, pos, len);
         res[len] = '\0';
     }
     return res;
+}
+
+/** @brief Whether @p key names a field of the flat JSON object @p json.
+ *  A field whose value is `null` is present: it asks for the empty value,
+ *  which is a change, while a field that is absent asks for nothing. */
+static bool orbit_json_has_key(const char* json, const char* key) {
+    if (!json || !key) return false;
+    size_t key_len = strlen(key);
+    char* pat = (char*)malloc(key_len + 3);
+    if (!pat) return false;
+    snprintf(pat, key_len + 3, "\"%s\"", key);
+    const char* pos = strstr(json, pat);
+    free(pat);
+    if (!pos) return false;
+    pos += key_len + 2;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
+    return *pos == ':';
 }
 
 bool orbit_db_add(orbit_collection col, const char* json_data) {
@@ -774,16 +795,12 @@ bool orbit_db_set(orbit_collection col, const char* id, const char* json_data) {
     int ncols = 0;
     while (sqlite3_step(col_stmt) == SQLITE_ROW && ncols < kMaxCols) {
         const char* name = (const char*)sqlite3_column_text(col_stmt, 1);
-        if (name && strcmp(name, "id") != 0) {
-            char* value = orbit_json_get_value(json_data, name);
-            if (value) {
-                char* copy = (char*)malloc(strlen(name) + 1);
-                if (copy) {
-                    memcpy(copy, name, strlen(name) + 1);
-                    col_names[ncols] = copy;
-                    ncols++;
-                }
-                free(value);
+        if (name && strcmp(name, "id") != 0 && orbit_json_has_key(json_data, name)) {
+            char* copy = (char*)malloc(strlen(name) + 1);
+            if (copy) {
+                memcpy(copy, name, strlen(name) + 1);
+                col_names[ncols] = copy;
+                ncols++;
             }
         }
     }
