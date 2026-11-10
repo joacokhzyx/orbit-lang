@@ -157,6 +157,55 @@ static void test_empty_part_saves_empty_file(void) {
     orbit_arena_destroy(arena);
 }
 
+/* A zero byte inside the part is content, not the end of it. The save path
+ * walks the parsed body by length and writes a byte range, so the file keeps
+ * the byte; a copy through strlen would write one byte and return a path that
+ * names a truncated file. */
+static void test_nul_byte_in_body_survives(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    const unsigned char content[5] = { 'a', 0, 'b', 'c', 'd' };
+    char hdr[512];
+    char ending[256];
+
+    char body[1024];
+    const char* pre = part_headers(hdr, sizeof(hdr), "file", "bin.dat");
+    size_t n = strlen(pre);
+    memcpy(body, pre, n);
+    memcpy(body + n, content, sizeof(content));
+    n += sizeof(content);
+    const char* tail = part_end(ending, sizeof(ending));
+    size_t tlen = strlen(tail);
+    memcpy(body + n, tail, tlen);
+    n += tlen;
+
+    char head[512];
+    int hlen = snprintf(head, sizeof(head),
+        "POST /upload HTTP/1.1\r\n"
+        "Content-Type: multipart/form-data; boundary=%s\r\n"
+        "Content-Length: %zu\r\n"
+        "\r\n", HDR_BOUNDARY, n);
+    char raw[2048];
+    memcpy(raw, head, (size_t)hlen);
+    memcpy(raw + hlen, body, n);
+
+    OrbitRequest* r = NULL;
+    size_t c = orbit_http_parse_request_ex(arena, raw, (size_t)hlen + n, &r, NULL);
+    assert(c > 0 && r != NULL);
+
+    remove("./bin.dat");
+    const char* saved = orbit_file_upload_save(arena, r, "file", ".");
+    assert(saved && *saved);
+    FILE* f = orbit_fopen(saved, "rb");
+    assert(f != NULL);
+    unsigned char got[16];
+    size_t gn = fread(got, 1, sizeof(got), f);
+    fclose(f);
+    assert(gn == sizeof(content));
+    assert(memcmp(got, content, sizeof(content)) == 0);
+    remove(saved);
+    orbit_arena_destroy(arena);
+}
+
 int main(void) {
     printf("test_upload\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -164,5 +213,6 @@ int main(void) {
     RUN_TEST(test_missing_field);
     RUN_TEST(test_traversal_filename_stays_inside);
     RUN_TEST(test_empty_part_saves_empty_file);
+    RUN_TEST(test_nul_byte_in_body_survives);
     return 0;
 }

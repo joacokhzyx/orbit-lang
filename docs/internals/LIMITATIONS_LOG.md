@@ -387,7 +387,8 @@ boundaries, matches the part by `name=`, sanitizes the part's
 payload to `dest_dir/<name>`. Returns the saved path or "" when the
 request is not multipart or the field is absent. Binaries containing
 NUL bytes are length-delimited on the wire but cannot round-trip as
-`orbit_string`. Treat them as saved bytes. Pinned by
+`orbit_string`. The save writes the part as a byte range, so a five-byte
+part holding `a\0bcd` lands as five bytes. Pinned by
 `runtime/test_upload.c`.
 
 ## An editor gets checks on save, not a language server
