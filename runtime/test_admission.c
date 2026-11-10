@@ -403,6 +403,27 @@ static void test_route_wildcard_is_one_segment(void) {
     g_passed++;
 }
 
+/* T10g: an empty segment does not evade the route's bucket. The parser keeps
+ * `//` in req->path and the router skips empty segments (http.c:783-784), so
+ * it serves `GET /a//x` from `/a/:x`. Admission compared the empty segment
+ * literally, found no route, and answered from the global gate alone. */
+static void test_route_empty_segment(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/a/:x", 1, 1000, 1);
+
+    const char* ip = "10.9.9.15";
+    assert(orbit_admission_check_route(ip, "GET", "/a/x") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/a/x") == false);
+    /* Same route, same bucket, one token already spent. */
+    assert(orbit_admission_check_route(ip, "GET", "/a//x") == false);
+    /* The refusal is the bucket, not a blanket rejection: one token refills. */
+    step_ms(1000);
+    assert(orbit_admission_check_route(ip, "GET", "/a//x") == true);
+    printf("T10g an empty segment does not evade the route's bucket: PASSED\n");
+    g_passed++;
+}
+
 /* T11: the lease carries an energy baseline at creation and an attributed
  * ESTIMATE at destroy. This box has no RAPL sensor, so joules must read
  * exactly 0 (cpu-proxy: cycles are a proxy, never converted to joules). */
@@ -618,12 +639,13 @@ int main(void) {
     test_route_multi_capture_limit();
     test_route_trailing_slash();
     test_route_wildcard_is_one_segment();
+    test_route_empty_segment();
     test_lease_energy();
     test_pool_fraction_states();
     test_custom_ban_duration();
     test_route_limit_overflow_counted();
     test_lease_refusal_returns_to_boundary();
     test_v6_span_never_overruns();
-    printf("admission property tests: %d/21 PASSED\n", g_passed);
-    return g_passed == 21 ? 0 : 1;
+    printf("admission property tests: %d/22 PASSED\n", g_passed);
+    return g_passed == 22 ? 0 : 1;
 }

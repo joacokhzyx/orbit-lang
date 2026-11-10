@@ -381,50 +381,50 @@ void orbit_admission_register_route_limit(const char* method, const char* path,
     r->burst = (burst > 0) ? burst : rate;
 }
 
-/* Simple pattern match: ':' segment, '{...}' segment, or trailing '*' */
+/* Segment by segment, with the router's rules (http.c:739-869) and no
+ * captures: empty segments are skipped on both sides, `:name` and `{name}`
+ * take one non-empty segment, `:name...` takes the rest, and `*` takes one
+ * non-empty segment. Comparing empty segments literally let `GET /a//x` past
+ * the bucket declared on `/a/:x`, and the router served that request from
+ * that route. */
 static bool admission_path_match(const char* pattern, const char* path) {
+    const char* p;
+    const char* s;
     if (!pattern || !path) return false;
-    if (strcmp(pattern, path) == 0) return true;
-    /* One trailing slash is ignored on either side, which is what the router
-     * does (http.c:785-786). Without it a request for `/ingest/` missed the
-     * limit declared on `/ingest` and fell to the global gate. */
-    size_t pl = strlen(pattern);
-    size_t sl = strlen(path);
-    if (pl > 1 && pattern[pl - 1] == '/') pl--;
-    if (sl > 1 && path[sl - 1] == '/') sl--;
-    if (pl == sl && pl > 0 && strncmp(pattern, path, pl) == 0) return true;
-    const char* p = pattern;
-    const char* s = path;
-    while (*p && *s) {
-        if (p[0] == '*' && p[1] == '\0') {
-            /* A trailing `*` is one segment, which is what the router's
-             * wildcard is (http.c:859). Returning true here matched across
-             * slashes, so `/files/*` charged its bucket to `/files/a/b`,
-             * which the router served from another route. */
-            while (*s && *s != '/') s++;
-            p++;
-            continue;
+    p = pattern;
+    s = path;
+    for (;;) {
+        const char *pe, *se;
+        size_t plen, qlen;
+        while (*p == '/') p++;
+        while (*s == '/') s++;
+        if (*p == '\0' || *s == '\0') return *p == '\0' && *s == '\0';
+        pe = p;
+        while (*pe && *pe != '/') pe++;
+        se = s;
+        while (*se && *se != '/') se++;
+        plen = (size_t)(pe - p);
+        qlen = (size_t)(se - s);
+        if (p[0] == ':' && plen > 4 && pe[-1] == '.' && pe[-2] == '.' && pe[-3] == '.') {
+            /* `:name...` captures the rest and is only meaningful as the
+             * final segment; the router refuses anything after it. */
+            if (*pe != '\0') return false;
+            for (const char* t = s; *t; t++) {
+                if (*t != '/') return true;
+            }
+            return false;
+        } else if (p[0] == ':' && plen >= 2) {
+            /* capture, one non-empty segment */
+        } else if (plen >= 2 && p[0] == '{' && pe[-1] == '}') {
+            if (plen == 2) return false; /* the router refuses an empty name */
+        } else if (plen == 1 && p[0] == '*') {
+            /* one non-empty segment, not captured */
+        } else if (plen != qlen || memcmp(p, s, plen) != 0) {
+            return false;
         }
-        if (p[0] == ':' || p[0] == '{') {
-            const char* seg = p;
-            while (*p && *p != '/') p++;
-            /* `:name...` captures the remaining segments, which is what the
-             * router's multi-parameter pass does. Treated as one segment, the
-             * pattern matched only a single-segment path, so a multi-segment
-             * request fell through to the global gate and the declared limit
-             * never applied. */
-            if (p - seg >= 3 && p[-1] == '.' && p[-2] == '.' && p[-3] == '.') return true;
-            while (*s && *s != '/') s++;
-            continue;
-        }
-        if (*p != *s) return false;
-        p++; s++;
+        p = pe;
+        s = se;
     }
-    if (*p == '*' && p[1] == '\0') {
-        while (*s && *s != '/') s++;
-        p++;
-    }
-    return *p == '\0' && *s == '\0';
 }
 
 /* Route buckets striped over per-shard locks: same 1024-slot capacity as a
