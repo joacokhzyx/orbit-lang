@@ -288,8 +288,8 @@ being measured.
 
 **2. Is Orbit ready for production?**
 No. It's 0.1.0 pre-release research. Reads, writes, bearer auth,
-path parameters and forward migrations all work. What isn't there
-is multi-host clustering, `down` migrations and a language server.
+path parameters and both migration directions all work. What isn't there
+is multi-host clustering and completion in the language server.
 Uploads save files, but a binary payload doesn't round-trip as a
 string. Latency percentiles are estimated inside their histogram bucket, and
 requests split by class (`system.http_requests_ok()` and
@@ -323,11 +323,11 @@ request bodies, filtered queries, status codes, live telemetry.
 The [Tour](GETTING_STARTED.md#a-thirty-minute-tour) takes 30 minutes. The tutorials go further.
 
 **7. What can't Orbit do yet?**
-The known list: multi-host clustering, `down` migrations, a
+The known list: multi-host clustering, completion and navigation in the
 language server, joules on Windows (no sensor - CPU time plus
 memory is the proxy), graceful drain on Windows (the stop is a
 kill), and a success/error split in the latency percentiles.
-Multipart uploads and forward migrations used to be on this list
+Multipart uploads and both migration directions used to be on this list
 and work now. Full list with workarounds:
 [Known Limitations](internals/LIMITATIONS_LOG.md).
 
