@@ -1419,4 +1419,186 @@ int orbit_ledger_is_loopback(orbit_socket_t s) {
     return 0;
 }
 
+/* ── A route table a linked backend can fill ─────────────────────────────
+ *
+ * The C backend emits its own dispatch chain, so a program built that way
+ * never reaches this table. A backend that emits no C does not have the
+ * chain and cannot get one from the runtime, because the chain names the
+ * program's handlers: it registers (method, path, handler) here and calls
+ * `orbit_router_serve`. The match order is the one the emitted chain uses:
+ * every exact path before any pattern, and `orbit_route_match` for the
+ * patterns, so the two routers cannot disagree about which route owns a
+ * path.
+ *
+ * A route that declares a limit registers it in the shared admission table
+ * as well, under the path the program wrote, which is the key the route
+ * gate uses. The serve loop reads the peer address into a buffer once per
+ * connection and asks the route gate for each request, so a declaration the
+ * C backend would enforce is not silently dropped on this path. */
+
+#define ORBIT_ROUTER_MAX_ROUTES 64
+
+typedef struct {
+    const char* method;
+    const char* path;
+    int rate;
+    int window_ms;
+    int burst;
+    int has_limit;
+    OrbitRouteHandler handler;
+} OrbitRouterEntry;
+
+static OrbitRouterEntry orbit_router_routes[ORBIT_ROUTER_MAX_ROUTES];
+static int orbit_router_route_count = 0;
+
+void orbit_router_reset(void) {
+    memset(orbit_router_routes, 0, sizeof(orbit_router_routes));
+    orbit_router_route_count = 0;
+}
+
+void orbit_router_register(const char* method, const char* path, int rate, int window_ms, int burst, OrbitRouteHandler handler) {
+    if (!method || !path || !handler) return;
+    if (orbit_router_route_count >= ORBIT_ROUTER_MAX_ROUTES) {
+        fprintf(stderr, "orbit: router: more than %d routes; '%s %s' is not served\n",
+                ORBIT_ROUTER_MAX_ROUTES, method, path);
+        return;
+    }
+    OrbitRouterEntry* e = &orbit_router_routes[orbit_router_route_count++];
+    e->method = method;
+    e->path = path;
+    e->handler = handler;
+    e->rate = rate;
+    e->window_ms = window_ms;
+    e->burst = burst;
+    e->has_limit = (rate > 0) || (burst > 0);
+    if (e->has_limit) {
+        orbit_admission_register_route_limit(method, path, rate, window_ms, burst);
+    }
+}
+
+int orbit_router_count(void) {
+    return orbit_router_route_count;
+}
+
+OrbitResponse* orbit_router_dispatch(OrbitArena* arena, OrbitRequest* req) {
+    if (!req || !req->method || !req->path) return NULL;
+    int i;
+    for (i = 0; i < orbit_router_route_count; i++) {
+        OrbitRouterEntry* e = &orbit_router_routes[i];
+        if (strcmp(e->method, req->method) != 0) continue;
+        if (strcmp(e->path, req->path) != 0) continue;
+        return e->handler(arena, req);
+    }
+    for (i = 0; i < orbit_router_route_count; i++) {
+        OrbitRouterEntry* e = &orbit_router_routes[i];
+        if (strcmp(e->method, req->method) != 0) continue;
+        if (!orbit_route_match(arena, req, e->method, e->path)) continue;
+        return e->handler(arena, req);
+    }
+    return NULL;
+}
+
+/* One connection at a time, one arena per request. The emitted chain runs a
+ * worker pool; this loop exists so a backend with no emitter serves the
+ * same responses, and its job is correctness, not throughput. */
+static void orbit_router_peer_ip(orbit_socket_t sock, char* out, size_t out_len) {
+    struct sockaddr_storage ksa;
+    socklen_t kslen = (socklen_t)sizeof(ksa);
+    out[0] = 0;
+    if (getpeername(sock, (struct sockaddr*)&ksa, &kslen) == 0) {
+        if (ksa.ss_family == AF_INET) inet_ntop(AF_INET, &((struct sockaddr_in*)&ksa)->sin_addr, out, out_len);
+#ifdef AF_INET6
+        else if (ksa.ss_family == AF_INET6) inet_ntop(AF_INET6, &((struct sockaddr_in6*)&ksa)->sin6_addr, out, out_len);
+#endif
+    }
+}
+
+int orbit_router_serve(int port) {
+    orbit_http_init();
+    orbit_socket_t server = socket(AF_INET, SOCK_STREAM, 0);
+    if (server == (orbit_socket_t)ORBIT_SOCKET_ERROR) {
+        fprintf(stderr, "orbit: router: could not create the listening socket\n");
+        return 1;
+    }
+    int yes = 1;
+    setsockopt(server, SOL_SOCKET, SO_REUSEADDR, (const char*)&yes, (socklen_t)sizeof(yes));
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((unsigned short)port);
+    if (bind(server, (struct sockaddr*)&addr, sizeof(addr)) == ORBIT_SOCKET_ERROR) {
+        fprintf(stderr, "orbit: router: port %d is not available\n", port);
+        orbit_socket_close(server);
+        return 1;
+    }
+    if (port == 0) {
+        socklen_t len = (socklen_t)sizeof(addr);
+        if (getsockname(server, (struct sockaddr*)&addr, &len) == 0) {
+            port = (int)ntohs(addr.sin_port);
+        }
+    }
+    if (listen(server, SOMAXCONN) == ORBIT_SOCKET_ERROR) {
+        fprintf(stderr, "orbit: router: could not listen on port %d\n", port);
+        orbit_socket_close(server);
+        return 1;
+    }
+    fprintf(stderr, "orbit: serving %d route(s) on port %d\n", orbit_router_route_count, port);
+
+    char peer[64];
+    for (;;) {
+        orbit_socket_t client = accept(server, NULL, NULL);
+#ifdef _WIN32
+        if (client == INVALID_SOCKET) continue;
+#else
+        if (client < 0) continue;
+#endif
+        peer[0] = '\0';
+        orbit_router_peer_ip(client, peer, sizeof(peer));
+
+        char buf[16384];
+        size_t used = 0;
+        int keep_alive = 1;
+        while (keep_alive) {
+            OrbitArena* arena = orbit_arena_create(131072);
+            if (!arena) break;
+            int got = (int)recv(client, buf + used, (int)(sizeof(buf) - used), 0);
+            if (got <= 0) { orbit_arena_destroy(arena); break; }
+            used += (size_t)got;
+            OrbitRequest* req = NULL;
+            int perr = 0;
+            size_t consumed = orbit_http_parse_request_ex(arena, buf, used, &req, &perr);
+            if (perr) {
+                OrbitResponse* res = orbit_response_or_500(arena, orbit_http_parse_error_response(arena, perr));
+                orbit_send_response(client, res);
+                orbit_arena_destroy(arena);
+                break;
+            }
+            if (consumed == 0) { orbit_arena_destroy(arena); continue; }
+            if (used > consumed) {
+                memmove(buf, buf + consumed, used - consumed);
+                used -= consumed;
+            } else {
+                used = 0;
+            }
+            if (!req) { orbit_arena_destroy(arena); continue; }
+            if (strstr(buf, "Connection: close") || strstr(buf, "connection: close")) keep_alive = 0;
+
+            if (peer[0] != '\0' && !orbit_admission_check_route(peer, req->method, req->path)) {
+                OrbitResponse* res = orbit_response_create(arena, 429, "text/plain", "Too Many Requests");
+                res = orbit_response_or_500(arena, res);
+                orbit_send_response(client, res);
+                orbit_arena_destroy(arena);
+                continue;
+            }
+            OrbitResponse* res = orbit_router_dispatch(arena, req);
+            if (!res) res = orbit_response_create(arena, 404, "text/plain", "Not Found");
+            res = orbit_response_or_500(arena, res);
+            orbit_send_response(client, res);
+            orbit_arena_destroy(arena);
+        }
+        orbit_socket_close(client);
+    }
+}
+
 #endif

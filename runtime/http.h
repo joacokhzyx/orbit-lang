@@ -71,6 +71,17 @@ typedef struct {
     size_t extra_headers_len;
 } OrbitResponse;
 
+/* A route table a backend with no C emitter fills before serving: register
+ * each route with its handler, then call `orbit_router_serve`. The dispatch
+ * has the emitted chain's order (exact paths before patterns) and uses the
+ * same matcher, so the two cannot disagree about which route owns a path. */
+typedef OrbitResponse* (*OrbitRouteHandler)(OrbitArena* arena, OrbitRequest* req);
+void orbit_router_reset(void);
+void orbit_router_register(const char* method, const char* path, int rate, int window_ms, int burst, OrbitRouteHandler handler);
+int orbit_router_count(void);
+OrbitResponse* orbit_router_dispatch(OrbitArena* arena, OrbitRequest* req);
+int orbit_router_serve(int port);
+
 // Forward declaration for Pulsar support
 #include "pulse.h"
 
