@@ -245,7 +245,17 @@ static orbit_string orbit_url_decode(OrbitArena* arena, const char* s) {
                      (lo >= 'a' && lo <= 'f') ? lo - 'a' + 10 :
                      (lo >= 'A' && lo <= 'F') ? lo - 'A' + 10 : -1;
             if (hh >= 0 && ll >= 0) {
-                buf[w++] = (char)((hh << 4) | ll);
+                int byte = (hh << 4) | ll;
+                if (byte == 0) {
+                    /* A decoded NUL ends the orbit_string and drops the rest
+                     * of the value: `a%00b` answered "a". The escape stays
+                     * literal, the rule the source-level `\x00` follows. */
+                    buf[w++] = '%';
+                    buf[w++] = (char)hi;
+                    buf[w++] = (char)lo;
+                } else {
+                    buf[w++] = (char)byte;
+                }
                 i += 2;
                 continue;
             }

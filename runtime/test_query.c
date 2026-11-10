@@ -33,6 +33,15 @@ int main(void) {
             failures++;
         }
     }
+    /* A percent-encoded NUL stays literal: decoding it would end the
+     * orbit_string and drop the rest of the value. */
+    {
+        OrbitRequest* r = req_with(arena, "q=a%00b");
+        if (strcmp(orbit_http_query_get(arena, r, "q"), "a%00b") != 0) {
+            printf("FAILED query nul: got %s\n", orbit_http_query_get(arena, r, "q"));
+            failures++;
+        }
+    }
     /* Keys decode for matching too. */
     {
         OrbitRequest* r = req_with(arena, "a%20b=1");

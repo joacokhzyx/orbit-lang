@@ -30,6 +30,22 @@ int main(void) {
 
     orbit_arena_destroy(arena);
 
+    /* A percent-encoded NUL is not decoded: the byte would end the
+     * orbit_string and the rest of the value would vanish. `%00` stays
+     * literal, the rule the source-level `\x00` follows. */
+    {
+        char t2[128];
+        strcpy(t2, "GET /notes/a%00b HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        OrbitArena* a2 = orbit_arena_create(65536);
+        assert(a2 != NULL);
+        OrbitRequest* r3 = NULL;
+        size_t c3 = orbit_http_parse_request_ex(a2, t2, strlen(t2), &r3, NULL);
+        assert(c3 > 0);
+        assert(orbit_route_match(a2, r3, "GET", "/notes/:id") == true);
+        assert(strcmp(orbit_http_param_get(a2, r3, "id"), "a%00b") == 0);
+        orbit_arena_destroy(a2);
+    }
+
     /* A route with more captures than the old fixed slot table held. The
      * request owns its capture arrays now, so the count is the pattern's. */
     {
