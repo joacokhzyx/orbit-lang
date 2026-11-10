@@ -325,10 +325,9 @@ The [Tour](GETTING_STARTED.md#a-thirty-minute-tour) takes 30 minutes. The tutori
 **7. What can't Orbit do yet?**
 The known list: multi-host clustering, completion and navigation in the
 language server, joules on Windows (no sensor - CPU time plus
-memory is the proxy), graceful drain on Windows (the stop is a
-kill), and a success/error split in the latency percentiles.
-Multipart uploads and both migration directions used to be on this list
-and work now. Full list with workarounds:
+memory is the proxy), and a success/error split in the latency
+percentiles. Multipart uploads, both migration directions and graceful
+drain on Windows used to be on this list and work now. Full list with workarounds:
 [Known Limitations](internals/LIMITATIONS_LOG.md).
 
 **8. When does `create()` return `false`?**
