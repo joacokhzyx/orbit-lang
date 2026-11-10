@@ -52,7 +52,7 @@ It is a bet, not a result. No energy saving is claimed until it has been measure
 - **Native builds for services.** [R6](https://github.com/joacokhzyx/orbit-r6), the native backend, already builds the Orbit compiler without a C compiler. Next is making it accept routes, so a service builds with no C toolchain at all.
 - **Budgets written in the source.** Today the compute budget of a request follows the load on the server. The goal is to let a route declare its own limits for time, memory and database work.
 - **Measured against Go and Rust.** Same machine, same workload, same method: CPU time per request, memory, and tail latency under overload. Published whether Orbit wins or loses.
-- **Clusters and tooling.** Multi-host clustering and a language server are the two largest gaps today.
+- **Clusters and tooling.** Multi-host clustering is the largest gap today. The language server exists and publishes diagnostics; completion and navigation do not.
 
 ## Try it in five minutes
 
@@ -86,7 +86,7 @@ The [Language Tour](docs/GETTING_STARTED.md#a-thirty-minute-tour) takes about th
 
 **Works:** reads and writes, bearer auth, path parameters, multipart uploads, and database migrations in both directions. Forward DDL runs once per `migrations` line and is tracked in `_orbit_migrations`. `ORBIT_MIGRATE_DOWN=<version>` rolls one back.
 
-**Not yet:** multi-host clustering, a language server, and a latency percentile split by outcome. There is no `async`: it parses and is refused, because nothing runs behind it.
+**Not yet:** multi-host clustering, completion and navigation in the language server, and a latency percentile split by outcome. There is no `async`: it parses and is refused, because nothing runs behind it.
 
 **Native backend on Windows x64:** it is the default for the programs R6 accepts, and it needs no C compiler. R6 refuses every program that declares a route, so a service build needs `--backend=c`. On other platforms the C backend is the default.
 

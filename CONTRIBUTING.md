@@ -324,7 +324,8 @@ The step that matters is this one, and it belongs in the release check:
 FP=dist/orbit-linux-x86_64
 printf 'import "std/string/string.orb"\nfn main() -> int { return 0 }\n' > /tmp/std_probe.orb
 "$FP" check /tmp/std_probe.orb          # must FAIL: Import error
-"$FP" lsp 2>/dev/null                    # must FAIL: Unknown command
+printf 'Content-Length: 58\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  | "$FP" lsp | grep -q textDocumentSync     # must answer initialize with capabilities
 "$FP" --version                          # must succeed
 ```
 

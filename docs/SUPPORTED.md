@@ -422,9 +422,10 @@ The list below is what a program cannot rely on today. Each item links to the
 measurement, its date and its command in
 [the dated record](internals/LIMITATIONS_LOG.md).
 
-- **No language server.** `editors/vscode/` highlights the language and runs
-  `orbit check` on save; there is no diagnostics server, completion or
-  navigation ([measured](internals/LIMITATIONS_LOG.md#an-editor-gets-checks-on-save-not-a-language-server)).
+- **The language server answers diagnostics and nothing else.** `orbit lsp`
+  publishes what `orbit check` answers and has no completion, hover or
+  navigation; `editors/vscode/` highlights the language and runs `orbit check`
+  on save ([measured](internals/LIMITATIONS_LOG.md#an-editor-gets-checks-on-save-not-a-language-server)).
 - **`orbit cluster` is single-host.** It starts N copies of one service on this
   machine: no shared state, no proxy, no failover ([measured](internals/LIMITATIONS_LOG.md#cluster-is-single-host-only)).
 - **Energy is measured only where sensors exist.** Joules come from Linux RAPL;

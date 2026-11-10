@@ -396,6 +396,12 @@ The VS Code extension in `editors/vscode/` registers syntax highlighting and run
 `orbit check <file>` on save, and that is the whole editor story. There is no
 `orbit lsp` subcommand and no server behind one.
 
+**Corrected 2026-11-10:** the subcommand exists. `compiler/host/main.orb:501`
+dispatches `lsp`, `compiler/tools/lsp.orb` answers `initialize`,
+`didOpen`/`didChange` with the diagnostics `orbit check` gives, `shutdown`
+and `exit`, and `docs/COMMANDS.md:32` documents it. The half above that
+still holds is completion and navigation, which the server does not answer.
+
 A minimal server needs the process's own standard input. The runtime exposes
 argv, `exec`, the environment, cwd, temp and the clock, and since 2026-11-07
 three reads of stdin: `orbit_stdin_read_line` (one line, CR dropped),
