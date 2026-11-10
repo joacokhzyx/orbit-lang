@@ -424,8 +424,13 @@ itself always emits them, and `applied` says whether doctor managed to.
 ### Presentation
 
 Every finding carries a severity: `error` for `D001` (no toolchain)
-and `D008` (the file itself does not compile), `warning` for the
-rest. The text line reads `file:line severity [CODE] message fix:
+and `D008` (the file does not parse, or it does not pass the semantic
+checks), `warning` for the
+rest. Doctor stops before the IR verifier that `orbit check` and `orbit build`
+run, so a file refused there is not a `D008`:
+`tests/negative/n100_object_field_untyped_read.orb` reports no findings under
+`orbit doctor` (exit 0), and both `orbit check` and `orbit build` refuse it
+(exit 1). That gap is open in [the defect index](internals/DEFECTS.md). The text line reads `file:line severity [CODE] message fix:
 action`, with the location bolded, the severity red/yellow and the
 code cyan when colors are on. Paths print relative to the scanned
 directory when possible. Colors follow `--color always|never|auto`
