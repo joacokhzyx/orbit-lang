@@ -743,7 +743,9 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
  * under name; only meaningful as the final pattern segment), and `*` (match
  * one non-empty segment, no capture).
  * Empty segments are skipped on both sides, so a trailing slash is
- * tolerated. Values are NOT percent-decoded. On success the captures land
+ * tolerated. Captures keep the path's bytes here; `orbit_http_param_get`
+ * percent-decodes them when they are read, and leaves an escape that would
+ * decode to zero literal. On success the captures land
  * in req->param_names/values, arena copies sized by the pattern; on any
  * failure param_count is 0 so a previous attempt
  * in a matcher chain can never leak into the next one.
