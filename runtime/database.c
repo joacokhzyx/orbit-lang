@@ -307,6 +307,22 @@ static char* orbit_db_append_json_escaped(char* p, char* end, const char* s) {
 
 /* ── Internal: serialize a row to JSON into Arena ──────────────────── */
 
+/* Upper bound on the JSON a row can render into: every byte may expand to six
+ * (`\u00xx`), and each column adds its name and a separator. A fixed 4 KB
+ * buffer cut a 5000-byte body at 4096 bytes and still closed the object, so
+ * the JSON looked complete and the tail was gone. */
+static size_t orbit_db_row_json_bound(sqlite3_stmt* stmt) {
+    int cols = sqlite3_column_count(stmt);
+    size_t bound = 3; /* '{', '}' and the NUL */
+    for (int i = 0; i < cols; i++) {
+        const char* name = sqlite3_column_name(stmt, i);
+        int bytes = sqlite3_column_bytes(stmt, i);
+        if (bytes < 0) bytes = 0;
+        bound += 6 * ((size_t)bytes + (name ? strlen(name) : 0)) + 8;
+    }
+    return bound;
+}
+
 static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* out, size_t max_len) {
     if (!out || max_len < 3) return 0;
     int cols = sqlite3_column_count(stmt);
@@ -360,9 +376,10 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
     orbit_string result = "";
     orbit_perf_stats.db_queries++; // Telemetry
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        char* buf = (char*)orbit_alloc(arena, 4096);
+        size_t cap = orbit_db_row_json_bound(stmt);
+        char* buf = (char*)orbit_alloc(arena, cap);
         if (buf) {
-            orbit_db_row_to_json(arena, stmt, buf, 4096);
+            orbit_db_row_to_json(arena, stmt, buf, cap);
             result = buf;
         }
     }
@@ -383,7 +400,9 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
     if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
         return "[]";
 
-    /* Dynamic result buffer — start with 8KB, grow as needed */
+    /* Dynamic result buffer — start with 8KB, grow to fit each row it
+     * receives. A fixed 2 KB per-row reservation cut a larger row and closed
+     * the object, so the array looked complete and the row was short. */
     size_t buf_cap = 8192;
     char* buf = (char*)orbit_alloc(arena, buf_cap);
     if (!buf) return "[]";
@@ -394,11 +413,16 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         orbit_perf_stats.db_queries++; // Telemetry
-        /* Ensure space: worst case ~2KB per row */
+        size_t row_cap = orbit_db_row_json_bound(stmt);
+        char* rowbuf = (char*)orbit_alloc(arena, row_cap);
+        if (!rowbuf) break;
+        size_t row_len = orbit_db_row_to_json(arena, stmt, rowbuf, row_cap);
+
         size_t used_so_far = (size_t)(p - buf);
-        if (used_so_far + 2048 > buf_cap) {
+        if (used_so_far + row_len + 2 > buf_cap) {
             /* Can't realloc arena memory, allocate a larger chunk */
-            size_t new_cap = buf_cap * 2;
+            size_t new_cap = buf_cap;
+            while (used_so_far + row_len + 2 > new_cap) new_cap *= 2;
             char* new_buf = (char*)orbit_alloc(arena, new_cap);
             if (!new_buf) break;
             memcpy(new_buf, buf, used_so_far);
@@ -408,8 +432,7 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
         }
 
         if (!first) *(p++) = ',';
-
-        size_t row_len = orbit_db_row_to_json(arena, stmt, p, buf_cap - (size_t)(p - buf));
+        memcpy(p, rowbuf, row_len);
         p += row_len;
         first = false;
     }
@@ -595,9 +618,10 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
     /* Same miss contract as orbit_db_get: "" so `== ""` is the miss check. */
     orbit_string result = "";
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        char* buf = (char*)orbit_alloc(arena, 4096);
+        size_t cap = orbit_db_row_json_bound(stmt);
+        char* buf = (char*)orbit_alloc(arena, cap);
         if (buf) {
-            orbit_db_row_to_json(arena, stmt, buf, 4096);
+            orbit_db_row_to_json(arena, stmt, buf, cap);
             result = buf;
         }
     }

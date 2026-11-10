@@ -320,12 +320,39 @@ static void test_null_is_not_the_text_null(void) {
     orbit_db_close();
 }
 
+/* A row is rendered into a buffer sized for the row, not a fixed 4 KB. A
+ * 5000-byte post body used to come back cut at 4096 bytes and closed with
+ * '}', so the JSON looked complete and the tail was gone. */
+static void test_large_row_is_not_truncated(void) {
+    fresh_db();
+    char* json = (char*)malloc(8192);
+    assert(json != NULL);
+    char* p = json;
+    p += sprintf(p, "{\"id\":\"big\",\"name\":\"");
+    for (int i = 0; i < 5000; i++) *(p++) = 'x';
+    p += sprintf(p, "\",\"qty\":3}");
+    assert(orbit_db_insert("items", json));
+    free(json);
+    OrbitArena* arena = orbit_arena_create(262144);
+    orbit_string row = orbit_db_query_get(arena, "items", "big");
+    assert(row != NULL);
+    assert(strlen(row) > 5000);
+    assert(strstr(row, "\"qty\":\"3\"") != NULL);
+    orbit_string all = orbit_db_query_all(arena, "items");
+    assert(all != NULL);
+    assert(strlen(all) > 5000);
+    assert(strstr(all, "\"qty\":\"3\"") != NULL);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("db_ops tests\n");
     fflush(stdout);
     RUN_TEST(test_update_partial);
     RUN_TEST(test_escaped_values);
     RUN_TEST(test_unknown_key_is_refused);
+    RUN_TEST(test_large_row_is_not_truncated);
     RUN_TEST(test_null_is_not_the_text_null);
     RUN_TEST(test_update_missing_is_false);
     RUN_TEST(test_where_two_params);
