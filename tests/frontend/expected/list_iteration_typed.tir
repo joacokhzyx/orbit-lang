@@ -1,0 +1,35 @@
+orbit-tir 1
+module fixture
+function 0 walk int
+param 0 0 xs list<int>
+block 0 0
+instr 0 0 0 const int 0
+instr 0 0 1 bind unit s v0
+instr 0 0 2 load list<int> xs
+instr 0 0 3 member int v2 len
+instr 0 0 4 const int 0
+instr 0 0 5 bind unit x_idx v4
+instr 0 0 6 jump unit b1
+block 0 1
+instr 0 1 7 load int x_idx
+instr 0 1 8 < bool v7 v3
+instr 0 1 9 branch unit v8 b2 b4
+block 0 2
+instr 0 2 10 load int x_idx
+instr 0 2 11 call int get v2 v10
+instr 0 2 12 bind unit x v11
+instr 0 2 13 load int s
+instr 0 2 14 load int x
+instr 0 2 15 + int v13 v14
+instr 0 2 16 bind unit s v15
+instr 0 2 17 jump unit b3
+block 0 3
+instr 0 3 18 load int x_idx
+instr 0 3 19 const int 1
+instr 0 3 20 + int v18 v19
+instr 0 3 21 bind unit x_idx v20
+instr 0 3 22 jump unit b1
+block 0 4
+instr 0 4 23 load int s
+instr 0 4 24 return unit v23
+end-function 0

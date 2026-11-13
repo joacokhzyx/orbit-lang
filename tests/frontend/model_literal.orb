@@ -1,0 +1,17 @@
+// `Point { x: 0, y: 0 }` is a model literal: the type name is written, so this
+// pass has an answer to give even though it keeps no model table. It emits
+// `construct <name> <count> <field> <value> ...` and the value carries the name
+// the program wrote.
+//
+// The reader of types answers the same string, which is the half that matters:
+// a `val` bound to a literal the reader calls `unknown` loads back `unknown` at
+// every later use, and `tirCanonical` prints nothing while any instruction is
+// `unknown`. A generic model is not resolved here either: `Box { v: 1 }` prints
+// `construct Box 1 v v0`, the name the source wrote, not the `Box_int` the build
+// mints -- this pass reports what was written, and the checker owns the instance.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Point { x: int, y: int }  fn origin() -> Point { val p = Point { x: 0, y: 0 }  return p }"
+    print(compileFrontendSource("fixture", source))
+}

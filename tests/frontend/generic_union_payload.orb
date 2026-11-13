@@ -1,0 +1,14 @@
+// A generic union's payload answers the argument its instance writes.
+//
+// `union Box[T] { Has(T) Empty }` declares the payload `T`, so a match arm on
+// `Box<int>` used to read the data word as `T` -- a spelling the C backend
+// cannot resolve, because the build monomorphises the declaration per instance.
+// The type table records the declaration's parameters now, the arm reads them
+// from the scrutinee's own type text, and `Box.Has(n)` binds `int`. A variant
+// with several payloads substitutes each part on its own.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "union Box[T] { Has(T) Empty }  fn two(b: Box<int>) -> int { match b { Box.Has(n) => { return n * 2 } Box.Empty => { return 0 } } return -1 }"
+    print(compileFrontendSource("fixture", source))
+}

@@ -1,6 +1,6 @@
-extern fn pick(xs: list, key: string) -> list
+extern fn pick(xs: list<int>, key: string) -> list<int>
 
-fn f(xs: list) -> bool {
+fn f(xs: list<int>) -> bool {
     var bare = "name"
     bare = bare + "x"
     return pick(xs, bare).len() > 0

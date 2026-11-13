@@ -245,7 +245,17 @@ static orbit_string orbit_url_decode(OrbitArena* arena, const char* s) {
                      (lo >= 'a' && lo <= 'f') ? lo - 'a' + 10 :
                      (lo >= 'A' && lo <= 'F') ? lo - 'A' + 10 : -1;
             if (hh >= 0 && ll >= 0) {
-                buf[w++] = (char)((hh << 4) | ll);
+                int byte = (hh << 4) | ll;
+                if (byte == 0) {
+                    /* A decoded NUL ends the orbit_string and drops the rest
+                     * of the value: `a%00b` answered "a". The escape stays
+                     * literal, the rule the source-level `\x00` follows. */
+                    buf[w++] = '%';
+                    buf[w++] = (char)hi;
+                    buf[w++] = (char)lo;
+                } else {
+                    buf[w++] = (char)byte;
+                }
                 i += 2;
                 continue;
             }
@@ -260,8 +270,8 @@ orbit_string orbit_http_param_get(OrbitArena* arena, OrbitRequest* req, orbit_st
     int i;
     if (!req || !param_name) return "";
     /* Path params captured by orbit_route_match during dispatch. */
-    for (i = 0; i < req->param_count && i < ORBIT_MAX_PATH_PARAMS; i++) {
-        if (req->param_names[i] && strcmp(req->param_names[i], param_name) == 0) {
+    for (i = 0; i < req->param_count; i++) {
+        if (req->param_names && req->param_names[i] && strcmp(req->param_names[i], param_name) == 0) {
             return req->param_values[i] ? orbit_url_decode(arena, req->param_values[i]) : "";
         }
     }
@@ -541,6 +551,16 @@ orbit_int system_active_workers(void) {
 
 orbit_int system_http_requests_total(void) {
     return (orbit_int)orbit_perf_get_stats().request_count;
+}
+
+/* Responses answered below 400 and at or above it. Counted where a response
+ * is sent, so both routers feed them. */
+orbit_int system_http_requests_ok(void) {
+    return (orbit_int)orbit_perf_get_stats().request_ok;
+}
+
+orbit_int system_http_requests_error(void) {
+    return (orbit_int)orbit_perf_get_stats().request_error;
 }
 
 /* Mean request latency in microseconds. Same 2.5 GHz RDTSC basis as the

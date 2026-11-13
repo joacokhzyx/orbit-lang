@@ -1,0 +1,66 @@
+// `Option` used to be a quarantine file: the language could not substitute a
+// type argument into a union's payload, so `union Option[T]` had no instances
+// and the module could not ship. It ships now, and what this test proves is the
+// part the type declaration alone does not: an instance is minted in the file
+// that WRITES the type, so a union declared in one module and named in another
+// gets its payload type there.
+//
+// Four positions write a type, and this file asserts each: a parameter's
+// declared type (`doubled`), a binding's annotation (`val a`, `val none`), a
+// `return` in a declared function (`someOrNone`), and a call argument against its
+// parameter (`doubled(Option.None)`). A `None` that none of them writes is refused
+// instead of guessed, and
+// tests/negative/n118_generic_union_needs_a_written_type_for_none.orb pins that
+// refusal.
+//
+// Exit code is the first assertion that failed.
+import "std/option/option.orb"
+import "std/test/assert.orb"
+
+fn doubled(o: Option < int >) -> int {
+    match o {
+        Option.Some(n) => { return n * 2 }
+        Option.None => { return 0 }
+    }
+    return -1
+}
+
+fn shout(o: Option < string >) -> string {
+    match o {
+        Option.Some(t) => { return t + "!" }
+        Option.None => { return "none" }
+    }
+    return "?"
+}
+
+fn someOrNone(n: int) -> Option < int > {
+    if n > 0 {
+        return Option.Some(n)
+    }
+    return Option.None
+}
+
+fn main() -> int {
+    val a: Option < int > = Option.Some(21)
+    if assertEqInt(doubled(a), 42) == false { return 1 }
+    if assertEqInt(doubled(Option.None), 0) == false { return 2 }
+
+    val s: Option < string > = Option.Some("hit")
+    if assertEqStr(shout(s), "hit!") == false { return 3 }
+    if assertEqStr(shout(Option.None), "none") == false { return 4 }
+
+    // The value a function returns is the same instance its signature names.
+    if assertEqInt(doubled(someOrNone(5)), 10) == false { return 5 }
+    if assertEqInt(doubled(someOrNone(0)), 0) == false { return 6 }
+
+    // Two instances of one union in one program: the registry is keyed by the
+    // owner, so `Some` from `Option<int>` and `Some` from `Option<string>` are
+    // different variants with different payload widths.
+    if assertEqInt(doubled(someOrNone(21)), 42) == false { return 7 }
+    if assertEqStr(shout(Option.Some("two")), "two!") == false { return 8 }
+    // A binding's annotation is the only place this instance is written: `None`
+    // carries no payload, so the value cannot decide it.
+    val none: Option < int > = Option.None
+    if assertEqInt(doubled(none), 0) == false { return 9 }
+    return 0
+}

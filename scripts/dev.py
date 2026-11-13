@@ -14,7 +14,7 @@ Tiers:
   T1  existing orbit binary. Doctor goldens, doctor scope, CLI contract.
   T2  freshly built fixed point. Language behaviour, negative corpus,
       parity, -Werror on generated C, unknown-count ratchet.
-  T3  root of trust. build_selfhost --check-stale and verify_seed.
+  T3  root of trust. trust.py build --check-stale and trust.py verify.
 
 Tier selection: `dev` selects tiers from `git diff --name-only` and errs
 toward running more. `check` runs T0..T2 unconditionally. `all` adds T3.
@@ -45,22 +45,24 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _common import build_env, resolve_cc  # noqa: E402
+import gate_registry  # noqa: E402  the one table of gates, tiers and argv
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ORBIT = ROOT / ".orbit"
 FP_STAMP = ORBIT / "fp.stamp"
+DOCTOR_CACHE = ORBIT / "doctor-cache"
 CANONICAL_C = ROOT / "compiler" / "selfhost" / "stage3.exe.c"
 WITNESS_LOG = ORBIT / "last_run.log"
 
 # Shared-chain contract (owner of the writers: agent F; dev.py only consumes).
-# When build_selfhost.py and verify_seed.py accept `--shared-work <dir>`, that
+# When trust.py build and trust.py verify accept `--shared-work <dir>`, that
 # run writes exactly these four files and dev.py `all` runs ONE real chain:
 #   <dir>/chain3.exe  the converged fixed-point compiler (copy source for fp)
 #   <dir>/chain3.c    the converged C that must equal the canonical byte-for-byte
 #   <dir>/seed.c      the seed-stage C snapshot (diagnostics, cache reuse)
 #   <dir>/hashes.json {canonical_sha, seed_sha, chain3_sha, published, runtime_sha}
 # All hashes are lowercase hex of file bytes, except `published` which is the
-# uppercase PUBLISHED_C from verify_seed.py. `runtime_sha` covers the
+# uppercase PUBLISHED_C from scripts/trust.py. `runtime_sha` covers the
 # runtime/**/*.c and *.h the canonical C includes: without it a snapshot built
 # before a runtime edit was adopted by both consumers, because the canonical
 # text had not moved. The driver merges a sixth key of its own, `sources_sha`
@@ -154,6 +156,12 @@ def child_env() -> dict:
     ccache.mkdir(parents=True, exist_ok=True)
     env = build_env(scratch_dir, ccache=ccache)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # The doctor's typecheck cache is opt-in since 2026-11-06: its key is a
+    # file's source, which cannot see the compiler that answered, so an entry
+    # from an older build can hide a new diagnostic. Gates share one compiler
+    # for a run, so they get it, and stamp_fp() clears the directory whenever a
+    # different compiler takes over.
+    env["ORBIT_DOCTOR_CACHE"] = str(DOCTOR_CACHE)
     # The dev loop drives the shard lane. Every large-TU compile in the
     # chain (bootstrap included) may shard when the unity cache misses;
     # any shard failure falls back to the unity path, and T3's equality
@@ -304,6 +312,20 @@ class _stdout_to_stderr:
         return False
 
 
+def stamp_fp(cc: str) -> None:
+    """Record the fingerprint the fixed point was built from.
+
+    A rebuild or an adopted copy means the next run's cache would describe a
+    different compiler, so the doctor's typecheck cache is cleared with it. Its
+    key is a file's source and import closure, which cannot see the compiler
+    that answered: measured 2026-11-06, an entry written 2026-10-11 answered
+    "ok" for a fixture the current compiler rejects, and D008 disappeared from
+    the doctor gate on one machine and not another.
+    """
+    FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+    shutil.rmtree(DOCTOR_CACHE, ignore_errors=True)
+
+
 def fp_is_fresh(cc: str) -> bool:
     binary, stamp = fp_path(), FP_STAMP
     if not binary.exists() or not stamp.exists():
@@ -319,33 +341,34 @@ def fp_is_fresh(cc: str) -> bool:
 def build_fp(cc: str) -> pathlib.Path:
     """Converge the chain and leave the compiler where the runtime lookup finds it.
 
-    This is `build_selfhost.py --out`, not `verify_seed.py --emit-fixed-point`,
-    and the difference is deliberate: --out stops as soon as the chain has
-    converged, and does not also run the four equality checks. Those checks are
-    T3's job. Running them on every inner-loop iteration would be paying for the
-    root of trust to answer a question you did not ask yet.
+    This is `trust.py build --out`, not `trust.py verify
+    --emit-fixed-point`, and the difference is deliberate: --out stops as
+    soon as the chain has converged, and does not also run the four equality
+    checks. Those checks are T3's job. Running them on every inner-loop
+    iteration would be paying for the root of trust to answer a question you
+    did not ask yet.
     """
     binary = fp_path()
     ORBIT.mkdir(parents=True, exist_ok=True)
     say(f"  building the fixed point into {short(binary)} ...")
-    argv = [sys.executable, str(ROOT / "scripts" / "build_selfhost.py"),
+    argv = [sys.executable, str(ROOT / "scripts" / "trust.py"), "build",
             "--cc", cc, "--out", str(binary)]
     # Populate the shared snapshots on every real build: consumption is gated
     # on validity elsewhere, but without this no run ever writes the dir and
     # every `all` falls back forever (populate-always, consume-when-valid).
-    wrote_shared = script_supports("build_selfhost.py", "--shared-work")
+    wrote_shared = script_supports("trust.py", "--shared-work", sub="build")
     if wrote_shared:
         argv += ["--shared-work", str(SHARED_DIR)]
     proc = subprocess.run(argv, cwd=str(ROOT), env=child_env())
     if proc.returncode != 0:
         print("Failed: the bootstrap did not converge.", file=sys.stderr)
         raise SystemExit(proc.returncode)
-    # build_selfhost.py copies the binary without setting the exec bit, which is
+    # trust.py build copies the binary without setting the exec bit, which is
     # why every hand-built fp2..fp13 needed a `chmod +x` afterwards. Do it here
     # so the thing that owns the binary is also the thing that makes it runnable.
     mode = binary.stat().st_mode
     binary.chmod(mode | 0o111)
-    FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+    stamp_fp(cc)
     # The manifest the chain just wrote describes a chain built from THESE
     # sources; stamping it with the driver's own key is what lets the next
     # `all` adopt the snapshots without re-deriving them (contract comment at
@@ -359,7 +382,7 @@ def build_fp(cc: str) -> pathlib.Path:
 def record_shared_sources(cc: str) -> None:
     """Merge dev.py's `sources_sha` into the shared manifest (best effort).
 
-    The manifest is written whole by build_selfhost.py / verify_seed.py, which
+    The manifest is written whole by trust.py build / trust.py verify, which
     cannot compute compiler_fingerprint (it folds in the driver's resolved C
     compiler identity): they emit the four writer keys and nothing else, and a
     rewrite mid-run drops this key with them. This is called exactly when the
@@ -417,18 +440,24 @@ def sha256_file(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
-def script_supports(script: str, flag: str) -> bool:
+def script_supports(script: str, flag: str, sub: str = None) -> bool:
     """Whether scripts/<script> --help names <flag> (cached).
 
     The --shared-work / --witness wiring must not break on a tree where the
     flag is still unknown: passing it blindly would fail the gate, so callers
     check this first and fall back to the current argv when it is False.
+    `sub` is the subcommand whose --help is asked; the merged entry points
+    (scripts/trust.py, scripts/measure.py) list a subcommand's flags under
+    that subcommand, not under the script.
     """
-    key = (script, flag)
+    key = (script, flag, sub)
     if key not in _SUPPORTS_CACHE:
         try:
+            argv = [sys.executable, str(ROOT / "scripts" / script)]
+            if sub:
+                argv.append(sub)
             proc = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / script), "--help"],
+                argv + ["--help"],
                 capture_output=True, text=True, timeout=30, cwd=str(ROOT),
             )
             _SUPPORTS_CACHE[key] = flag in (proc.stdout or "")
@@ -495,7 +524,7 @@ def ensure_fp_for_all(cc: str, allow_build: bool) -> pathlib.Path:
         shutil.copyfile(SHARED_CHAIN3_EXE, binary)
         mode = binary.stat().st_mode
         binary.chmod(mode | 0o111)
-        FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+        stamp_fp(cc)
         say(f"  fp: copied from {short(SHARED_CHAIN3_EXE)} "
             f"({time.monotonic() - started:.0f}s, no rebuild)")
         return binary
@@ -689,7 +718,7 @@ def classify(changed: list) -> list:
 
     `examples/` stays at T1 and is a real gap, recorded in gate-sequence: nothing in T1
     or T2 compiles an example, so an edit to one is checked for formatting and
-    nothing else until the Kynx live gate runs, and that gate does not live in
+    nothing else until the admission live gate runs, and that gate does not live in
     dev.py yet.
     """
     areas = {"docs": 0, "scripts": 1, "examples": 1, "tests": 2,
@@ -705,7 +734,7 @@ def classify(changed: list) -> list:
     return sorted(set(range(1, highest + 1)))
 
 
-def fmt_gate(binary: pathlib.Path, changed: list):
+def fmt_gate(binary: pathlib.Path, cc: str, changed: list):
     """T0 static gates (no sharding here).
 
     fmt itself no longer lives in this list: it runs sharded per file via
@@ -714,25 +743,12 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     locally on a file an earlier commit left unformatted, so the full list
     wins: being stricter than CI is free, being looser is not.
     """
-    py = sys.executable
-    s_dir = str(ROOT / "scripts")
-    # schema_conformance belongs in T0 and not T1: it compares two files of text
-    # and needs no compiler at all, so running it inside a tier that pays for a
-    # bootstrap would be charging a second for the same check. It is the cheapest
-    # gate in the repo and the one that catches a whole class of silent wrong
-    # answers -- the schema declaring a field a list when the parser hands it a
-    # node -- so it belongs where it runs every time, including for a clean tree.
-    # doc_counts is its sibling for a different kind of stale text: a document's
-    # counted claim about the corpus still matching the tree it describes.
-    # flag_coverage is the fourth of the family and the same bargain: a CLI flag
-    # is a promise written in --help, and a promise nothing reads is invisible in
-    # every run because the run succeeds without doing what was asked.
-    return [
-        ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
-        ("walk_coverage", [py, f"{s_dir}/walk_coverage.py"]),
-        ("doc_counts", [py, f"{s_dir}/doc_counts.py"]),
-        ("flag_coverage", [py, f"{s_dir}/flag_coverage.py"]),
-    ]
+    # The five rows live in scripts/gate_registry.py. Two of them -- schema and
+    # walk -- hold their analysis in an Orbit probe and take --cc/--compiler to
+    # build it, so this formats the placeholders instead of passing empties.
+    # The other three take no path and ignore them.
+    return [(g.label, g.argv(str(binary.resolve()), cc, str(ORBIT / "work")))
+            for g in gate_registry.gates(0) if g.argv is not None]
 
 
 def shard_split_argv(py: str, s_dir: str, fp: str, shards_dir: str, cc: str,
@@ -743,13 +759,15 @@ def shard_split_argv(py: str, s_dir: str, fp: str, shards_dir: str, cc: str,
     the split needs. Reuse path (`header` given): a header already bound to the
     canonical's exact C bytes -- see bundle_header -- so the ~9 s emission is
     skipped and the canonical itself is split. Both forms name the bundle
-    emit_verify, because that is the name verify_seed is told to read.
+    emit_verify, because that is the name verify_seed is told to read. Both
+    invoke the `shard` subcommand of scripts/trust.py as the first argument
+    after the script.
     """
     if header is not None:
-        return [py, f"{s_dir}/shard_selfhost.py", "--name", "emit_verify",
+        return [py, f"{s_dir}/trust.py", "shard", "--name", "emit_verify",
                 "--tu", str(CANONICAL_C), "--header", header, "--no-build",
                 "--shards-dir", shards_dir, "--cc", cc]
-    return [py, f"{s_dir}/shard_selfhost.py", "--name", "emit_verify",
+    return [py, f"{s_dir}/trust.py", "shard", "--name", "emit_verify",
             "--emit-with", fp, "--no-build", "--fresh",
             "--shards-dir", shards_dir, "--cc", cc]
 
@@ -757,7 +775,7 @@ def shard_split_argv(py: str, s_dir: str, fp: str, shards_dir: str, cc: str,
 def bundle_header(bundle: pathlib.Path, canonical: pathlib.Path):
     """The bundle's header when it is bound to the canonical's exact C bytes.
 
-    shard_selfhost.py records <base>.header.json {tu_sha256, header_sha256}
+    trust.py shard records <base>.header.json {tu_sha256, header_sha256}
     whenever it splits an emission. Reuse needs both to still hold: the header
     was emitted with these C bytes, and the file on disk is still the bytes
     recorded. What the header *describes* is not taken on faith -- the split
@@ -783,94 +801,26 @@ def bundle_header(bundle: pathlib.Path, canonical: pathlib.Path):
 def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
     """Every gate, in the order ENGINEERING.md section 8 gives.
 
-    Tier 0 needs the orbit binary for fmt, so the spec is built once the binary
-    exists and T0 is folded in by the caller. fmt itself is not in this spec:
-    it runs sharded (run_fmt_sharded) and `list` describes it as one line.
-
-    T3 patching lives in main(), not here: when `all` runs with a valid shared
-    dir, verify_seed gains `--shared-work <dir>` (if supported) and check_stale
-    becomes a byte compare with no subprocess. This spec stays the fallback
-    both show, so `list` never depends on whether the shared dir exists.
+    The rows are in scripts/gate_registry.py; this turns them into command
+    lines. Tier 0 is not in the result: fmt runs sharded (run_fmt_sharded) and
+    the five static gates come from fmt_gate, so `list` folds T0 as its own
+    line. T3 patching still lives in main(), not here: when `all` runs with a
+    valid shared dir, verify_seed gains `--shared-work <dir>` and check_stale
+    becomes a byte compare with no subprocess, and this stays the form `list`
+    shows so the listing never depends on whether the shared dir exists.
     """
-    py = sys.executable
-    s = str(ROOT / "scripts")
-    # Absolute, always. cli_probe.py runs the compiler with cwd=<its work dir>,
-    # so a relative path handed to it resolves against the wrong directory and
-    # the failure is FileNotFoundError on the gate's own argument.
     fp = str(binary.resolve())
-    return {
-        1: [
-            ("doctor_gate", [py, f"{s}/doctor_gate.py", "--compiler", fp]),
-            ("doctor_scope", [py, f"{s}/doctor_gate.py", "--scope-only",
-                             "--compiler", fp]),
-            ("cli_probe", [py, f"{s}/cli_probe.py", "--compiler", fp,
-                           "--work", str(work / "cli")]),
-            # Needs a C compiler and nothing else -- no orbit binary, no
-            # bootstrap. It was forty lines of shell inside ci-gate.yml, which
-            # is why it was the one gate nobody could run locally.
-            ("runtime_c", [py, f"{s}/runtime_c_tests.py", "--cc", cc]),
-            # The rich and color screens, byte for byte with their escapes, and
-            # the interrupt probe. Plain output has no snapshot: the doctor and
-            # CLI gates above hold it.
-            ("ui_snapshots", [py, f"{s}/ui_snapshots.py", "--compiler", fp,
-                              "--cc", cc, "--work", str(work / "ui")]),
-        ],
-        2: [
-            ("suite", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp]),
-            ("suite_std", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
-                           "--dir", "tests/std"]),
-            # The same two suites through R6 instead of the C compiler. They
-            # need ORBIT_R6 (an r6.exe); without it test_suite.py exits
-            # SKIP_RC and run_gate reports the gate as skipped, not passed.
-            ("suite_native", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
-                              "--backend", "native"]),
-            ("suite_std_native", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
-                                  "--dir", "tests/std", "--backend", "native"]),
-            # `orbit build --runtime-module` to an object, linked into a program.
-            # The native lane needs ORBIT_R6 (ir-protocol 3), else it skips.
-            ("runtime_module", [py, f"{s}/runtime_module_gate.py", "--cc", cc,
-                                "--compiler", fp]),
-            ("runtime_module_native", [py, f"{s}/runtime_module_gate.py", "--cc", cc,
-                                       "--compiler", fp, "--backend", "native"]),
-            # runtime/gen/*.c is committed C: it must equal what the compiler
-            # emits for runtime/orb/*.orb, byte for byte.
-            ("runtime_gen", [py, f"{s}/runtime_gen.py", "--cc", cc, "--compiler", fp]),
-            ("negative", [py, f"{s}/negative_gate.py", "--cc", cc, "--compiler", fp]),
-            ("frontend", [py, f"{s}/frontend_gate.py", "--cc", cc, "--compiler", fp]),
-            ("dispatch", [py, f"{s}/dispatch_coverage.py"]),
-            ("parity", [py, f"{s}/parity_selfhost.py", "--cc", cc, "--compiler", fp]),
-            ("werror", [py, f"{s}/werror_gate.py", "--cc", cc, "--compiler", fp]),
-            ("fuzz_frontend", [py, f"{s}/fuzz_frontend.py", "--compiler", fp]),
-            # The only gate that builds a service and runs it. It was the other
-            # shell block in CI, and being unable to run the gate that proves
-            # the compiler produces a working server is how a compiler ends up
-            # green on every unit test and broken in the way that matters.
-            ("kynx_live", [py, f"{s}/kynx_gate.py", "live", "--cc", cc,
-                           "--compiler", fp]),
-            # D7's one-way ratchet, the reader the baseline never had in this
-            # sequence. It was a hard CI step until f001308 folded CI into
-            # `dev.py all`, and alive_check's row for it is liveness only
-            # (rc 1 tolerated, marker matches both verdicts) -- so without
-            # this entry a tree that raised unknown_per_mille above the
-            # baseline shipped green. T2, like kynx_live: it measures the
-            # freshly built fp, and `report` keeps only the raw census.
-            ("unknown_ratchet", [py, f"{s}/unknown_ratchet.py",
-                                 "--compiler", fp, "--cc", cc]),
-        ],
-        3: [
-            ("check_stale", [py, f"{s}/build_selfhost.py", "--cc", cc, "--check-stale"]),
-            # E3 bundle for verify_seed below: emit the TU with the fp (its
-            # sibling header is what the split needs) and write the shards
-            # into a bundle only this run wrote. Split-only here -- gcc and
-            # the emission check belong to the shard lane's own tests and to
-            # the CI job, not to every `all`. main() swaps this for the
-            # hash-bound reuse form when a good header is already recorded.
-            ("shard_split", shard_split_argv(py, s, fp,
-                                             str(work / "shards"), cc)),
-            ("verify_seed", [py, f"{s}/verify_seed.py", "--cc", cc]),
-            ("alive_check", [py, f"{s}/alive_check.py", "--cc", cc, "--compiler", fp]),
-        ],
-    }
+    spec = {}
+    for g in gate_registry.gates():
+        if g.kind != "gate" or g.argv is None or g.tier == 0:
+            continue
+        # Absolute paths, always: cli_probe.py runs the compiler with cwd set to
+        # its own work directory, so a relative fixed point resolves against the
+        # wrong place and the failure is a FileNotFoundError on the gate's own
+        # argument.
+        spec.setdefault(g.tier, []).append(
+            (g.label, g.argv(fp, cc, str(work))))
+    return spec
 
 
 # A gate that cannot run on this machine (suite_native without ORBIT_R6) exits
@@ -937,8 +887,8 @@ def main() -> int:
         description="Developer loop for Orbit: one entry point for the gates."
     )
     ap.add_argument("target", nargs="?", default="dev",
-                    choices=["dev", "check", "all", "fp", "fp-path", "fmt",
-                             "promote", "promote-diff", "report", "list"])
+                    choices=["dev", "check", "static", "all", "fp", "fp-path",
+                             "fmt", "promote", "promote-diff", "report", "list"])
     ap.add_argument("--cc", default=None, help="C compiler (default: ORBIT_CC/CC/gcc/clang/cc)")
     ap.add_argument("--filter", default=None,
                     help="only run gates whose name contains this substring")
@@ -985,6 +935,11 @@ def main() -> int:
     tiers = classify(changed) if args.target in ("list", "dev") else {
         "check": [1, 2],
         "all": [1, 2, 3],
+        # `static` is the tier a document or script change needs, and today the
+        # only way to ask for it is `dev`, which guesses from the diff and adds
+        # T1. The five static gates plus fmt cost seconds; the T1 gates that come
+        # with them cost a bootstrap.
+        "static": [],
     }.get(args.target, [])
 
     if args.target == "list":
@@ -1005,7 +960,7 @@ def main() -> int:
             (f" ({fp_stamp_line(binary)})" if binary.exists() else " (not built)"))
         say(f"T0: fmt --check sharded per file ({len(fmt_check_files())} files "
             "across compiler/, tests/suite/, std/, tests/std/ and examples/) "
-            "+ schema + walk + doc_counts + flags")
+            "+ schema + walk + doc_counts + flags + cites")
         for tier in sorted(specs):
             names = ", ".join(n for n, _ in specs[tier])
             line = f"T{tier}: {names}"
@@ -1022,7 +977,8 @@ def main() -> int:
         # actually do, once the register renumbering is flattened. No compiler,
         # no bootstrap -- it reads git and a text file.
         return subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "promote_diff.py")] +
+            [sys.executable, str(ROOT / "scripts" / "trust.py"),
+             "promote-diff"] +
             (["--expect-none"] if args.filter == "none" else []),
             cwd=str(ROOT),
         ).returncode
@@ -1034,7 +990,7 @@ def main() -> int:
         # describes exactly the sources it was built from. Deleting the stamp
         # here cost a needless 20 s rebuild and was wrong.
         rc = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "build_selfhost.py"),
+            [sys.executable, str(ROOT / "scripts" / "trust.py"), "build",
              "--cc", cc, "--promote"],
             cwd=str(ROOT), env=child_env(),
         ).returncode
@@ -1044,7 +1000,7 @@ def main() -> int:
         # just promoted, so it is refreshed with the new fixed point.
         binary = ensure_fp(cc, allow_build=True)
         return subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "runtime_gen.py"),
+            [sys.executable, str(ROOT / "scripts" / "corpus_gates.py"), "runtime_gen",
              "--cc", cc, "--compiler", str(binary.resolve()), "--write"],
             cwd=str(ROOT), env=child_env(),
         ).returncode
@@ -1081,8 +1037,8 @@ def main() -> int:
     # only decides whether it rebuilds the chain or reuses the snapshots.
     shared_ok, shared_reason = (shared_is_valid(cc) if args.target == "all"
                                 else (False, "not all"))
-    supports_build = script_supports("build_selfhost.py", "--shared-work")
-    supports_verify = script_supports("verify_seed.py", "--shared-work")
+    supports_build = script_supports("trust.py", "--shared-work", sub="build")
+    supports_verify = script_supports("trust.py", "--shared-work", sub="verify")
     use_shared_chain = bool(shared_ok and (supports_build or supports_verify))
     use_stale_bytes = bool(shared_ok)
     if args.target == "all":
@@ -1095,16 +1051,12 @@ def main() -> int:
         else:
             say(f"  shared chain: fallback (no valid snapshots: {shared_reason})")
 
-    static_plan = list(fmt_gate(binary, changed))
+    static_plan = list(fmt_gate(binary, cc, changed))
     plan: list = []
     run_fmt_files: list | None = None
     if args.target == "report":
-        py, s = sys.executable, str(ROOT / "scripts")
-        plan = [
-            ("routes_probe", [py, f"{s}/routes_probe.py"]),
-            ("unknown_census", [py, f"{s}/unknown_census.py", "--cc", cc, "--compiler", str(binary.resolve())]),
-            ("diff_fuzz", [py, f"{s}/diff_fuzz.py", "--cc", cc, "--compiler", str(binary.resolve())]),
-        ]
+        plan = [(g.label, g.argv(str(binary.resolve()), cc, str(work)))
+                for g in gate_registry.gates(99)]
     else:
         plan = list(static_plan)
         # fmt runs sharded, not as directory gates. Filter parity with the old
@@ -1135,7 +1087,13 @@ def main() -> int:
                 plan.append((label, argv))
 
     if args.filter:
-        plan = [(n, a) for n, a in plan if args.filter in n
+        # A filter that names a gate exactly runs that gate alone. Anything else
+        # stays a substring, because `--filter native` and `--filter compiler`
+        # have always meant "everything with this in its name", and the Makefile
+        # single-gate recipes need the exact case to mean one gate.
+        exact = args.filter in [g.label for g in gate_registry.gates()]
+        plan = [(n, a) for n, a in plan
+                if (n == args.filter if exact else args.filter in n)
                 or (n == "check_stale:bytes" and args.filter in "check_stale")]
         if run_fmt_files is not None and args.filter not in "fmt --check":
             # plan already filtered; fmt subset decided above, keep it only if
@@ -1167,6 +1125,16 @@ def main() -> int:
         plan = _rewritten
 
     if not plan and run_fmt_files is None:
+        # Two different situations look the same here, and only one of them is
+        # benign. A filter naming a real gate that the selected tiers do not
+        # include is "nothing to run"; a filter naming nothing in the table is a
+        # label that moved or vanished, and passing that quietly is how a renamed
+        # gate stops being checked at all.
+        known = [g.label for g in gate_registry.gates()] + ["fmt"]
+        if args.filter and not any(args.filter in l for l in known):
+            say(f"  filter '{args.filter}' names no gate in "
+                "scripts/gate_registry.py; the label was renamed or removed")
+            return 1
         say("  nothing to run")
         return 0
 
@@ -1311,13 +1279,17 @@ def main() -> int:
     say(paint(f"all {len(results) - len(SKIPPED)} gate(s) passed in "
               f"{wall:.0f}s wall (gate sum {total:.0f}s)", GREEN))
     if SKIPPED:
+        # A skipped native gate is missing configuration on either host now
+        # that the compiler accepts --backend=native on Linux too, and the fix
+        # is to supply an r6 both can run.
+        hint = "Set ORBIT_R6 to an r6 to run them."
         say(paint(f"  {len(SKIPPED)} gate(s) skipped, not passed: "
-                  + ", ".join(SKIPPED) + ". Set ORBIT_R6 to an r6.exe to run them.",
+                  + ", ".join(SKIPPED) + ". " + hint,
                   YELLOW))
     missing = [t for t in (1, 2, 3) if t not in tiers]
     if missing and args.target != "report":
         names = ", ".join(f"T{t}" for t in missing)
-        want = "make check" if missing == [3] else "make all"
+        want = "make all" if missing == [3] else "make check"
         say(paint(f"  {names} did not run, so this is not a green CI. `{want}`.",
                   YELLOW))
     if args.target == "all" and use_shared_chain:

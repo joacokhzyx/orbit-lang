@@ -1,0 +1,10 @@
+orbit-tir 1
+module fixture
+function 0 make void
+param 0 0 n int
+block 0 0
+instr 0 0 0 load int n
+instr 0 0 1 const int 2
+instr 0 0 2 construct object 2 x v0 y v1
+instr 0 0 3 bind unit o v2
+end-function 0

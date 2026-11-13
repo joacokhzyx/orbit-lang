@@ -1,0 +1,13 @@
+// `d.x` has a type when the file declares the model: it is the text written
+// beside the field's name. The frontend read used to answer `unknown` for every
+// member that was not `len`, which made 5,389 reads `unknown` instructions
+// (E2004) and suppressed the canonical text of every file that used one.
+//
+// The model declaration itself prints nothing. The table it fills is how a read
+// gets answered, not a line the text IR claims to record.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Dot { x: int }  fn read(d: Dot) -> int { return d.x }"
+    print(compileFrontendSource("fixture", source))
+}

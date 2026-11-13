@@ -14,6 +14,14 @@
 //     FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
 //     OP <opcode> <count>        -- only opcodes whose result is `unknown`
 //     CODE <diagnostic code> <count>
+//     NAME <count> <message>     -- one E2001 message, whose last word is the
+//                                   identifier the file loads untyped
+//     MEMBER <count> <message>   -- one E2004 message, whose last word is the
+//                                   field the file reads untyped
+//     CALL <count> <message>     -- one E2005 message, whose last word is the
+//                                   callee the file cannot type
+//     LOAD <count> <kind>        -- unknown loads split by whether the same
+//                                   function binds that name
 //
 // The two imports below are load-bearing and neither is obvious.
 //
@@ -38,6 +46,15 @@
 import "../compiler/host/extern.orb"
 import "../compiler/tir/entry.orb"
 
+// The first word of an operand string. A `bind` instruction binds the name it
+// puts first, and a `load` reads the name it puts first, so this is how the
+// probe tells a name the function binds from one it does not.
+fn firstWord(text: string) -> string {
+    val space = orbit_string_indexOf(text, " ")
+    if space < 0 { return text }
+    return orbit_string_slice(text, 0, space)
+}
+
 // parseIntSelfhost used to be stubbed here because the front end could not
 // reach the real one: parser.orb called a function that lived in builder.orb,
 // which this probe does not import, and an unresolved call is not a
@@ -46,7 +63,7 @@ import "../compiler/tir/entry.orb"
 // with the real one and this probe stopped building. A report-only tool with
 // no gate behind it rotted without a single signal.
 
-fn findOpcodes(opcodes: list, opcode: string) -> int {
+fn findOpcodes(opcodes: list<string>, opcode: string) -> int {
     var i = 0
     while i < opcodes.len() {
         if opcodes.get(i) == opcode { return i }
@@ -55,7 +72,7 @@ fn findOpcodes(opcodes: list, opcode: string) -> int {
     return - 1
 }
 
-fn bump(counts: list, index: int) -> list {
+fn bump(counts: list<int>, index: int) -> list<int> {
     var out = []
     var i = 0
     while i < counts.len() {
@@ -75,7 +92,13 @@ fn censusOf(path: string) {
     }
     val parser = initParser(source)
     val root = parseProgram(parser)
-    val module: TirModule = lowerProgramToTir(path, root)
+    // The same path `orbit frontend` takes, imports and all. This call used to
+    // be `lowerProgramToTir`, which reads only the text it is handed, so the
+    // census measured a program the command line never compiles: a file that
+    // calls into an imported function counted as unknown here and typed there.
+    val importNotes = []
+    val imported = importsOf(path, importNotes)
+    val module: TirModule = lowerProgramWithImportsToTir(path, root, imported, importNotes)
     appendParserDiagnostics(module, parser.diagnostics)
 
     var functions = 0
@@ -85,12 +108,33 @@ fn censusOf(path: string) {
     var instrUnknown = 0
     var opcodes = []
     var counts = []
+    // An unknown load is either the echo of a value this pass could not type
+    // (the name IS bound here, with `unknown` in it) or a name the function
+    // never binds at all. The two need different fixes, and only the second is
+    // a resolution gap.
+    var loadBound = 0
+    var loadUnbound = 0
 
     var f = 0
     while f < module.functions.len() {
         val function: TirFunction = module.functions.get(f)
         functions = functions + 1
         if function.returnType == "unknown" { returnUnknown = returnUnknown + 1 }
+        val boundNames = []
+        var bp = 0
+        while bp < function.parameters.len() {
+            val parameter: TirParameter = function.parameters.get(bp)
+            boundNames.push(parameter.name)
+            bp = bp + 1
+        }
+        var bi = 0
+        while bi < function.instructions.len() {
+            val bound: TirInstruction = function.instructions.get(bi)
+            if bound.opcode == "bind" {
+                boundNames.push(firstWord(bound.operands))
+            }
+            bi = bi + 1
+        }
         var p = 0
         while p < function.parameters.len() {
             val parameter: TirParameter = function.parameters.get(p)
@@ -103,6 +147,13 @@ fn censusOf(path: string) {
             instrs = instrs + 1
             if instruction.typeName == "unknown" {
                 instrUnknown = instrUnknown + 1
+                if instruction.opcode == "load" {
+                    if findOpcodes(boundNames, firstWord(instruction.operands)) >= 0 {
+                        loadBound = loadBound + 1
+                    } else {
+                        loadUnbound = loadUnbound + 1
+                    }
+                }
                 val at = findOpcodes(opcodes, instruction.opcode)
                 if at < 0 {
                     opcodes.push(instruction.opcode)
@@ -118,10 +169,66 @@ fn censusOf(path: string) {
     var diagnostics = 0
     var diagCodes = []
     var diagCounts = []
+    // The two give-up codes say WHICH node the front end walked away from, so a
+    // message is one class and the count is the size of that class. Every
+    // distinct message of E3000 or E3001 is therefore a row of the table the
+    // type work needs; no other code is tallied this way.
+    var giveupMessages = []
+    var giveupCounts = []
+    // E2001 is the load of a name the front end cannot type, and its message
+    // ends with that name, so a distinct message is one identifier. The count
+    // per identifier is what says whether the 7,663 of them are the boundary of
+    // one module's declarations or something else; the driver sorts them.
+    var nameMessages = []
+    var nameCounts = []
+    // E2004 is the same trick on the member read: the message ends with the
+    // field the source asked for, so a distinct message names one field. The
+    // field is what says whether the 2,446 of them are one receiver type nobody
+    // types or a handful of builtins the pass does not know.
+    var memberMessages = []
+    var memberCounts = []
+    // E2005 is the same trick on the call: the message ends with the callee, so
+    // a distinct message names one thing the file tried to call. This is the
+    // largest class of untyped instructions and it used to say only "this call",
+    // which no driver could sort.
+    var callMessages = []
+    var callCounts = []
     var d = 0
     while d < module.diagnostics.len() {
         val diagnostic: TirDiagnostic = module.diagnostics.get(d)
         diagnostics = diagnostics + 1
+        if diagnostic.code == "E3000" || diagnostic.code == "E3001" {
+            val g = findOpcodes(giveupMessages, diagnostic.message)
+            if g < 0 {
+                giveupMessages.push(diagnostic.message)
+                giveupCounts = bump(giveupCounts, g)
+                giveupCounts.push(1)
+            } else { giveupCounts = bump(giveupCounts, g) }
+        }
+        if diagnostic.code == "E2001" {
+            val nm = findOpcodes(nameMessages, diagnostic.message)
+            if nm < 0 {
+                nameMessages.push(diagnostic.message)
+                nameCounts = bump(nameCounts, nm)
+                nameCounts.push(1)
+            } else { nameCounts = bump(nameCounts, nm) }
+        }
+        if diagnostic.code == "E2004" {
+            val mm = findOpcodes(memberMessages, diagnostic.message)
+            if mm < 0 {
+                memberMessages.push(diagnostic.message)
+                memberCounts = bump(memberCounts, mm)
+                memberCounts.push(1)
+            } else { memberCounts = bump(memberCounts, mm) }
+        }
+        if diagnostic.code == "E2005" {
+            val cm = findOpcodes(callMessages, diagnostic.message)
+            if cm < 0 {
+                callMessages.push(diagnostic.message)
+                callCounts = bump(callCounts, cm)
+                callCounts.push(1)
+            } else { callCounts = bump(callCounts, cm) }
+        }
         val at = findOpcodes(diagCodes, diagnostic.code)
         if at < 0 {
             diagCodes.push(diagnostic.code)
@@ -138,6 +245,8 @@ fn censusOf(path: string) {
     + " INSTR " + orbit_int_to_string_selfhost(instrs)
     + " INSTRUNK " + orbit_int_to_string_selfhost(instrUnknown)
     + " DIAG " + orbit_int_to_string_selfhost(diagnostics))
+    print("LOAD " + orbit_int_to_string_selfhost(loadBound) + " bound-in-this-function")
+    print("LOAD " + orbit_int_to_string_selfhost(loadUnbound) + " not-bound-in-this-function")
     var k = 0
     while k < opcodes.len() {
         print("OP " + opcodes.get(k) + " " + orbit_int_to_string_selfhost(counts.get(k)))
@@ -147,6 +256,26 @@ fn censusOf(path: string) {
     while e < diagCodes.len() {
         print("CODE " + diagCodes.get(e) + " " + orbit_int_to_string_selfhost(diagCounts.get(e)))
         e = e + 1
+    }
+    var g2 = 0
+    while g2 < giveupMessages.len() {
+        print("GIVEUP " + orbit_int_to_string_selfhost(giveupCounts.get(g2)) + " " + giveupMessages.get(g2))
+        g2 = g2 + 1
+    }
+    var n2 = 0
+    while n2 < nameMessages.len() {
+        print("NAME " + orbit_int_to_string_selfhost(nameCounts.get(n2)) + " " + nameMessages.get(n2))
+        n2 = n2 + 1
+    }
+    var m2 = 0
+    while m2 < memberMessages.len() {
+        print("MEMBER " + orbit_int_to_string_selfhost(memberCounts.get(m2)) + " " + memberMessages.get(m2))
+        m2 = m2 + 1
+    }
+    var c2 = 0
+    while c2 < callMessages.len() {
+        print("CALL " + orbit_int_to_string_selfhost(callCounts.get(c2)) + " " + callMessages.get(c2))
+        c2 = c2 + 1
     }
 }
 

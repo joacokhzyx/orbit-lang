@@ -4,10 +4,10 @@
 The committed canonical ``compiler/selfhost/stage3.exe.c`` is compiled three
 times -- with tcc, with gcc -O0 and with gcc -O2 -- and each resulting judge
 binary re-emits the compiler's C (``build compiler/host/main.orb`` with
-ORBIT_SKIP_CC=1, same as scripts/verify_seed.py's orb_build). The gate
+ORBIT_SKIP_CC=1, same as the orb_build of scripts/trust.py verify). The gate
 requires the three SHA-256 digests to be identical.
 
-This is an ADDITIONAL gate: it replaces neither scripts/verify_seed.py (the
+This is an ADDITIONAL gate: it replaces neither scripts/trust.py verify (the
 C fixed point against the canonical, the root of trust) nor the seed chain
 (seed2 -> chain2 -> chain3). What it adds is toolchain diversity -- proof
 that the canonical C means the same thing under three compilers, so a gcc
@@ -203,12 +203,12 @@ def main() -> int:
     exe = ".exe" if os.name == "nt" else ""
     link_flags = ["-lws2_32"] if os.name == "nt" else []
 
-    # 1. Amalgamate once: same invocation verify_seed.py uses, so the input
+    # 1. Amalgamate once: same invocation trust.py verify uses, so the input
     #    TU is byte-identical to the seed build's by construction.
     amal = os.path.join(work, "triangle_unit.c")
     out.say("Amalgamating the canonical ...")
-    run_logged([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"),
-                "--entry", CANONICAL_C, "--out", amal],
+    run_logged([sys.executable, os.path.join(ROOT, "scripts", "trust.py"),
+                "amalgamate", "--entry", CANONICAL_C, "--out", amal],
                ROOT, dict(os.environ), args.timeout, "amalgamate")
     out.say("Unit: %s (%d bytes)" % (amal, os.path.getsize(amal)))
 
@@ -270,7 +270,7 @@ def main() -> int:
         combined = (proc.stdout or "") + (proc.stderr or "")
         if combined.strip():
             print(combined.rstrip())
-        # Tolerated non-zero exit, same as verify_seed.py's orb_build: the
+        # Tolerated non-zero exit, same as trust.py verify's orb_build: the
         # contract is the emitted C, and the inner cc never ran. Missing C
         # is the failure, not the exit code.
         src_c = os.path.join(armtmp, "orbit_selfhost_build.c")

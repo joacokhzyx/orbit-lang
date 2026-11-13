@@ -1,0 +1,15 @@
+// A file-scope directive declares data, not code, so there is no instruction to
+// emit for it -- the reason a file-scope `const` already lowers to nothing.
+// `lowerProgramToTir` had no arm for `migrations` or `port`, so the directive
+// reported E3000, and one diagnostic of severity error suppresses the whole
+// file's canonical TIR: a program with a migration printed nothing at all.
+//
+// A `schedule` is deliberately not on that list, and stays a give-up: its
+// handler is a body, and skipping a declaration that carries code would let the
+// pass describe a file it did not read.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "migrations \"CREATE TABLE t (x INTEGER)\"\nport 8080\nfn main() -> int { return 0 }\n"
+    print(compileFrontendSource("fixture", source))
+}

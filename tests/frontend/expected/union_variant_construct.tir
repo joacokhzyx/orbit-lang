@@ -1,0 +1,9 @@
+orbit-tir 1
+module fixture
+function 0 make Shape
+param 0 0 n int
+block 0 0
+instr 0 0 0 load int n
+instr 0 0 1 call Shape Shape.Circle v0
+instr 0 0 2 return unit v1
+end-function 0

@@ -87,12 +87,26 @@ model IRBuilder {
     // to give a local one type for the whole function.
     fnLocals: list < Variable >
     fnLocalMark: int
+    // The generic union DECLARATIONS, one row per variant: the owner, the
+    // variant, the payload text with the parameter still written in it, and the
+    // declaration's parameter list. Beside `genericModels` for the same reason:
+    // a template is not a type the emitter can write, only its instances are.
+    unionTemplateOwners: list < string >
+    unionTemplateVariants: list < string >
+    unionTemplatePayloads: list < string >
+    unionTemplateParams: list < string >
+    // The instance the position being built expects, when a position writes a
+    // type at all: a binding's annotation. A payload-less variant carries no
+    // argument to read the instance from, and guessing one from the first row
+    // that holds the name is the defect class this language already refused for
+    // generic models.
+    expectedUnionInstance: string
 }
 
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, [], 0)
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, [], 0, [], [], [], [], "")
 }
 
 model Variable {
@@ -366,6 +380,8 @@ fn builtinReturnType(name: string) -> string {
     if name == "system_pid" { return "int" }
     if name == "system_active_workers" { return "int" }
     if name == "system_http_requests_total" { return "int" }
+    if name == "system_http_requests_ok" { return "int" }
+    if name == "system_http_requests_error" { return "int" }
     if name == "system_latency_avg_us" { return "int" }
     if name == "system_latency_p50_us" { return "int" }
     if name == "system_latency_p95_us" { return "int" }
@@ -654,13 +670,7 @@ fn modelInstanceName(builder: IRBuilder, modelName: string, literal: ASTNode) ->
     val gm = genericModelByName(builder, modelName)
     if gm == NULL { return modelName }
     val args = modelLiteralArgTypes(builder, gm, literal)
-    var out = modelName
-    var i = 0
-    while i < args.len() {
-        out = out + "_" + mangleTypeArg(args.get(i))
-        i = i + 1
-    }
-    return out
+    return instanceName(modelName, args)
 }
 
 // Register the instantiation and return its name. The one impure step, and
@@ -702,12 +712,7 @@ fn ensureModelInstanceFromArgs(builder: IRBuilder, modelName: string, args: list
         if m.name == modelName { return modelName }
         mi = mi + 1
     }
-    var instance = modelName
-    var ai = 0
-    while ai < args.len() {
-        instance = instance + "_" + mangleTypeArg(args.get(ai))
-        ai = ai + 1
-    }
+    val instance = instanceName(modelName, args)
     mi = 0
     while mi < builder.module.models.len() {
         val m: IRModelDecl = builder.module.models.get(mi)
@@ -725,19 +730,189 @@ fn ensureModelInstanceFromArgs(builder: IRBuilder, modelName: string, args: list
     return instance
 }
 
-// The instance a declared type names, registering it if this is the first
-// mention. `Box<int>` -> `Box_int`.
-fn declaredTypeInstanceName(builder: IRBuilder, declared: string) -> string {
+// Whether any template row belongs to `base`.
+fn genericUnionByName(builder: IRBuilder, base: string) -> bool {
+    var i = 0
+    while i < builder.unionTemplateOwners.len() {
+        if builder.unionTemplateOwners.get(i) == base { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The declaration's own parameter list, read back off the first template row.
+fn unionParamsOf(builder: IRBuilder, base: string) -> list < string > {
+    var i = 0
+    while i < builder.unionTemplateOwners.len() {
+        if builder.unionTemplateOwners.get(i) == base {
+            return splitTypeArgs(builder.unionTemplateParams.get(i))
+        }
+        i = i + 1
+    }
+    return []
+}
+
+// Declare one instantiation: the tag set with the parameter replaced by the
+// argument in every payload. Twice the same instance is one declaration. The
+// name itself is `literal.orb`'s, the leaf the checker also imports.
+fn ensureUnionInstanceType(builder: IRBuilder, base: string, args: list < string >) -> string {
+    val instance = unionInstanceName(base, args)
+    var k = 0
+    while k < builder.module.types.len() {
+        val known: IRTypeDecl = builder.module.types.get(k)
+        if known.name == instance { return instance }
+        k = k + 1
+    }
+    if genericUnionByName(builder, base) == false { return "" }
+    val params = unionParamsOf(builder, base)
+    if args.len() != params.len() { return "" }
+    val irVariants = []
+    val irRich = []
+    var i = 0
+    while i < builder.unionTemplateOwners.len() {
+        if builder.unionTemplateOwners.get(i) == base {
+            val one: string = builder.unionTemplateVariants.get(i)
+            val raw: string = builder.unionTemplatePayloads.get(i)
+            irVariants.push(one)
+            irRich.push(substituteTypeParams(raw, params, args))
+        }
+        i = i + 1
+    }
+    builder.module.types.push(IRTypeDecl(instance, "union_type", irVariants, irRich, []))
+    return instance
+}
+
+// The instance a written type names, registering it on the first mention.
+// `Option<int>` -> `Option_int`, the same job `declaredTypeInstanceName` does
+// for a model, because a signature is written before any value exists and the
+// argument is the only thing there to read.
+fn declaredUnionInstanceName(builder: IRBuilder, declared: string) -> string {
     val lt = orbit_string_indexOf(declared, "<")
     if lt <= 0 { return "" }
     val bare = orbit_string_slice(declared, 0, lt)
-    if genericModelByName(builder, bare) == NULL { return "" }
     val n = orbit_string_len(declared)
     if n < 2 { return "" }
     if orbit_string_slice(declared, n - 1, n) != ">" { return "" }
     val args = splitTypeArgs(orbit_string_slice(declared, lt + 1, n - 1))
     if args.len() == 0 { return "" }
-    return ensureModelInstanceFromArgs(builder, bare, args)
+    return ensureUnionInstanceType(builder, bare, args)
+}
+
+// Whether `instance` is the instance of `base` that the minting rule names.
+fn isInstanceOfUnionName(builder: IRBuilder, instance: string, base: string) -> bool {
+    if instance == "" { return false }
+    val prefix = base + "_"
+    if orbit_string_len(instance) <= orbit_string_len(prefix) { return false }
+    if instance.slice(0, orbit_string_len(prefix)) != prefix { return false }
+    var i = 0
+    while i < builder.module.types.len() {
+        val td: IRTypeDecl = builder.module.types.get(i)
+        if td.name == instance { return td.kind == "union_type" }
+        i = i + 1
+    }
+    return false
+}
+
+// The instance a construction names. A payload carries the argument; a variant
+// with none is read from the type the position expects, then from the return
+// type of the function the construction is being built in. Nothing here guesses
+// across instantiations: a name no template carries is not this function's work.
+fn unionInstanceFromTemplate(builder: IRBuilder, base: string, variantName: string, args: list < ASTNode >) -> string {
+    val params = unionParamsOf(builder, base)
+    val bound = []
+    var p = 0
+    while p < params.len() {
+        bound.push("")
+        p = p + 1
+    }
+    var row = 0
+    while row < builder.unionTemplateOwners.len() {
+        if builder.unionTemplateOwners.get(row) == base {
+            val variant: string = builder.unionTemplateVariants.get(row)
+            if variant == variantName {
+                val raw: string = builder.unionTemplatePayloads.get(row)
+                val parts = splitPayloadTypes(raw)
+                var pi = 0
+                while pi < parts.len() {
+                    val one: string = parts.get(pi)
+                    var q = 0
+                    while q < params.len() {
+                        if one == params.get(q) {
+                            if pi < args.len() {
+                                bound.set(q, staticExprTypeName(builder, args.get(pi)))
+                            }
+                        }
+                        q = q + 1
+                    }
+                    pi = pi + 1
+                }
+            }
+        }
+        row = row + 1
+    }
+    var missing = false
+    var m = 0
+    while m < bound.len() {
+        val one: string = bound.get(m)
+        if one == "" || one == "unknown" { missing = true }
+        m = m + 1
+    }
+    if missing == false { return ensureUnionInstanceType(builder, base, bound) }
+    if isInstanceOfUnionName(builder, builder.expectedUnionInstance, base) { return builder.expectedUnionInstance }
+    val fromReturn = lookupFunctionReturnType(builder, builder.currentFunction.name)
+    if isInstanceOfUnionName(builder, fromReturn, base) { return fromReturn }
+    return ""
+}
+
+// The instance a declared type names, registering it if this is the first
+// mention. `Box<int>` -> `Box_int`.
+// The instance a `match` scrutinee carries: a name reads its own recorded
+// type, anything else its static shape. `staticExprTypeName` answers literals
+// and list literals for the list kind and nothing else, so the variable record
+// is the only thing that can name `Option_int` for `match o`.
+fn unionScrutineeInstance(builder: IRBuilder, base: string, expr: ASTNode) -> string {
+    var scrutineeType = staticExprTypeName(builder, expr)
+    var scrutineeName = ""
+    match expr {
+        ASTNode.Literal(sl) => {
+            if sl.valType == "identifier" { scrutineeName = sl.text }
+        }
+        _ => {}
+    }
+    if scrutineeName != "" {
+        val fromVariable = lookupVariable(builder, scrutineeName)
+        if fromVariable != "unknown" { scrutineeType = fromVariable }
+    }
+    if isInstanceOfUnionName(builder, scrutineeType, base) { return scrutineeType }
+    return ""
+}
+
+// The instance a payload-less variant belongs to. The checker refuses the
+// construction when no position writes a type, so one of the two below answers:
+// the annotation of the binding being built, or the return type of the function
+// the construction sits in.
+fn unionEmptyVariantInstance(builder: IRBuilder, base: string) -> string {
+    if isInstanceOfUnionName(builder, builder.expectedUnionInstance, base) {
+        return builder.expectedUnionInstance
+    }
+    val fromReturn = lookupFunctionReturnType(builder, builder.currentFunction.name)
+    if isInstanceOfUnionName(builder, fromReturn, base) { return fromReturn }
+    return ""
+}
+
+fn declaredTypeInstanceName(builder: IRBuilder, declared: string) -> string {
+    val lt = orbit_string_indexOf(declared, "<")
+    if lt <= 0 { return "" }
+    val bare = orbit_string_slice(declared, 0, lt)
+    val n = orbit_string_len(declared)
+    if n < 2 { return "" }
+    if orbit_string_slice(declared, n - 1, n) != ">" { return "" }
+    val args = splitTypeArgs(orbit_string_slice(declared, lt + 1, n - 1))
+    if args.len() == 0 { return "" }
+    if genericModelByName(builder, bare) != NULL {
+        return ensureModelInstanceFromArgs(builder, bare, args)
+    }
+    return ensureUnionInstanceType(builder, bare, args)
 }
 
 fn splitTypeArgs(s: string) -> list < string > {
@@ -1041,20 +1216,6 @@ fn resolveFnType(builder: IRBuilder, spelling: string) -> string {
     return out
 }
 
-// The instance a call's bindings name: `f` unchanged without parameters,
-// `f_int` / `f_list_string` with them. Same mangling the models use, so the
-// name reads the same everywhere.
-fn fnInstanceName(name: string, bindings: list < string >) -> string {
-    var out = name
-    var i = 0
-    while i < bindings.len() {
-        val b: string = bindings.get(i)
-        out = out + "_" + mangleTypeArg(b)
-        i = i + 1
-    }
-    return out
-}
-
 // Build the instance a call needs, or find it built: substitute the
 // signature, register the prototype first (a recursive call meets the shell,
 // never a rebuild), then build the body with the bindings pushed so nested
@@ -1068,7 +1229,9 @@ fn fnInstanceName(name: string, bindings: list < string >) -> string {
 // an unassigned `b__s0` and the first field read segfaulted), so instances
 // build in the drain with clean scopes, exactly like top-level functions.
 fn ensureFnInstance(builder: IRBuilder, name: string, bindings: list < string >) -> string {
-    val inst = fnInstanceName(name, bindings)
+    // `f` unchanged without parameters, `f_int` with them, joined the way the
+    // models and the unions join theirs: one `instanceName` for all three.
+    val inst = instanceName(name, bindings)
     if findFunction(builder.module, inst) >= 0 { return inst }
     match genericFnByName(builder, name) {
         ASTNode.FunctionDecl(fd) => {
@@ -1673,6 +1836,16 @@ fn annotationBaseType(t: string) -> string {
 }
 
 // The payload of a `list<T>` annotation, or "": a bare `list` never said.
+// The type a `result` annotation carries into the IR. The emitted C is one
+// struct whether or not the payload is named -- `OrbitResult` holds a value
+// slot, a message and a code -- so the `<T>` stays where it can be read, which
+// is the annotation the frontend pass sees, and is dropped for the C type.
+// A `list<T>` local is already emitted this way by `annotationBaseType`.
+fn resultIrSpelling(t: string) -> string {
+    if annotationBaseType(t) == "result" { return "result" }
+    return t
+}
+
 fn annotationListElement(t: string) -> string {
     if t.slice(0, 4) != "list" { return "" }
     val lt = t.indexOf("<")
@@ -2064,12 +2237,12 @@ fn splitPayloadTypes(joined: string) -> list < string > {
 // The i-th payload type of a variant, or "" past the end. Named for tags
 // (union member names in IR), not variants: sema.orb owns variantPayloadAt
 // over its own registry, and cross-file names are closed.
-fn variantTagPayloadAt(builder: IRBuilder, tagName: string, idx: int) -> string {
+fn variantTagPayloadAt(builder: IRBuilder, owner: string, tagName: string, idx: int) -> string {
     if tagName.len() == 0 { return "unknown" }
     var ti = 0
     while ti < builder.module.types.len() {
         val t: IRTypeDecl = builder.module.types.get(ti)
-        if t.kind == "union_type" {
+        if t.kind == "union_type" && (owner == "" || t.name == owner) {
             var vi = 0
             while vi < t.variants.len() {
                 if t.variants.get(vi) == tagName {
@@ -2115,10 +2288,11 @@ fn variantTagOwner(builder: IRBuilder, tagName: string) -> string {
 // The packed-struct type holding a variant's payloads (`Owner_Variant`),
 // or "" when no union declares the variant. Multi-payload match bindings
 // read `Owner_Variant._0` off the data pointer through it.
-fn variantStructOf(builder: IRBuilder, tagName: string) -> string {
-    val owner = variantTagOwner(builder, tagName)
-    if owner == "" { return "" }
-    return owner + "_" + tagName
+fn variantStructOf(builder: IRBuilder, owner: string, tagName: string) -> string {
+    var o = owner
+    if o == "" { o = variantTagOwner(builder, tagName) }
+    if o == "" { return "" }
+    return o + "_" + tagName
 }
 
 // The register type of a variant's payload word, for `union_get_data`. Only a
@@ -2149,13 +2323,13 @@ fn unionDataRegisterType(builder: IRBuilder, tagOwner: string, tagName: string) 
     return "unknown"
 }
 
-fn variantPayloadType(builder: IRBuilder, tagName: string) -> string {
+fn variantPayloadType(builder: IRBuilder, owner: string, tagName: string) -> string {
     if tagName.len() == 0 { return "unknown" }
     // Structural first: consult declared union payloads (richVariants).
     var ti = 0
     while ti < builder.module.types.len() {
         val t: IRTypeDecl = builder.module.types.get(ti)
-        if t.kind == "union_type" {
+        if t.kind == "union_type" && (owner == "" || t.name == owner) {
             var vi = 0
             while vi < t.variants.len() {
                 if t.variants.get(vi) == tagName {
@@ -2303,7 +2477,11 @@ fn registerModel(builder: IRBuilder, node: ASTNode) {
             }
         }
         ASTNode.MigrationDecl(m) => {
-            builder.module.migrations.push(unescapeString(m.sql))
+            if m.down {
+                builder.module.migrationsDown.push(unescapeString(m.sql))
+            } else {
+                builder.module.migrations.push(unescapeString(m.sql))
+            }
         }
         _ => {}
     }
@@ -2335,6 +2513,35 @@ fn builderRegisterType(builder: IRBuilder, node: ASTNode) {
                 irRich.push(payload)
                 rvi = rvi + 1
             }
+            if kind == "union_type" {
+                var gp = 0
+                var paramsJoined = ""
+                while gp < t.genericParams.len() {
+                    if gp > 0 { paramsJoined = paramsJoined + ", " }
+                    match t.genericParams.get(gp) {
+                        ASTNode.GenericParam(gparam) => { paramsJoined = paramsJoined + gparam.name }
+                        _ => {}
+                    }
+                    gp = gp + 1
+                }
+                if paramsJoined != "" {
+                    var tv = 0
+                    while tv < irVariants.len() {
+                        val one: string = irVariants.get(tv)
+                        var rich = ""
+                        if tv < irRich.len() {
+                            val richText: string = irRich.get(tv)
+                            rich = richText
+                        }
+                        builder.unionTemplateOwners.push(t.name)
+                        builder.unionTemplateVariants.push(one)
+                        builder.unionTemplatePayloads.push(rich)
+                        builder.unionTemplateParams.push(paramsJoined)
+                        tv = tv + 1
+                    }
+                    return
+                }
+            }
             val irType = IRTypeDecl(t.name, kind, irVariants, irRich, [])
             builder.module.types.push(irType)
         }
@@ -2355,7 +2562,7 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
             if retInstance != "" {
                 func.returnType = retInstance
             } else {
-                func.returnType = f.returnType
+                func.returnType = resultIrSpelling(f.returnType)
             }
             func.isExtern = f.isExtern
             func.isExport = f.isExport
@@ -2382,7 +2589,7 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
         ASTNode.RouteDecl(r) => {
             val m = unquoteString(r.http_method)
             val p = unquoteString(r.path)
-            val routeName = "route_" + m + "_" + p
+            val routeName = "route_" + m + "_" + routeSymbolPath(p)
             val func = initRouteFunction(routeName, m, p)
             if r.has_limit {
                 func.routeHasLimit = true
@@ -2599,12 +2806,19 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
                 return
             }
             val func = builder.currentFunction
-            val varVal = buildCallArgValue(builder, v.value)
             var vType = v.typeAnnotation
+            // The annotation is built first: it declares the instance, and the
+            // value is then built knowing which instance its position expects.
+            // Without that order `Option.None` has nothing to read.
+            val annotatedInstance = declaredTypeInstanceName(builder, vType)
+            val prevExpectedUnion = builder.expectedUnionInstance
+            if annotatedInstance != "" { builder.expectedUnionInstance = annotatedInstance }
+            val varVal = buildCallArgValue(builder, v.value)
+            builder.expectedUnionInstance = prevExpectedUnion
             if vType == "" {
                 vType = inferValueType(builder, v.value)
             }
-            val vInstance = declaredTypeInstanceName(builder, vType)
+            val vInstance = annotatedInstance
             var vc = ""
             if vInstance != "" {
                 vc = defineVariable(builder, v.name, vInstance)
@@ -2660,7 +2874,7 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     if bodyInstance != "" {
         func.returnType = bodyInstance
     } else {
-        func.returnType = f.returnType
+        func.returnType = resultIrSpelling(f.returnType)
     }
     val prevFunc = builder.currentFunction
     builder.currentFunction = func
@@ -2742,10 +2956,39 @@ fn getOrCreateRouteFunction(builder: IRBuilder, name: string, method: string, pa
     return func
 }
 
+// The C symbol for a route is `o_` plus its name with every
+// non-alphanumeric replaced by `_` (c_backend.orb sanitizeChars), so `/a/b`
+// and `/a_b` both became `o_route_GET__a_b` and the C step refused the
+// program with "redefinition of 'o_route_GET__a_b'". A character outside
+// [A-Za-z0-9] is written here as `_` and two hex digits, which is
+// unambiguous because `_` is one of them: `/a/b` is `_2Fa_2Fb` and `/a_b` is
+// `_2Fa_5Fb`. The escaped spelling is the route function's name, so the IR
+// carries it and the fast path in `initRouteFunction` matches it.
+fn routeSymbolPath(p: string) -> string {
+    var out = ""
+    var i = 0
+    val len = p.len()
+    val digits = "0123456789abcdef"
+    while i < len {
+        val ch = p.at(i)
+        if (ch >= 48 && ch <= 57) || (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) {
+            out = out + p.slice(i, i + 1)
+        } else {
+            var b = ch
+            if b < 0 { b = b + 256 }
+            val hi = b / 16
+            val lo = b % 16
+            out = out + "_" + digits.slice(hi, hi + 1) + digits.slice(lo, lo + 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
 fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
     val method = unquoteString(r.http_method)
     val path = unquoteString(r.path)
-    val routeName = "route_" + method + "_" + path
+    val routeName = "route_" + method + "_" + routeSymbolPath(path)
     val func = getOrCreateRouteFunction(builder, routeName, method, path)
     if r.has_limit {
         func.routeHasLimit = true
@@ -2857,7 +3100,13 @@ fn widenAssignedValue(builder: IRBuilder, target: ASTNode, rhsReg: int) -> int {
 // last statement is a declaration gets the value of that block -- the same
 // rule branchTypeName types it by.
 fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
+    // The annotation resolves first: it is what declares the instance of a
+    // generic union, and a payload-less value has nothing else to read it from.
+    val earlyInstance = declaredTypeInstanceName(builder, v.typeAnnotation)
+    val prevExpected = builder.expectedUnionInstance
+    if earlyInstance != "" { builder.expectedUnionInstance = earlyInstance }
     var varVal = buildCallArgValue(builder, v.value)
+    builder.expectedUnionInstance = prevExpected
     var vType = v.typeAnnotation
     if vType == "" {
         vType = inferValueType(builder, v.value)
@@ -2975,7 +3224,7 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     // An annotated generic model names its instance; every other annotation
     // keeps its base type, because `list<int>` is a list with an element and
     // the element is recorded separately.
-    val vInstance = ""
+    val vInstance = earlyInstance
     var vc = ""
     if vInstance != "" {
         vc = defineVariable(builder, v.name, vInstance)
@@ -3797,6 +4046,14 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             _ => {}
                         }
                         if mpOwner != "" {
+                            // The payload-less arm of a generic union names the
+                            // template; the tag belongs to the instance the
+                            // scrutinee is, which is the only answer that cannot
+                            // pick another instantiation's tag.
+                            if genericUnionByName(builder, mpOwner) {
+                                val armInstance = unionScrutineeInstance(builder, mpOwner, m.expr)
+                                if armInstance != "" { mpOwner = armInstance }
+                            }
                             emitVariantTagTest(builder, matchReg, nextLabel, mpOwner, mp.field)
                         } else {
                             val mpPatReg = buildExpr(builder, c.pattern)
@@ -3833,9 +4090,21 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                         tagInstr.operand1 = ir_register(matchReg)
                         ir_emit(builder.currentFunction, tagInstr)
 
+                        // The owner the tag and the payloads come from: the type
+                        // the pattern wrote, or the scrutinee's own type for a
+                        // bare `V(a)`. Two unions may declare one variant name,
+                        // and the first row would answer for the other.
+                        if genericUnionByName(builder, tagOwner) {
+                            val tagInstance = unionScrutineeInstance(builder, tagOwner, m.expr)
+                            if tagInstance != "" { tagOwner = tagInstance }
+                        }
+                        var patOwner = tagOwner
+                        if patOwner == "" {
+                            patOwner = bareVariantOwner(builder, m.expr, tagName)
+                        }
                         var dataType = "unknown"
                         if callPattern.args.len() == 1 {
-                            dataType = unionDataRegisterType(builder, tagOwner, tagName)
+                            dataType = unionDataRegisterType(builder, patOwner, tagName)
                         }
                         val dataReg = ir_alloc_register(builder.currentFunction, dataType)
                         val dataInstr = ir_init_instr(IROpcode.union_get_data)
@@ -3848,7 +4117,7 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             match argNode {
                                 ASTNode.Literal(argLit) => {
                                     if argLit.valType == "identifier" {
-                                        val argC = defineVariable(builder, argLit.text, variantPayloadType(builder, tagName))
+                                        val argC = defineVariable(builder, argLit.text, variantPayloadType(builder, patOwner, tagName))
                                         val declVar = ir_init_instr(IROpcode.decl_var)
                                         declVar.operand1 = ir_symbol(argC)
                                         declVar.operand2 = ir_register(dataReg)
@@ -3873,10 +4142,13 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             ir_emit(builder.currentFunction, varPatInstr)
                         } else {
                             // Bare `V(a)`: no owner in the pattern, so the tag
-                            // comes from the first union declaring the
-                            // variant. Without this the callee built as a bare
-                            // variable reference, which never compiled.
-                            val bareOwner = variantTagOwner(builder, tagName)
+                            // comes from the scrutinee's type, which
+                            // `patOwner` already resolved. When the builder
+                            // cannot type the scrutinee it falls back to the
+                            // first union declaring the variant; without this
+                            // the callee built as a bare variable reference,
+                            // which never compiled.
+                            val bareOwner = patOwner
                             if bareOwner != "" {
                                 varPatReg = ir_alloc_register(builder.currentFunction, "int")
                                 val varPatInstr = ir_init_instr(IROpcode.load_var)
@@ -3913,14 +4185,14 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             if tagOwner != "" {
                                 structName = tagOwner + "_" + tagName
                             } else {
-                                structName = variantStructOf(builder, tagName)
+                                structName = variantStructOf(builder, patOwner, tagName)
                             }
                             var ai = 0
                             while ai < callPattern.args.len() {
                                 match callPattern.args.get(ai) {
                                     ASTNode.Literal(argLit) => {
                                         if argLit.valType == "identifier" {
-                                            val argC = defineVariable(builder, argLit.text, variantTagPayloadAt(builder, tagName, ai))
+                                            val argC = defineVariable(builder, argLit.text, variantTagPayloadAt(builder, patOwner, tagName, ai))
                                             val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
                                             val fieldInstr = ir_init_instr(IROpcode.load_field)
                                             fieldInstr.dest = fieldReg
@@ -4364,11 +4636,19 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
             // Union variant construction: Type.Variant(payload) is NOT a method
             // call. The type name must not be evaluated nor passed as receiver.
             var isVariantCtor = false
+            var ctorOwner = ""
             match ma.object {
                 ASTNode.Literal(ol) => {
                     if ol.valType == "identifier" {
                         if isUnionTypeName(builder, ol.text) {
                             isVariantCtor = true
+                            ctorOwner = ol.text
+                        } else if genericUnionByName(builder, ol.text) {
+                            val inst = unionInstanceFromTemplate(builder, ol.text, ma.field, c.args)
+                            if inst != "" {
+                                isVariantCtor = true
+                                ctorOwner = inst
+                            }
                         }
                     }
                 }
@@ -4386,7 +4666,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val vRes = ir_alloc_register(builder.currentFunction, "void*")
                 val vCall = ir_init_instr(IROpcode.call)
                 vCall.dest = vRes
-                vCall.operand1 = ir_string(ma.field)
+                vCall.operand1 = ir_string(ctorOwner + "." + ma.field)
                 vCall.operand2 = ir_int(c.args.len())
                 ir_emit(builder.currentFunction, vCall)
                 return vRes
@@ -4508,6 +4788,10 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                             systemBuiltin = "system_active_workers"
                         } else if memberName == "http_requests_total" {
                             systemBuiltin = "system_http_requests_total"
+                        } else if memberName == "http_requests_ok" {
+                            systemBuiltin = "system_http_requests_ok"
+                        } else if memberName == "http_requests_error" {
+                            systemBuiltin = "system_http_requests_error"
                         } else if memberName == "latency_avg_us" {
                             systemBuiltin = "system_latency_avg_us"
                         } else if memberName == "latency_p50_us" {
@@ -4892,12 +5176,26 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                             return buildFnVarCall(builder, c, vsig)
                         }
                     }
+                    // A parameter whose type is written is a position with a type
+                    // in it, which is what an argument carrying no payload reads.
+                    val calleeIdx = findFunction(builder.module, callName)
+                    var calleeParams: list < string > = []
+                    if calleeIdx >= 0 {
+                        val calleeFn: IRFunction = builder.module.functions.get(calleeIdx)
+                        calleeParams = calleeFn.paramTypes
+                    }
                     val argVals: list < IRValue > = []
                     var ai = 0
+                    val prevArgExpected = builder.expectedUnionInstance
                     while ai < c.args.len() {
+                        builder.expectedUnionInstance = ""
+                        if ai < calleeParams.len() {
+                            builder.expectedUnionInstance = calleeParams.get(ai)
+                        }
                         argVals.push(buildCallArgValue(builder, c.args.get(ai)))
                         ai = ai + 1
                     }
+                    builder.expectedUnionInstance = prevArgExpected
                     var ei = 0
                     while ei < argVals.len() {
                         val argInstr = ir_init_instr(IROpcode.arg)
@@ -5468,11 +5766,15 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 // pointers (checkNode reading ->tag off the raw int 38).
                 // Plain enums (IROpcode, TokType, ...) are genuine C enums and
                 // keep loading the constant.
-                if isUnionTypeName(builder, enumOwnerName) {
+                if isUnionTypeName(builder, enumOwnerName) || genericUnionByName(builder, enumOwnerName) {
                     val ctorReg = ir_alloc_register(builder.currentFunction, "void*")
                     val ctorCall = ir_init_instr(IROpcode.call)
                     ctorCall.dest = ctorReg
-                    ctorCall.operand1 = ir_string(memberText)
+                    var emptyCtorName = enumOwnerName
+                    if genericUnionByName(builder, enumOwnerName) {
+                        emptyCtorName = unionEmptyVariantInstance(builder, enumOwnerName)
+                    }
+                    ctorCall.operand1 = ir_string(emptyCtorName + "." + memberText)
                     ctorCall.operand2 = ir_int(0)
                     ir_emit(builder.currentFunction, ctorCall)
                     return ctorReg

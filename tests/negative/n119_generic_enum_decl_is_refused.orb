@@ -1,0 +1,15 @@
+// case: generic-enum-decl-is-refused
+// what: an enumeration shares parseTypeDecl with `union`, and it shares
+//      builderRegisterType with it too, but the lowering that fixes a type
+//      parameter at each construction is wired for model fields and union
+//      payloads only. A parameter written on an enum would be carried into the
+//      emitted C as a type name, so the parser refuses the list where it is
+//      written instead of letting the C step report a name it was never given.
+// expect-error: 'Flag[T]' declares type parameters on a type that has none
+enum Flag[T] {
+    A
+}
+
+fn main() -> int {
+    return 0
+}

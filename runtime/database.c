@@ -6,7 +6,8 @@
 #include "types.h"
 #include "arena.h"
 #include "ledger.h"
-#include "kynx.h"
+#include "admission.h"
+#include "os.h"
 #include <sqlite3.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -33,7 +34,7 @@ ORBIT_XLINK int orbit_sqlite_progress_handler(void* param) { (void)param; return
 #else
 #endif
 
-/** @brief Open (or create) the SQLite database at @p db_path and install the Kynx progress handler. */
+/** @brief Open (or create) the SQLite database at @p db_path and install the admission progress handler. */
 
 /* Internal: table/identifier names are interpolated into SQL. Anything
  * outside [A-Za-z0-9_] cannot be a legit Orbit model table and would be
@@ -54,6 +55,22 @@ static int orbit_db_authorizer(void* user, int action, const char* a1, const cha
                                const char* a3, const char* a4);
 
 void orbit_db_init(const char* db_path) {
+    /* The default path lives under .orbit/data, which a fresh checkout does
+     * not have. sqlite3_open does not create directories, so the first run
+     * failed to open before anything could migrate. */
+    if (db_path && *db_path) {
+        char parent[1024];
+        const char* last = NULL;
+        const char* p;
+        for (p = db_path; *p; p++) {
+            if (*p == '/' || *p == '\\') last = p;
+        }
+        if (last != NULL && (size_t)(last - db_path) < sizeof(parent)) {
+            memcpy(parent, db_path, (size_t)(last - db_path));
+            parent[last - db_path] = '\0';
+            orbit_os_mkdir_p(parent);
+        }
+    }
     int open_rc = sqlite3_open(db_path, &orbit_db_conn);
     /* sqlite3_open hands back a non-NULL handle even when it fails: the handle
      * exists so the caller has something to close, and it is unusable. Testing
@@ -106,7 +123,7 @@ void orbit_db_init(const char* db_path) {
     if (count == 0) {
         const char* seed_sql =
             "INSERT INTO products VALUES ('prod_101', 'Orbit Compiler Pro', 'Ultra-high performance C runtime compiler for web microservices', 299.99, 'Developer Tools', 1, 4.9);"
-            "INSERT INTO products VALUES ('prod_102', 'Kynx Security Shield', 'O(1) sharded rate limiter and DDoS mitigation engine', 149.50, 'Security', 1, 4.8);"
+            "INSERT INTO products VALUES ('prod_102', 'admission Security Shield', 'O(1) sharded rate limiter and DDoS mitigation engine', 149.50, 'Security', 1, 4.8);"
             "INSERT INTO products VALUES ('prod_103', 'Steel Memory Profiler', 'Zero-overhead memory arena tracker and profiler', 89.00, 'Developer Tools', 1, 4.7);"
             "INSERT INTO notes VALUES ('note_101', 'Orbit Architecture Notes', 'Steel C runtime manages thread-local arena memory without global lock contention.', 'usr_admin', '2026-07-22T01:00:00Z', 0);"
             "INSERT INTO notes VALUES ('note_102', 'Superluminal Optimizer Guide', 'IR passes execute fixed-point optimizations including CTEVAL and auto-memoization.', 'usr_dev', '2026-07-22T01:15:00Z', 0);"
@@ -147,6 +164,26 @@ bool orbit_run_migrations(const char* const* migrations, int count) {
         "CREATE TABLE IF NOT EXISTS _orbit_migrations (version INTEGER PRIMARY KEY);",
         NULL, NULL, NULL);
     if (rc != SQLITE_OK) return false;
+    /* A database migrated by a newer program holds versions this binary does
+     * not declare. Applying this program's older set would leave the newer
+     * columns in place and read them with code that does not know them, so
+     * startup refuses instead of running against a schema it cannot describe. */
+    {
+        sqlite3_stmt* hi = NULL;
+        int newest = -1;
+        if (sqlite3_prepare_v2(orbit_db_conn, "SELECT MAX(version) FROM _orbit_migrations", -1, &hi, NULL) == SQLITE_OK) {
+            if (sqlite3_step(hi) == SQLITE_ROW && sqlite3_column_type(hi, 0) != SQLITE_NULL) {
+                newest = sqlite3_column_int(hi, 0);
+            }
+            sqlite3_finalize(hi);
+        }
+        if (newest >= count) {
+            fprintf(stderr,
+                "orbit: this database has a newer schema (migration %d applied) than this program declares (%d migrations). Run the newer program, or point this one at another database.\n",
+                newest, count);
+            return false;
+        }
+    }
     for (int i = 0; i < count; i++) {
         sqlite3_stmt* stmt = NULL;
         int done = 0;
@@ -176,6 +213,64 @@ bool orbit_run_migrations(const char* const* migrations, int count) {
         if (rc != SQLITE_OK) return false;
     }
     return true;
+}
+
+/* Forward migration i is undone by down[i]. ORBIT_MIGRATE_DOWN=<version> asks
+ * startup to roll back every applied version above that number, newest first,
+ * and stop there; the rows are removed so a forward run applies them again.
+ * Returns 1 when it rolled back, 0 when the variable is unset, -1 on failure
+ * (a target that is not a version, a missing down statement, a failed one). */
+int orbit_run_migrations_down(const char* const* downs, int count) {
+    const char* env = getenv("ORBIT_MIGRATE_DOWN");
+    int newest = -1;
+    int target;
+    sqlite3_stmt* hi = NULL;
+    if (!orbit_db_conn) return -1;
+    if (env == NULL || *env == '\0') return 0;
+    target = atoi(env);
+    if (target < -1) {
+        fprintf(stderr, "orbit: ORBIT_MIGRATE_DOWN=%s is not a version.\n", env);
+        return -1;
+    }
+    if (sqlite3_exec(orbit_db_conn,
+            "CREATE TABLE IF NOT EXISTS _orbit_migrations (version INTEGER PRIMARY KEY);",
+            NULL, NULL, NULL) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(orbit_db_conn,
+            "SELECT MAX(version) FROM _orbit_migrations", -1, &hi, NULL) == SQLITE_OK) {
+        if (sqlite3_step(hi) == SQLITE_ROW && sqlite3_column_type(hi, 0) != SQLITE_NULL) {
+            newest = sqlite3_column_int(hi, 0);
+        }
+        sqlite3_finalize(hi);
+    }
+    if (newest <= target) return 1;
+    for (int v = newest; v > target; v--) {
+        sqlite3_stmt* del = NULL;
+        char* msg = NULL;
+        if (v >= count) {
+            fprintf(stderr, "orbit: this program declares %d migrations, the database applied %d. Run the program that owns the newer schema.\n", count, newest);
+            return -1;
+        }
+        if (!downs[v] || !*downs[v]) {
+            fprintf(stderr, "orbit: migration %d has no down statement. Add a `migrations down \"...\"` line for it.\n", v);
+            return -1;
+        }
+        if (sqlite3_exec(orbit_db_conn, "BEGIN;", NULL, NULL, NULL) != SQLITE_OK) return -1;
+        if (sqlite3_exec(orbit_db_conn, downs[v], NULL, NULL, &msg) != SQLITE_OK) {
+            if (msg) {
+                fprintf(stderr, "orbit: down migration %d failed: %s\n", v, msg);
+                sqlite3_free(msg);
+            }
+            sqlite3_exec(orbit_db_conn, "ROLLBACK;", NULL, NULL, NULL);
+            return -1;
+        }
+        sqlite3_prepare_v2(orbit_db_conn,
+            "DELETE FROM _orbit_migrations WHERE version = ?", -1, &del, NULL);
+        sqlite3_bind_int(del, 1, v);
+        sqlite3_step(del);
+        sqlite3_finalize(del);
+        if (sqlite3_exec(orbit_db_conn, "COMMIT;", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    }
+    return 1;
 }
 
 /* ── Internal: append a JSON-escaped string within [p, end). ──────────── */
@@ -212,6 +307,22 @@ static char* orbit_db_append_json_escaped(char* p, char* end, const char* s) {
 
 /* ── Internal: serialize a row to JSON into Arena ──────────────────── */
 
+/* Upper bound on the JSON a row can render into: every byte may expand to six
+ * (`\u00xx`), and each column adds its name and a separator. A fixed 4 KB
+ * buffer cut a 5000-byte body at 4096 bytes and still closed the object, so
+ * the JSON looked complete and the tail was gone. */
+static size_t orbit_db_row_json_bound(sqlite3_stmt* stmt) {
+    int cols = sqlite3_column_count(stmt);
+    size_t bound = 3; /* '{', '}' and the NUL */
+    for (int i = 0; i < cols; i++) {
+        const char* name = sqlite3_column_name(stmt, i);
+        int bytes = sqlite3_column_bytes(stmt, i);
+        if (bytes < 0) bytes = 0;
+        bound += 6 * ((size_t)bytes + (name ? strlen(name) : 0)) + 8;
+    }
+    return bound;
+}
+
 static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* out, size_t max_len) {
     if (!out || max_len < 3) return 0;
     int cols = sqlite3_column_count(stmt);
@@ -242,7 +353,7 @@ static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* 
 
 /** @brief Fetch a single row from @p col by @p id and return it as a JSON object string, or "" if not found. */
 orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* id) {
-    KYNX_DB_QUERY_CHECK("");
+    ADMISSION_DB_QUERY_CHECK("");
     const char* fmt = "SELECT * FROM %s WHERE id = ?;";
     size_t query_len = strlen(fmt) + strlen(col.table_name) + 16;
     char* query = (char*)orbit_alloc(arena, query_len);
@@ -265,9 +376,10 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
     orbit_string result = "";
     orbit_perf_stats.db_queries++; // Telemetry
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        char* buf = (char*)orbit_alloc(arena, 4096);
+        size_t cap = orbit_db_row_json_bound(stmt);
+        char* buf = (char*)orbit_alloc(arena, cap);
         if (buf) {
-            orbit_db_row_to_json(arena, stmt, buf, 4096);
+            orbit_db_row_to_json(arena, stmt, buf, cap);
             result = buf;
         }
     }
@@ -278,7 +390,7 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
 
 /** @brief Fetch every row from @p col and return a JSON array string; returns "[]" on error or empty table. */
 orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM ;") + strlen(col.table_name) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return "[]";
@@ -288,7 +400,9 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
     if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
         return "[]";
 
-    /* Dynamic result buffer — start with 8KB, grow as needed */
+    /* Dynamic result buffer — start with 8KB, grow to fit each row it
+     * receives. A fixed 2 KB per-row reservation cut a larger row and closed
+     * the object, so the array looked complete and the row was short. */
     size_t buf_cap = 8192;
     char* buf = (char*)orbit_alloc(arena, buf_cap);
     if (!buf) return "[]";
@@ -299,11 +413,16 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         orbit_perf_stats.db_queries++; // Telemetry
-        /* Ensure space: worst case ~2KB per row */
+        size_t row_cap = orbit_db_row_json_bound(stmt);
+        char* rowbuf = (char*)orbit_alloc(arena, row_cap);
+        if (!rowbuf) break;
+        size_t row_len = orbit_db_row_to_json(arena, stmt, rowbuf, row_cap);
+
         size_t used_so_far = (size_t)(p - buf);
-        if (used_so_far + 2048 > buf_cap) {
+        if (used_so_far + row_len + 2 > buf_cap) {
             /* Can't realloc arena memory, allocate a larger chunk */
-            size_t new_cap = buf_cap * 2;
+            size_t new_cap = buf_cap;
+            while (used_so_far + row_len + 2 > new_cap) new_cap *= 2;
             char* new_buf = (char*)orbit_alloc(arena, new_cap);
             if (!new_buf) break;
             memcpy(new_buf, buf, used_so_far);
@@ -313,8 +432,7 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
         }
 
         if (!first) *(p++) = ',';
-
-        size_t row_len = orbit_db_row_to_json(arena, stmt, p, buf_cap - (size_t)(p - buf));
+        memcpy(p, rowbuf, row_len);
         p += row_len;
         first = false;
     }
@@ -443,7 +561,7 @@ static sqlite3_stmt* orbit_db_prepare_bound(OrbitArena* arena, const char* selec
 /** @brief Rows of @p table matching @p condition, bound with @p params, as a JSON array ("[]" on refusal). */
 static orbit_string orbit_db_where_bound(OrbitArena* arena, const char* table, const char* condition,
                                          int nparams, const char* const* params) {
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     sqlite3_stmt* stmt = orbit_db_prepare_bound(arena, "SELECT *", table, condition, nparams, params);
     if (!stmt) return "[]";
 
@@ -487,7 +605,7 @@ orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char*
 
 /** @brief Fetch the first row from @p col and return it as a JSON object string, or "" if the table is empty. */
 orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
-    KYNX_DB_QUERY_CHECK("");
+    ADMISSION_DB_QUERY_CHECK("");
     size_t query_len = strlen("SELECT * FROM  LIMIT 1;") + strlen(col.table_name) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return NULL;
@@ -500,9 +618,10 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
     /* Same miss contract as orbit_db_get: "" so `== ""` is the miss check. */
     orbit_string result = "";
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        char* buf = (char*)orbit_alloc(arena, 4096);
+        size_t cap = orbit_db_row_json_bound(stmt);
+        char* buf = (char*)orbit_alloc(arena, cap);
         if (buf) {
-            orbit_db_row_to_json(arena, stmt, buf, 4096);
+            orbit_db_row_to_json(arena, stmt, buf, cap);
             result = buf;
         }
     }
@@ -574,6 +693,10 @@ static char* orbit_json_get_value(const char* json, const char* key) {
     const char* trim = end;
     while (trim > pos && (trim[-1] == ' ' || trim[-1] == '\t' || trim[-1] == '\r')) trim--;
     size_t len = (size_t)(trim - pos);
+    /* JSON null is the absence of a value, not the four-character text
+     * "null". Copied verbatim, `{"qty":null}` stored the string "null" and a
+     * read answered it as data. */
+    if (len == 4 && memcmp(pos, "null", 4) == 0) return NULL;
     char* res = (char*)malloc(len + 1);
     if (res) {
         memcpy(res, pos, len);
@@ -582,8 +705,65 @@ static char* orbit_json_get_value(const char* json, const char* key) {
     return res;
 }
 
+/** @brief Whether @p key names a field of the flat JSON object @p json.
+ *  A field whose value is `null` is present: it asks for the empty value,
+ *  which is a change, while a field that is absent asks for nothing. */
+static bool orbit_json_has_key(const char* json, const char* key) {
+    if (!json || !key) return false;
+    size_t key_len = strlen(key);
+    char* pat = (char*)malloc(key_len + 3);
+    if (!pat) return false;
+    snprintf(pat, key_len + 3, "\"%s\"", key);
+    const char* pos = strstr(json, pat);
+    free(pat);
+    if (!pos) return false;
+    pos += key_len + 2;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
+    return *pos == ':';
+}
+
+/** @brief Name of the first top-level key in @p json that is not one of
+ *         @p cols, or NULL when every key is a column. Caller frees.
+ *  A key is scanned at depth 1 only, so a colon inside a value or inside a
+ *  nested object cannot be read as a field name. */
+static char* orbit_json_unknown_key(const char* json, const char* const* cols, int ncols) {
+    const char* p = json;
+    int depth = 0;
+    while (*p) {
+        if (*p == '"') {
+            const char* start = p + 1;
+            const char* q = start;
+            while (*q && *q != '"') q += (*q == '\\' && q[1]) ? 2 : 1;
+            if (*q != '"') return NULL;
+            if (depth == 1) {
+                const char* after = q + 1;
+                while (*after == ' ' || *after == '\t' || *after == '\r' || *after == '\n') after++;
+                if (*after == ':') {
+                    size_t len = (size_t)(q - start);
+                    char* key = (char*)malloc(len + 1);
+                    if (!key) return NULL;
+                    memcpy(key, start, len);
+                    key[len] = '\0';
+                    bool known = false;
+                    for (int i = 0; i < ncols; i++) {
+                        if (strcmp(cols[i], key) == 0) { known = true; break; }
+                    }
+                    if (!known) return key;
+                    free(key);
+                }
+            }
+            p = q + 1;
+            continue;
+        }
+        if (*p == '{' || *p == '[') depth++;
+        else if (*p == '}' || *p == ']') depth--;
+        p++;
+    }
+    return NULL;
+}
+
 bool orbit_db_add(orbit_collection col, const char* json_data) {
-    KYNX_DB_QUERY_CHECK(false);
+    ADMISSION_DB_QUERY_CHECK(false);
     if (!col.table_name || !json_data) return false;
 
     /* Resolve the table's real columns via PRAGMA so INSERT matches the typed
@@ -612,6 +792,20 @@ bool orbit_db_add(orbit_collection col, const char* json_data) {
     }
     sqlite3_finalize(col_stmt);
     if (ncols == 0) return false;
+
+    /* A field the table does not have is a typo. Dropping it wrote a row of
+     * empty values and answered true, which is the silent wrong value this
+     * runtime refuses everywhere else. */
+    {
+        char* unknown = orbit_json_unknown_key(json_data, col_names, ncols);
+        if (unknown) {
+            fprintf(stderr, "orbit: db: insert into '%s' refused: '%s' is not a column\n",
+                    col.table_name, unknown);
+            free(unknown);
+            for (int i = 0; i < ncols; i++) free((void*)col_names[i]);
+            return false;
+        }
+    }
 
     /* "INSERT INTO <table> (c1,c2,...) VALUES (?,?,...);" */
     size_t qlen = strlen("INSERT INTO ") + strlen(col.table_name)
@@ -660,7 +854,7 @@ Only keys present in @p json_data are written (partial update); the `id`
 column itself is never overwritten, so a payload without `id` cannot wipe
 the key. Returns true iff a row actually changed. */
 bool orbit_db_set(orbit_collection col, const char* id, const char* json_data) {
-    KYNX_DB_QUERY_CHECK(false);
+    ADMISSION_DB_QUERY_CHECK(false);
     if (!col.table_name || !id || !json_data) return false;
     if (!orbit_db_valid_identifier(col.table_name)) return false;
 
@@ -679,16 +873,12 @@ bool orbit_db_set(orbit_collection col, const char* id, const char* json_data) {
     int ncols = 0;
     while (sqlite3_step(col_stmt) == SQLITE_ROW && ncols < kMaxCols) {
         const char* name = (const char*)sqlite3_column_text(col_stmt, 1);
-        if (name && strcmp(name, "id") != 0) {
-            char* value = orbit_json_get_value(json_data, name);
-            if (value) {
-                char* copy = (char*)malloc(strlen(name) + 1);
-                if (copy) {
-                    memcpy(copy, name, strlen(name) + 1);
-                    col_names[ncols] = copy;
-                    ncols++;
-                }
-                free(value);
+        if (name && strcmp(name, "id") != 0 && orbit_json_has_key(json_data, name)) {
+            char* copy = (char*)malloc(strlen(name) + 1);
+            if (copy) {
+                memcpy(copy, name, strlen(name) + 1);
+                col_names[ncols] = copy;
+                ncols++;
             }
         }
     }
@@ -733,7 +923,7 @@ bool orbit_db_set(orbit_collection col, const char* id, const char* json_data) {
 
 /** @brief Delete the row with the given @p id from @p col. */
 bool orbit_db_del(orbit_collection col, const char* id) {
-    KYNX_DB_QUERY_CHECK(false);
+    ADMISSION_DB_QUERY_CHECK(false);
     size_t query_len = strlen("DELETE FROM  WHERE id = ?;") + strlen(col.table_name) + 1;
     char* query = (char*)malloc(query_len);
     if (!query) return false;
@@ -774,7 +964,7 @@ orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
  * query. Answers "[]" on any failure, like every other read. Ordering is
  * whole-table only: filtered ordering does not exist yet. */
 static orbit_string orbit_db_order(OrbitArena* arena, orbit_collection col, const char* col_name, int desc) {
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM  ORDER BY  ;") + strlen(col.table_name) + strlen(col_name) + 8;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return "[]";
@@ -854,7 +1044,7 @@ orbit_string orbit_db_query_where_v(OrbitArena* arena, const char* table_name, c
     if (!orbit_db_valid_identifier(table_name)) return "[]";
     if (!condition || !*condition) return "[]";
     if (nparams < 0) return "[]";
-    KYNX_DB_QUERY_CHECK("[]");
+    ADMISSION_DB_QUERY_CHECK("[]");
     const char** params = NULL;
     if (nparams > 0) {
         params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
@@ -876,7 +1066,7 @@ orbit_string orbit_db_query_where_v(OrbitArena* arena, const char* table_name, c
 orbit_int orbit_db_count_all(OrbitArena* arena, const char* table_name) {
     (void)arena;
     if (!orbit_db_valid_identifier(table_name)) return 0;
-    KYNX_DB_QUERY_CHECK(0);
+    ADMISSION_DB_QUERY_CHECK(0);
     size_t query_len = strlen("SELECT COUNT(*) FROM ;") + strlen(table_name) + 1;
     char* query = (char*)malloc(query_len);
     if (!query) return 0;
@@ -902,7 +1092,7 @@ orbit_int orbit_db_count_v(OrbitArena* arena, const char* table_name, const char
     if (!orbit_db_valid_identifier(table_name)) return 0;
     if (!condition) return 0;
     if (nparams < 0) return 0;
-    KYNX_DB_QUERY_CHECK(0);
+    ADMISSION_DB_QUERY_CHECK(0);
     const char** params = NULL;
     if (*condition && nparams > 0) {
         params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));

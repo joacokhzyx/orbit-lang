@@ -100,6 +100,56 @@ static void test_bad_migration_fails(void) {
     orbit_db_close();
 }
 
+/* A schema migrated by a newer program is refused. Applying this program's
+ * older set would leave the newer columns in place and read them with code
+ * that does not know them; a loud answer is the only safe one. */
+static void test_newer_schema_is_refused(void) {
+    fresh_db();
+    const char* migs[] = { "ALTER TABLE notes ADD COLUMN rank INTEGER" };
+    assert(orbit_run_migrations(migs, 1) == true);
+    {
+        char* err = NULL;
+        sqlite3_exec(orbit_db_conn,
+            "INSERT INTO _orbit_migrations (version) VALUES (5);",
+            NULL, NULL, &err);
+        if (err) sqlite3_free(err);
+    }
+    assert(orbit_run_migrations(migs, 1) == false);
+    orbit_db_close();
+}
+
+static void set_env(const char* key, const char* value) {
+#ifdef _WIN32
+    _putenv_s(key, value);
+#else
+    setenv(key, value, 1);
+#endif
+}
+
+/* Forward migration i is undone by down[i]. ORBIT_MIGRATE_DOWN=-1 rolls back
+ * every applied version, newest first, and removes their rows so a forward
+ * rerun applies them again. */
+static void test_down_rolls_back(void) {
+    fresh_db();
+    const char* up[] = {
+        "CREATE TABLE down_probe (x INTEGER)",
+        "CREATE TABLE down_probe2 (y INTEGER)"
+    };
+    const char* down[] = {
+        "DROP TABLE down_probe",
+        "DROP TABLE down_probe2"
+    };
+    assert(orbit_run_migrations(up, 2) == true);
+    set_env("ORBIT_MIGRATE_DOWN", "-1");
+    assert(orbit_run_migrations_down(down, 2) == 1);
+    set_env("ORBIT_MIGRATE_DOWN", "");
+    /* Both versions were removed, so the forward run re-creates both tables. */
+    assert(orbit_run_migrations(up, 2) == true);
+    assert(orbit_db_exec_ddl("INSERT INTO down_probe (x) VALUES (1);") == true);
+    assert(orbit_db_exec_ddl("INSERT INTO down_probe2 (y) VALUES (2);") == true);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("test_migrations\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -107,5 +157,7 @@ int main(void) {
     RUN_TEST(test_stale_row_upgrade);
     RUN_TEST(test_rerun_is_noop);
     RUN_TEST(test_bad_migration_fails);
+    RUN_TEST(test_newer_schema_is_refused);
+    RUN_TEST(test_down_rolls_back);
     return 0;
 }

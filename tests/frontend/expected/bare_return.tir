@@ -1,0 +1,15 @@
+orbit-tir 1
+module fixture
+function 0 shout void
+block 0 0
+instr 0 0 0 const string "hi"
+instr 0 0 1 call void print v0
+instr 0 0 2 return unit void
+end-function 0
+function 1 main int
+block 1 0
+instr 1 0 0 load void shout
+instr 1 0 1 call void v0
+instr 1 0 2 const int 0
+instr 1 0 3 return unit v2
+end-function 1

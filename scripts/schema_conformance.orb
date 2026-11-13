@@ -1,0 +1,673 @@
+// Schema conformance probe: the AST schema in compiler/front/ast.orb against
+// the compiler sources that construct its nodes.
+//
+// This file is the analysis. `scripts/static_gates.py schema` is the driver:
+// it builds this probe with the fixed-point compiler, runs it on the tree, and
+// turns the lines below into the gate's verdict. The protocol is one record
+// per line, tab-separated, because a message holds spaces and a location can
+// hold a parenthesised union name:
+//
+//     SCHEMA <models> <fields> <unions>
+//     FIND <rule> <where> <message>
+//     END <findings>
+//
+// Four rules, all static, all on text:
+//
+//  arity            every `SomeNode(a, b, c)` passes exactly the field count the
+//                   model declares. A field added to the schema without the
+//                   parser following shifts every field after it.
+//  node-list-op     a field declared `ASTNode` read with a list operation inside
+//                   the match arm that binds its model. Reading a node as a
+//                   list header is how body.len() once returned -1184889136.
+//  unbuilt-model    a model with fields that nothing ever constructs.
+//  unbuilt-variant  a variant of the ASTNode union that nothing constructs.
+//
+// The rules are the ones `scripts/static_gates.py` carried as a Python regex
+// analysis until 2026-11-06. The regexes are transcribed here as character
+// scans; the whitespace each one allows is reproduced, not approximated.
+//
+// Cost rules learned while writing this, and they are not optional:
+// orbit_string_len is strlen and orbit_string_at scans to the terminator, so a
+// loop condition that calls `.len()` and a character read that calls `.at()`
+// are both quadratic. Every loop caches the length and every character read
+// goes through orbit_string_char_at_selfhost. The first draft read 1.6 MB in
+// 26 s; this one reads it in 0.05 s.
+
+import "../compiler/host/extern.orb"
+import "../std/fs/file.orb"
+
+fn ch(s: string, i: int) -> int {
+    return orbit_string_char_at_selfhost(s, i)
+}
+
+fn isUpper(c: int) -> bool { return c >= 65 && c <= 90 }
+fn isLower(c: int) -> bool { return c >= 97 && c <= 122 }
+fn isDigit(c: int) -> bool { return c >= 48 && c <= 57 }
+fn isLetter(c: int) -> bool { return isUpper(c) || isLower(c) }
+fn isWord(c: int) -> bool { return isLetter(c) || isDigit(c) || c == 95 }
+fn isSpace(c: int) -> bool { return c == 32 || c == 9 || c == 10 || c == 13 }
+
+fn slice(s: string, a: int, b: int, n: int) -> string {
+    return orbit_string_slice_known_len(s, a, b, n)
+}
+
+// A line without its terminator. The CR goes too: a checkout with
+// core.autocrlf holds every source with CRLF, and Python's text mode used to
+// translate that away before the old analyzer saw the line.
+fn stripCR(s: string) -> string {
+    val n = s.len()
+    if n > 0 && ch(s, n - 1) == 13 {
+        return orbit_string_slice_known_len(s, 0, n - 1, n)
+    }
+    return s
+}
+
+fn splitLines(text: string) -> list<string> {
+    val out = []
+    val n = text.len()
+    var start = 0
+    var i = 0
+    while i < n {
+        if ch(text, i) == 10 {
+            out.push(stripCR(slice(text, start, i, n)))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    out.push(stripCR(slice(text, start, n, n)))
+    return out
+}
+
+fn trimText(s: string) -> string {
+    val n = s.len()
+    var a = 0
+    while a < n {
+        if isSpace(ch(s, a)) { a = a + 1 } else { break }
+    }
+    var b = n
+    while b > a {
+        if isSpace(ch(s, b - 1)) { b = b - 1 } else { break }
+    }
+    return slice(s, a, b, n)
+}
+
+fn startsWith(s: string, prefix: string) -> bool {
+    val n = s.len()
+    if prefix.len() > n { return false }
+    var i = 0
+    while i < prefix.len() {
+        if ch(s, i) != ch(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn matchesAt(s: string, n: int, at: int, what: string) -> bool {
+    val m = what.len()
+    if at + m > n { return false }
+    var i = 0
+    while i < m {
+        if ch(s, at + i) != ch(what, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+// 1-based line of a byte offset. Called only when a finding is emitted, so its
+// linear cost never lands on a green tree.
+fn lineOf(text: string, pos: int) -> int {
+    var line = 1
+    var i = 0
+    while i < pos {
+        if ch(text, i) == 10 { line = line + 1 }
+        i = i + 1
+    }
+    return line
+}
+
+fn cutComment(s: string) -> string {
+    val n = s.len()
+    var i = 0
+    while i + 1 < n {
+        if ch(s, i) == 47 && ch(s, i + 1) == 47 { return slice(s, 0, i, n) }
+        i = i + 1
+    }
+    return s
+}
+
+// `model X {}` with any run of spaces inside the braces.
+fn emptyBraces(line: string, start: int, n: int) -> bool {
+    if start >= n { return false }
+    if ch(line, n - 1) != 125 { return false }
+    var i = start
+    while i < n - 1 {
+        if isSpace(ch(line, i)) { i = i + 1 } else { return false }
+    }
+    return true
+}
+
+// One field line, `name: type`, as the two strings; empty when the line is not
+// a field. The type is restricted to [A-Za-z0-9_<>, ] exactly as the rule was.
+fn parseField(line: string) -> list<string> {
+    val text = trimText(cutComment(line))
+    val n = text.len()
+    var i = 0
+    while i < n {
+        if isWord(ch(text, i)) { i = i + 1 } else { break }
+    }
+    if i == 0 || i >= n { return [] }
+    if ch(text, i) != 58 { return [] }
+    val name = slice(text, 0, i, n)
+    val kind = trimText(slice(text, i + 1, n, n))
+    if kind == "" { return [] }
+    var k = 0
+    while k < kind.len() {
+        val c = ch(kind, k)
+        if isWord(c) || c == 60 || c == 62 || c == 44 || c == 32 { k = k + 1 }
+        else { return [] }
+    }
+    return [name, kind]
+}
+
+fn indexOfString(items: list<string>, value: string) -> int {
+    var i = 0
+    while i < items.len() {
+        val at: string = items.get(i)
+        if at == value { return i }
+        i = i + 1
+    }
+    return - 1
+}
+
+fn sortedStrings(items: list<string>) -> list<string> {
+    val out = []
+    var i = 0
+    while i < items.len() {
+        out.push(items.get(i))
+        i = i + 1
+    }
+    val n = out.len()
+    var a = 0
+    while a < n {
+        var b = 0
+        while b + 1 < n - a {
+            val x: string = out.get(b)
+            val y: string = out.get(b + 1)
+            if orbit_string_cmp_selfhost(x, y) > 0 {
+                out.set(b, y)
+                out.set(b + 1, x)
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}
+
+// Sorted indices into `names`, so the unbuilt checks report in the schema's
+// alphabetical order rather than the file's.
+fn sortedIndexes(names: list<string>) -> list<int> {
+    val out = []
+    var i = 0
+    while i < names.len() {
+        out.push(i)
+        i = i + 1
+    }
+    val n = out.len()
+    var a = 0
+    while a < n {
+        var b = 0
+        while b + 1 < n - a {
+            val i1: int = out.get(b)
+            val i2: int = out.get(b + 1)
+            val x: string = names.get(i1)
+            val y: string = names.get(i2)
+            if orbit_string_cmp_selfhost(x, y) > 0 {
+                out.set(b, i2)
+                out.set(b + 1, i1)
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+    return out
+}
+
+fn orbFiles(dir: string) -> list<string> {
+    val all = walk(dir)
+    val out = []
+    var i = 0
+    while i < all.len() {
+        val p: string = all.get(i)
+        val n = p.len()
+        if n > 4 && ch(p, n - 4) == 46 && ch(p, n - 3) == 111
+            && ch(p, n - 2) == 114 && ch(p, n - 1) == 98 {
+            out.push(p)
+        }
+        i = i + 1
+    }
+    return sortedStrings(out)
+}
+
+// Top-level argument count of a call whose '(' is at `open`. Counts commas at
+// depth one and ignores the ones inside a nested call, a list or a string.
+fn argCount(src: string, n: int, open: int) -> int {
+    var depth = 1
+    var commas = 0
+    var i = open + 1
+    var inStr = false
+    var empty = true
+    while i < n {
+        val c = ch(src, i)
+        if inStr {
+            if c == 92 { i = i + 1 }
+            else { if c == 34 { inStr = false } }
+        } else {
+            if c == 34 { inStr = true }
+            else {
+                if c == 40 || c == 91 || c == 123 { depth = depth + 1 }
+                else {
+                    if c == 41 || c == 93 || c == 125 {
+                        depth = depth - 1
+                        if depth == 0 { break }
+                    } else {
+                        if depth == 1 && c == 44 { commas = commas + 1 }
+                    }
+                }
+            }
+        }
+        if c != 32 && c != 10 && c != 9 && c != 13 { empty = false }
+        i = i + 1
+    }
+    if empty { return 0 }
+    return commas + 1
+}
+
+fn isNodeName(src: string, s: int, e: int) -> bool {
+    if e - s < 5 { return false }
+    return ch(src, e - 4) == 78 && ch(src, e - 3) == 111
+        && ch(src, e - 2) == 100 && ch(src, e - 1) == 101
+}
+
+// One pass over `src` for constructor calls, `SomeNode(args)`. The identifier
+// must start at its first character, because `\b` before an uppercase letter
+// does not match inside `parseNode`.
+fn scanArity(src: string, n: int, rel: string, modelNames: list<string>,
+             modelCounts: list<int>, modelBuilt: list<int>) -> int {
+    var findings = 0
+    var i = 0
+    while i < n {
+        if isUpper(ch(src, i)) {
+            var s = i
+            while s > 0 {
+                if isWord(ch(src, s - 1)) { s = s - 1 } else { break }
+            }
+            var e = i
+            while e < n {
+                if isWord(ch(src, e)) { e = e + 1 } else { break }
+            }
+            if s == i && isNodeName(src, s, e) && e < n && ch(src, e) == 40 {
+                val name = slice(src, s, e, n)
+                val at = indexOfString(modelNames, name)
+                if at >= 0 {
+                    val count = argCount(src, n, e)
+                    val want: int = modelCounts.get(at)
+                    modelBuilt.set(at, 1)
+                    if count != want {
+                        findings = findings + 1
+                        print("FIND\tarity\t" + rel + ":"
+                            + orbit_int_to_string_selfhost(lineOf(src, s))
+                            + "\t" + name + "(...) passes "
+                            + orbit_int_to_string_selfhost(count)
+                            + " argument(s), the model declares "
+                            + orbit_int_to_string_selfhost(want)
+                            + ". A field added or reordered without the parser "
+                            + "following shifts every field after it.")
+                    }
+                }
+            }
+            i = e
+        } else { i = i + 1 }
+    }
+    return findings
+}
+
+// A construction that names its union variant: `ASTNode.Name( SomeNode( ...`.
+// The spaces between the pieces are the ones the rule allowed.
+fn scanVariantsBuilt(src: string, n: int, variantNames: list<string>, variantBuilt: list<int>) -> int {
+    var i = 0
+    while i < n {
+        if ch(src, i) == 65 && matchesAt(src, n, i, "ASTNode.") {
+            var p = i + 8
+            val vs = p
+            while p < n {
+                if isLetter(ch(src, p)) { p = p + 1 } else { break }
+            }
+            if p > vs && p < n && ch(src, p) == 40 {
+                val variant = slice(src, vs, p, n)
+                var q = p + 1
+                while q < n && isSpace(ch(src, q)) { q = q + 1 }
+                var ms = q
+                while q < n {
+                    if isWord(ch(src, q)) { q = q + 1 } else { break }
+                }
+                if q > ms && isUpper(ch(src, ms)) && isNodeName(src, ms, q) {
+                    var r = q
+                    while r < n && isSpace(ch(src, r)) { r = r + 1 }
+                    if r < n && ch(src, r) == 40 {
+                        val at = indexOfString(variantNames, variant)
+                        if at >= 0 { variantBuilt.set(at, 1) }
+                    }
+                }
+            }
+            i = p
+        } else { i = i + 1 }
+    }
+    return 0
+}
+
+fn isListOp(op: string) -> bool {
+    return op == "len" || op == "get" || op == "push" || op == "pop"
+        || op == "insert" || op == "remove" || op == "append"
+}
+
+// The `{` at `open` and its matching `}`. Returns the index of the closing
+// brace, or the last index when the arm never closes.
+fn matchBrace(src: string, n: int, open: int) -> int {
+    var depth = 1
+    var i = open + 1
+    while i < n {
+        val c = ch(src, i)
+        if c == 123 { depth = depth + 1 }
+        else { if c == 125 { depth = depth - 1 } }
+        if depth == 0 { return i }
+        i = i + 1
+    }
+    return n - 1
+}
+
+// `binding.field.op(` inside one match arm body.
+fn listOpsIn(body: string, bn: int, modelName: string, binding: string,
+             astFields: list<string>, rel: string, src: string, n: int,
+             bodyStart: int) -> int {
+    var findings = 0
+    val bl = binding.len()
+    var i = 0
+    while i < bn {
+        if isWord(ch(body, i)) {
+            var s = i
+            while s > 0 {
+                if isWord(ch(body, s - 1)) { s = s - 1 } else { break }
+            }
+            var e = i
+            while e < bn {
+                if isWord(ch(body, e)) { e = e + 1 } else { break }
+            }
+            if s == i && e - s == bl {
+                val name = slice(body, s, e, bn)
+                if name == binding {
+                    var p = e
+                    while p < bn && isSpace(ch(body, p)) { p = p + 1 }
+                    if p < bn && ch(body, p) == 46 {
+                        var fs = p + 1
+                        var fe = fs
+                        while fe < bn {
+                            if isWord(ch(body, fe)) { fe = fe + 1 } else { break }
+                        }
+                        if fe > fs && fe < bn && ch(body, fe) == 46 {
+                            val field = slice(body, fs, fe, bn)
+                            var os = fe + 1
+                            var oe = os
+                            while oe < bn {
+                                if isWord(ch(body, oe)) { oe = oe + 1 } else { break }
+                            }
+                            if oe > os {
+                                val op = slice(body, os, oe, bn)
+                                var q = oe
+                                while q < bn && isSpace(ch(body, q)) { q = q + 1 }
+                                if q < bn && ch(body, q) == 40
+                                    && indexOfString(astFields, modelName + "." + field) >= 0
+                                    && isListOp(op) {
+                                    findings = findings + 1
+                                    print("FIND\tnode-list-op\t" + rel + ":"
+                                        + orbit_int_to_string_selfhost(
+                                            lineOf(src, bodyStart + s))
+                                        + "\t" + modelName + "." + field
+                                        + " is declared ASTNode and is read with `."
+                                        + op + "(`, which only exists on a list. "
+                                        + "Reading a node as a list header is how "
+                                        + "body.len() once returned -1184889136.")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = e
+        } else { i = i + 1 }
+    }
+    return findings
+}
+
+// Every `ASTNode.Variant(binding) => { ... }` arm, and what it reads.
+fn scanListOps(src: string, n: int, rel: string, astFields: list<string>) -> int {
+    var findings = 0
+    var i = 0
+    while i < n {
+        if ch(src, i) == 65 && matchesAt(src, n, i, "ASTNode.") {
+            var p = i + 8
+            val vs = p
+            while p < n {
+                if isLetter(ch(src, p)) { p = p + 1 } else { break }
+            }
+            if p > vs && p < n && ch(src, p) == 40 {
+                val variant = slice(src, vs, p, n)
+                var b = p + 1
+                val bs = b
+                while b < n {
+                    if isWord(ch(src, b)) { b = b + 1 } else { break }
+                }
+                if b > bs && b < n && ch(src, b) == 41 {
+                    val binding = slice(src, bs, b, n)
+                    var q = b + 1
+                    while q < n && isSpace(ch(src, q)) { q = q + 1 }
+                    if q + 1 < n && ch(src, q) == 61 && ch(src, q + 1) == 62 {
+                        q = q + 2
+                        while q < n && isSpace(ch(src, q)) { q = q + 1 }
+                        if q < n && ch(src, q) == 123 {
+                            val close = matchBrace(src, n, q)
+                            val body = slice(src, q + 1, close, n)
+                            findings = findings + listOpsIn(body, body.len(),
+                                variant + "Node", binding, astFields, rel, src, n,
+                                q + 1)
+                            i = close
+                        } else { i = p }
+                    } else { i = p }
+                } else { i = p }
+            } else { i = i + 1 }
+        } else { i = i + 1 }
+    }
+    return findings
+}
+
+fn analyse(root: string) {
+    val modelNames = []
+    val modelCounts = []
+    val modelBuilt = []
+    val astFields = []
+    val unionNames = []
+    val variantNames = []
+    val variantUnions = []
+    val variantModels = []
+    val variantBuilt = []
+    var totalFields = 0
+
+    val lines = splitLines(orbit_file_read_selfhost(root + "/compiler/front/ast.orb"))
+    var li = 0
+    while li < lines.len() {
+        val line: string = lines.get(li)
+        if startsWith(line, "model ") {
+            val n = line.len()
+            var p = 6
+            while p < n {
+                if isWord(ch(line, p)) { p = p + 1 } else { break }
+            }
+            val name = slice(line, 6, p, n)
+            if name != "" && p + 1 < n && ch(line, p) == 32 && ch(line, p + 1) == 123 {
+                if p + 2 == n {
+                    var count = 0
+                    var fi = li + 1
+                    while fi < lines.len() {
+                        val fline: string = lines.get(fi)
+                        if fline.len() > 0 && ch(fline, 0) == 125 { break }
+                        val field = parseField(fline)
+                        if field.len() == 2 {
+                            val fname: string = field.get(0)
+                            val kind: string = field.get(1)
+                            count = count + 1
+                            totalFields = totalFields + 1
+                            if kind == "ASTNode" {
+                                astFields.push(name + "." + fname)
+                            }
+                        }
+                        fi = fi + 1
+                    }
+                    modelNames.push(name)
+                    modelCounts.push(count)
+                    modelBuilt.push(0)
+                    li = fi
+                } else {
+                    if emptyBraces(line, p + 2, n) {
+                        modelNames.push(name)
+                        modelCounts.push(0)
+                        modelBuilt.push(0)
+                    }
+                }
+            }
+        } else {
+            if startsWith(line, "type ") {
+                val n = line.len()
+                var p = 5
+                while p < n {
+                    if isWord(ch(line, p)) { p = p + 1 } else { break }
+                }
+                val uname = slice(line, 5, p, n)
+                if uname != "" && p + 1 < n && ch(line, p) == 32 && ch(line, p + 1) == 61 {
+                    unionNames.push(uname)
+                    val rest = slice(line, p + 2, n, n)
+                    val rn = rest.len()
+                    var i = 0
+                    while i < rn {
+                        if isWord(ch(rest, i)) {
+                            var s = i
+                            while i < rn {
+                                if isWord(ch(rest, i)) { i = i + 1 } else { break }
+                            }
+                            if i < rn && ch(rest, i) == 40 {
+                                val vname = slice(rest, s, i, rn)
+                                var j = i + 1
+                                val ms = j
+                                while j < rn {
+                                    if isWord(ch(rest, j)) { j = j + 1 } else { break }
+                                }
+                                if j > ms && j < rn && ch(rest, j) == 41 {
+                                    variantNames.push(vname)
+                                    variantUnions.push(uname)
+                                    variantModels.push(slice(rest, ms, j, rn))
+                                    variantBuilt.push(0)
+                                }
+                            }
+                        } else { i = i + 1 }
+                    }
+                }
+            }
+        }
+        li = li + 1
+    }
+
+    val files = orbFiles(root + "/compiler")
+    var findings = 0
+    var f = 0
+    while f < files.len() {
+        val path: string = files.get(f)
+        val src = orbit_file_read_selfhost(path)
+        val rel = relativeTo(root, path)
+        findings = findings + scanArity(src, src.len(), rel, modelNames,
+                                        modelCounts, modelBuilt)
+        f = f + 1
+    }
+    f = 0
+    while f < files.len() {
+        val path: string = files.get(f)
+        val src = orbit_file_read_selfhost(path)
+        val rel = relativeTo(root, path)
+        scanVariantsBuilt(src, src.len(), variantNames, variantBuilt)
+        findings = findings + scanListOps(src, src.len(), rel, astFields)
+        f = f + 1
+    }
+
+    val order = sortedIndexes(modelNames)
+    var oi = 0
+    while oi < order.len() {
+        val at: int = order.get(oi)
+        val name: string = modelNames.get(at)
+        val count: int = modelCounts.get(at)
+        if count > 0 && modelBuilt.get(at) == 0 {
+            findings = findings + 1
+            print("FIND\tunbuilt-model\tcompiler/front/ast.orb\tmodel " + name
+                + " declares " + orbit_int_to_string_selfhost(count)
+                + " field(s) and nothing constructs it. Either it is schema for "
+                + "a node that cannot exist, or the parser stopped building it.")
+        }
+        oi = oi + 1
+    }
+
+    val uorder = sortedIndexes(unionNames)
+    var ui = 0
+    while ui < uorder.len() {
+        val uat: int = uorder.get(ui)
+        val uname: string = unionNames.get(uat)
+        var vi = 0
+        while vi < variantNames.len() {
+            val vunion: string = variantUnions.get(vi)
+            if vunion == uname && variantBuilt.get(vi) == 0 {
+                val vname: string = variantNames.get(vi)
+                findings = findings + 1
+                print("FIND\tunbuilt-variant\tcompiler/front/ast.orb (" + uname
+                    + ")\t" + uname + " variant `" + vname
+                    + "` is declared and nothing ever constructs it. "
+                    + "ENGINEERING.md section 0 forbids this: phantom schema is "
+                    + "a contract with no implementation.")
+            }
+            vi = vi + 1
+        }
+        ui = ui + 1
+    }
+
+    print("SCHEMA\t" + orbit_int_to_string_selfhost(modelNames.len())
+        + "\t" + orbit_int_to_string_selfhost(totalFields)
+        + "\t" + orbit_int_to_string_selfhost(unionNames.len()))
+    print("END\t" + orbit_int_to_string_selfhost(findings))
+}
+
+fn relativeTo(root: string, path: string) -> string {
+    val rn = root.len()
+    val pn = path.len()
+    if pn > rn + 1 {
+        if matchesAt(path, pn, 0, root) && ch(path, rn) == 47 {
+            return slice(path, rn + 1, pn, pn)
+        }
+    }
+    return path
+}
+
+fn main() -> int {
+    val argc = orbit_os_argc_selfhost()
+    if argc < 2 {
+        print("SCHEMA\t0\t0\t0")
+        print("END\t0")
+        return 0
+    }
+    analyse(orbit_os_argv_selfhost(1))
+    return 0
+}

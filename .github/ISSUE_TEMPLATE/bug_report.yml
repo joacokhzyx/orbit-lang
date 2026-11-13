@@ -26,7 +26,7 @@ body:
     attributes:
       label: Orbit version
       description: Output of `orbit --version`, or the commit SHA.
-      placeholder: "0.1.0-rc.2"
+      placeholder: "0.1.0"
     validations:
       required: true
 

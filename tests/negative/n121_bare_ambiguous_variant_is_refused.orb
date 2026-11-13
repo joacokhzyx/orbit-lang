@@ -1,0 +1,23 @@
+// case: bare-ambiguous-variant-is-refused
+// what: two unions declare a variant called `Body` with different payloads, and
+//      the construction writes only the variant name. There is no owner to
+//      resolve through and no expected type to read one from -- `checkNode`
+//      takes no expected type -- so the first answer the flat registry returns is
+//      the only one it could give, and it is a guess: `Body(3)` was typed as
+//      `Packet` and `Body("s")` as `Signal`, each silently. The refusal names
+//      both owners so the reader knows which one to write.
+// expect-error: 'Body' is declared by more than one union
+union Packet {
+    Body(int)
+    Empty
+}
+
+union Signal {
+    Body(string)
+    Closed
+}
+
+fn main() -> int {
+    val p = Body(3)
+    return 0
+}

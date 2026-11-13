@@ -57,6 +57,26 @@ ORBIT_XLINK size_t orbit_oom_put_holds(char* buf, size_t cap, size_t n, OrbitAre
     return orbit_oom_put(buf, cap, n, " allocations");
 }
 
+/* "arena ceiling reached allocating <bytes> bytes; <committed> of <max> bytes
+ * committed, the limit is <MB> MB", then the clause that names where <MB> came
+ * from. The two sources are different facts, and a line citing
+ * ORBIT_ARENA_MAX_MB for a default sends the reader to unset a variable nobody
+ * set. @p arena is never NULL here: orbit_oom_abort_default only reaches this
+ * branch with one. */
+ORBIT_XLINK size_t orbit_oom_put_ceiling(char* buf, size_t cap, size_t n, OrbitArena* arena, size_t bytes) {
+    n = orbit_oom_put(buf, cap, n, "arena ceiling reached allocating ");
+    n = orbit_oom_put_u(buf, cap, n, bytes);
+    n = orbit_oom_put(buf, cap, n, " bytes; ");
+    n = orbit_oom_put_u(buf, cap, n, arena->committed_bytes);
+    n = orbit_oom_put(buf, cap, n, " of ");
+    n = orbit_oom_put_u(buf, cap, n, arena->max_rule);
+    n = orbit_oom_put(buf, cap, n, " bytes committed, the limit is ");
+    n = orbit_oom_put_u(buf, cap, n, arena->max_rule / (1024 * 1024));
+    return orbit_oom_put(buf, cap, n, arena->max_rule_from_env
+        ? " MB from ORBIT_ARENA_MAX_MB"
+        : " MB, the default of three quarters of physical memory");
+}
+
 /* The report goes out through one write on the stderr handle: the format and
  * stream machinery fputs/fflush(stderr) pulled in cost more .text than the
  * rest of the allocator. The Windows C runtime opens stderr in text mode, so
@@ -67,15 +87,7 @@ ORBIT_XLINK void orbit_oom_abort_default(OrbitArena* arena, size_t bytes) {
     fflush(stdout);
     n = orbit_oom_put(line, sizeof line - 1, n, "orbit: ");
     if (arena && arena->ceiling_hit) {
-        n = orbit_oom_put(line, sizeof line - 1, n, "arena ceiling reached allocating ");
-        n = orbit_oom_put_u(line, sizeof line - 1, n, bytes);
-        n = orbit_oom_put(line, sizeof line - 1, n, " bytes; ");
-        n = orbit_oom_put_u(line, sizeof line - 1, n, arena->committed_bytes);
-        n = orbit_oom_put(line, sizeof line - 1, n, " of ");
-        n = orbit_oom_put_u(line, sizeof line - 1, n, arena->max_rule);
-        n = orbit_oom_put(line, sizeof line - 1, n, " bytes committed, the limit is ");
-        n = orbit_oom_put_u(line, sizeof line - 1, n, arena->max_rule / (1024 * 1024));
-        n = orbit_oom_put(line, sizeof line - 1, n, " MB from ORBIT_ARENA_MAX_MB");
+        n = orbit_oom_put_ceiling(line, sizeof line - 1, n, arena, bytes);
     } else {
         n = orbit_oom_put(line, sizeof line - 1, n, "out of memory allocating ");
         n = orbit_oom_put_u(line, sizeof line - 1, n, bytes);
@@ -132,7 +144,7 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
          * SIZE_MAX, and arena_bytes + aligned would wrap below the limit. */
         if (current_lease->arena_bytes > current_lease->arena_limit ||
             aligned > current_lease->arena_limit - current_lease->arena_bytes) {
-            orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_arena_budget_exhausted);
+            orbit_perf_atomic_inc64(&orbit_perf_stats.admission_arena_budget_exhausted);
             orbit_perf_record_oom();
             return NULL;
         }
@@ -254,7 +266,13 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     arena->cursor = (unsigned char*)new_mem + aligned;
     arena->committed_end = (unsigned char*)new_mem + new_commit;
     arena->reserved_end = (unsigned char*)new_mem + new_reserve;
-    
+
+    /* Offsets measured from here on count from the new base, and the generation
+     * is untouched: an offset from the retired segment is not a position in this
+     * one. The segment counter is what a checkpoint has to match, and
+     * orbit_arena_rewind refuses when it does not. */
+    arena->segment++;
+
     arena->reserved_bytes += new_reserve;
     arena->committed_bytes += new_commit;
     

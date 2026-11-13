@@ -1,0 +1,15 @@
+// A bare `return` in a function that answers nothing has no value to lower, and
+// the pass used to send it to the expression reader anyway: the result was
+// "expression cannot be lowered to TIR: Empty" -- 279 over the corpus -- and the
+// error suppressed the file's canonical TIR, so a function that ended with a
+// plain `return` printed nothing at all.
+//
+// The instruction carries `void` as its operand rather than an empty field, so
+// every `instr` line keeps the same number of fields. A return with a value is
+// shown beside it because the two differ only in that operand.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn shout() { print(\"hi\") return } fn main() -> int { shout() return 0 }"
+    print(compileFrontendSource("fixture", source))
+}

@@ -1,0 +1,19 @@
+// `try fetch(path) catch { return "none" }` tests a result and reads its value in
+// two paths. The pass had no rule for it, so the 93 the census counts named `Try`
+// and every give-up suppressed its file's canonical text.
+//
+// `result_is_ok`, `branch` and `result_unwrap` are the names the build IR gives
+// the test and the unwrap. The type of the unwrapped value is the one the callee's
+// declaration writes inside the `result`, `string` here: the program wrote it and
+// this pass reads it.
+//
+// The handler ends its block with a `return`. One path therefore reaches the value
+// and no merge value is needed. A handler that falls through needs one, the same
+// thing an `if` in expression position lacks. A `catch e` would need the type of
+// the error message, which this pass does not keep. Both say which is missing.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn fetch(path: string) -> result<string> { return ok 200 \"text\" }  fn show(path: string) -> string { val body: string = try fetch(path) catch { return \"none\" } return body }"
+    print(compileFrontendSource("fixture", source))
+}

@@ -4,7 +4,7 @@
 The self-host gates recompile the same multi-megabyte C translation unit over
 and over. Measured on a 2-core runner with gcc 13.3, compiling the 3.9 MB
 canonical unit costs 23.8 s with `-Wall` and 3.7 s with `-w`, and
-`verify_seed.py` performs 7 such compilations per run while the stress gate runs
+`trust.py verify` performs 7 such compilations per run while the stress gate runs
 it 8 times in a row: 61 compilations of essentially the same input.
 
 A cache keyed on the exact inputs makes the repeat cost a file copy. The key
@@ -36,7 +36,7 @@ Two details matter for honesty here:
   in. Nothing is keyed on mtime or on anything a stale cache could fake.
 
 What a cache hit does NOT do is turn a determinism check into a tautology.
-`verify_seed.py` compares the emitted C of every stage against the canonical C;
+`trust.py verify` compares the emitted C of every stage against the canonical C;
 that check reads files the compiler wrote and is unaffected. The binary
 fixed-point comparison is documented as toolchain-specific and informational
 for gcc/clang; callers must report cache hits for it rather than claim a pass

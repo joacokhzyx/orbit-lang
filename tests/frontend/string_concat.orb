@@ -1,0 +1,11 @@
+// `"count=" + n` is a concatenation and answers `string`, whatever the other
+// operand is. That is the rule `compiler/ir/builder.orb` states for the build
+// path -- the emitter lowers it to `orbit_string_concat` -- and this pass had the
+// comparisons and the same-type cases and not this one, so 84 `+` instructions
+// stayed `unknown` over the corpus.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn label(n: int) -> string { return \"count=\" + n }"
+    print(compileFrontendSource("fixture", source))
+}

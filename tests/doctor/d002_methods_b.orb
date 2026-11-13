@@ -1,3 +1,9 @@
+import "d002_methods_a.orb"
+
 route POST "/items" {
     return ok 201 "b"
+}
+
+fn main() -> int {
+    return 0
 }

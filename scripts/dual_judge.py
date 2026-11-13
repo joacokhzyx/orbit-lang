@@ -25,7 +25,7 @@ and this script prints none. The multithreaded server is excluded from the
 dual corpus by construction: tcc judge builds are single-thread-only (tcc
 predefines __TINYC__ and provides no __thread TLS and no __atomic_* builtins,
 so the repo shim degrades both to plain operations that race), and the server
-stays a gcc build by design -- kynx_gate.py is the server's gate, not this.
+stays a gcc build by design -- admission_gate.py is the server's gate, not this.
 
 The tcc arm carries its toolchain gaps in ORBIT_CCFLAGS_EXTRA, never in the
 repo: the carril-T winsock shim (`-I<shim> -include tccenv.h`, local-only,
@@ -57,7 +57,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
 import _common
-import test_suite as suite
+import corpus_gates as suite
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

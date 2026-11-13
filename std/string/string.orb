@@ -141,7 +141,7 @@ fn toLower(s: string) -> string {
     return orbit_cbuf_build_selfhost(buf)
 }
 
-fn join(parts: list, sep: string) -> string {
+fn join(parts: list < string >, sep: string) -> string {
     // One growable buffer and one join, instead of `out = out + part` per
     // element. The old form copied the whole prefix on every iteration, so
     // joining n parts was quadratic in the total length -- and joining is on the
@@ -158,7 +158,7 @@ fn join(parts: list, sep: string) -> string {
     return orbit_cbuf_build_selfhost(buf)
 }
 
-fn split(s: string, sep: string) -> list {
+fn split(s: string, sep: string) -> list < string > {
     val parts = []
     if sep == "" {
         parts.push(s)
@@ -193,7 +193,7 @@ fn padRight(s: string, width: int, pad: string) -> string {
     return out
 }
 
-fn parseIntChecked(s: string) -> result {
+fn parseIntChecked(s: string) -> result < int > {
     val t = trim(s)
     if t == "" {
         return err("empty input", 1)
@@ -230,7 +230,7 @@ fn parseIntChecked(s: string) -> result {
 // legitimate zero. Overflow past DBL_MAX is refused (code 3); underflow
 // answers 0.0, stated here rather than discovered, the way jsonQuote
 // states its control-byte boundary.
-fn parseFloatChecked(s: string) -> result {
+fn parseFloatChecked(s: string) -> result < float > {
     val t = trim(s)
     if t == "" {
         return err("empty input", 1)

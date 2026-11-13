@@ -35,11 +35,24 @@ orbit_string orbit_os_cwd(OrbitArena* arena);
 bool orbit_os_chdir(orbit_string path);
 orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name);
 orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command);
+/* A protocol reader: one line without its terminator, a byte count taken
+   verbatim, and whether the stream ended. A body has no line structure, so
+   the two are separate calls rather than one "read a message". */
+orbit_string orbit_stdin_read_line(OrbitArena* arena);
+orbit_string orbit_stdin_read_bytes(OrbitArena* arena, orbit_int n);
+bool orbit_stdin_at_end(void);
 void orbit_os_exit(orbit_int code);
 orbit_int orbit_os_spawn(orbit_string command);
 orbit_int orbit_os_run_timeout(orbit_string command, orbit_int timeout_ms, orbit_string capture_path);
 orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile);
 orbit_int orbit_os_kill(orbit_int pid, orbit_int mode);
+/* The cross-process stop channel: open it with the pid you want to answer
+ * (0 = this process), poll it where a stop must be noticed, ask it from the
+ * process that wants the stop. On POSIX all three do nothing, because SIGTERM
+ * is that platform's graceful stop. */
+orbit_int orbit_stop_channel_open(orbit_int pid);
+orbit_int orbit_stop_channel_poll(void);
+orbit_int orbit_stop_channel_ask(orbit_int pid);
 
 #ifdef _WIN32
 #include <winsock2.h>

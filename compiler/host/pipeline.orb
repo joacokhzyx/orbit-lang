@@ -4,6 +4,7 @@
 // not hidden coupling.
 import "../front/lexer.orb"
 import "../front/parser.orb"
+import "./extern.orb"
 import "../front/resolver.orb"
 import "../front/sema.orb"
 import "../ir/builder.orb"
@@ -178,23 +179,32 @@ fn reportMemStage(stage: string) {
     }
 }
 
-// Parse + resolve + typecheck only. fmt and doctor call this once per
-// edit, so it stops before the IR.
+// Parse + resolve + typecheck only. `fmt` calls this once per file, so it
+// stops before the IR: a file that parses and typechecks has a shape the
+// formatter can trust, and formatting does not need it to be buildable.
 fn checkSourceWithFile(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, false, false)
+    return checkSourceStages(source, inputPath, colorMode, false, false, "orbit fmt")
 }
 
 // `orbit check` also builds the IR and runs the verifier that guards both
 // backends, on the IR before optimization: the IR the native backend
 // compiles. No C is emitted and no C compiler runs.
 fn checkSourceVerified(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, true, false)
+    return checkSourceStages(source, inputPath, colorMode, true, false, "orbit check")
 }
 
 // `orbit check --runtime-module`: the same stages, with `export fn` and the
 // rt_* builtins admitted and `main` refused.
 fn checkRuntimeModuleVerified(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, true, true)
+    return checkSourceStages(source, inputPath, colorMode, true, true, "orbit check")
+}
+
+// `orbit doctor`: the same answer `orbit check` gives, because D008 says the
+// file does not compile. Stopping at sema let doctor call a file clean that
+// `orbit build` refused in the IR verifier, so the two commands disagreed
+// about the same bytes.
+fn checkSourceForDoctor(source: string, inputPath: string, colorMode: string) -> bool {
+    return checkSourceStages(source, inputPath, colorMode, true, false, "orbit doctor")
 }
 
 // One line per verifier error, under the command that ran it.
@@ -211,7 +221,7 @@ fn reportIRVerification(irModule: IRModule, command: string, useColor: bool, ui:
     return irErrs.len() == 0
 }
 
-fn checkSourceStages(source: string, inputPath: string, colorMode: string, verifyIr: bool, runtimeModule: bool) -> bool {
+fn checkSourceStages(source: string, inputPath: string, colorMode: string, verifyIr: bool, runtimeModule: bool, command: string) -> bool {
     val useColor = paletteUseColorStderr(colorMode)
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
@@ -255,7 +265,7 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
         checkBuilder.module.runtimeModule = runtimeModule
         val irModule = buildAST(checkBuilder, ast)
         irModule.sourceName = sourceBaseName(inputPath)
-        return reportIRVerification(irModule, "orbit check", useColor, uiBuildNone())
+        return reportIRVerification(irModule, command, useColor, uiBuildNone())
     }
     return true
 }
@@ -263,16 +273,29 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
 // Runtime headers travel with the compiler binary: prefer <bindir>/runtime
 // so `orbit build` (and `orbit cluster up`) work from any working
 // directory, falling back to the legacy relative "runtime" when the
-// binary's directory ships no headers.
+// binary's directory ships no headers. ORBIT_RUNTIME_DIR names the
+// directory outright, which is how a build outside a checkout finds it.
+// "" means none of the three exists, and the caller reports that before it
+// runs the C compiler: letting cc discover it produced a missing-include
+// error that blamed the generated code.
+fn runtimeDirHasHeaders(dir: string) -> bool {
+    if dir == "" { return false }
+    return orbit_file_list_dir_selfhost(dir).len() > 0
+}
+
 fn compilerRuntimeDir() -> string {
+    val named = orbit_os_env_selfhost("ORBIT_RUNTIME_DIR")
+    if named != "" {
+        if runtimeDirHasHeaders(named) { return named }
+        return ""
+    }
     val selfDir = getDir(orbit_os_argv_selfhost(0))
     if selfDir != "" {
         val cand = selfDir + "/runtime"
-        if orbit_file_list_dir_selfhost(cand).len() > 0 {
-            return cand
-        }
+        if runtimeDirHasHeaders(cand) { return cand }
     }
-    return "runtime"
+    if runtimeDirHasHeaders("runtime") { return "runtime" }
+    return ""
 }
 
 // Separate compilation against the net-variant static library
@@ -346,10 +369,20 @@ fn lineListed(lines: list < string >, want: string) -> bool {
 // line per runtime source. The archive is fresh when the runtime directory
 // holds exactly those files with exactly those digests. An archive with no
 // stamp predates the check and counts as stale.
+// The archive holds objects for the host that built it. A checkout shared
+// between Windows and a POSIX host has one lib/ directory, so the stamp names
+// the platform and an archive from the other one is stale here instead of a
+// link error naming MinGW symbols.
+fn runtimeArchivePlatform() -> string {
+    if hostIsWindows() { return "platform windows" }
+    return "platform unix"
+}
+
 fn runtimeArchiveFresh(rtDir: string, archive: string) -> bool {
     val stamp = orbit_file_read_selfhost(archive + ".stamp")
     if stamp == "" { return false }
     val recorded = splitBuildLines(stamp)
+    if lineListed(recorded, runtimeArchivePlatform()) == false { return false }
     val names = orbit_file_list_dir_selfhost(rtDir)
     var seen = 0
     var i = 0
@@ -375,7 +408,8 @@ fn runtimeArchiveFresh(rtDir: string, archive: string) -> bool {
         }
         j = j + 1
     }
-    return seen == recorded.len()
+    // One line per source, plus the platform line checked above.
+    return seen == recorded.len() - 1
 }
 
 // The archive to link, or "" for the unity build.
@@ -405,7 +439,7 @@ fn runtimeLibToLink(rtDir: string, hasDb: bool, verbose: bool) -> string {
 }
 
 fn orbitVersion() -> string {
-    return "0.1.0-rc.2"
+    return "0.1.0"
 }
 
 fn appLeadingDigits(s: string) -> string {
@@ -746,8 +780,14 @@ fn hostIsWindows() -> bool {
     return orbit_os_env_selfhost("OS") == "Windows_NT" || orbit_os_env_selfhost("WINDIR") != ""
 }
 
+// A host gets the native backend only when an r6 it can use is actually
+// there. Without one the default is C, because a missing r6 is not a refusal
+// by R6: the build still has to finish. An explicit ORBIT_R6 keeps native,
+// since naming a path is an order and the R6 path already reports one that
+// does not resolve.
 fn defaultBackend() -> string {
-    if hostIsWindows() { return "native" }
+    if orbit_os_env_selfhost("ORBIT_R6") != "" { return "native" }
+    if findInstalledR6() != "" { return "native" }
     return "c"
 }
 
@@ -836,10 +876,15 @@ fn emitIrDocument(irModule: IRModule, irPath: string, verbose: bool, useColorErr
 fn findInstalledR6() -> string {
     val dir = getDir(orbit_os_argv_selfhost(0))
     if dir == "" { return "" }
-    val beside = dir + "/r6.exe"
-    if runtimeLibFileExists(beside) { return beside }
-    val installed = dir + "/bin/r6.exe"
-    if runtimeLibFileExists(installed) { return installed }
+    // Beside the compiler or in bin/, with and without the Windows extension:
+    // a POSIX install names it `r6` because the kernel does not append one.
+    val names = ["/r6.exe", "/r6", "/bin/r6.exe", "/bin/r6"]
+    var i = 0
+    while i < names.len() {
+        val candidate: string = names.get(i)
+        if runtimeLibFileExists(dir + candidate) { return dir + candidate }
+        i = i + 1
+    }
     return ""
 }
 
@@ -859,6 +904,23 @@ fn r6RuntimeDir() -> string {
 
 fn shellPath(path: string) -> string {
     return replaceBuildToken(path, "/", "\\")
+}
+
+// A shell-quoted path for the host that runs the native backend's command
+// line: cmd.exe wants double quotes and backslashes, a POSIX shell wants the
+// path as it is. A path containing a single quote would break the POSIX form;
+// the compiler's own temp paths do not contain one.
+fn quotePath(path: string) -> string {
+    if hostIsWindows() { return "\"" + shellPath(path) + "\"" }
+    return "'" + path + "'"
+}
+
+fn removeFileQuiet(path: string) {
+    if hostIsWindows() {
+        val ignored = orbit_os_exec_selfhost("del /F /Q " + quotePath(path) + " 2>NUL")
+    } else {
+        val ignored = orbit_os_exec_selfhost("rm -f " + quotePath(path))
+    }
 }
 
 fn nativeIrTempPath(outputPath: string) -> string {
@@ -907,7 +969,7 @@ fn r6RefusalReason(r6: string) -> string {
     if tmpDir != "" {
         probe = tmpDir + "/" + probe
     }
-    val code = orbit_os_run_timeout_selfhost("\"" + shellPath(r6) + "\" --version", r6ProbeTimeoutMs(), shellPath(probe))
+    val code = orbit_os_run_timeout_selfhost(quotePath(r6) + " --version", r6ProbeTimeoutMs(), probe)
     if code == -2 {
         return "did not answer `--version` within " + orbit_int_to_string_selfhost(r6ProbeTimeoutMs() / 1000) + " s; it is probably an older r6 that waits for input"
     }
@@ -941,7 +1003,7 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     if named != "" {
         if runtimeLibFileExists(named) == false {
             uiBuildFinish(ui, false)
-            orbit_os_write_stderr_selfhost(head + " ORBIT_R6 is '" + named + "' and that file doesn't exist. Point it at r6.exe, or unset it to use the installed one.\n")
+            orbit_os_write_stderr_selfhost(head + " ORBIT_R6 is '" + named + "' and that file doesn't exist. Point it at r6, or unset it to use the installed one.\n")
             return false
         }
         r6 = named
@@ -950,31 +1012,39 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     }
     if r6 == "" {
         uiBuildFinish(ui, false)
-        orbit_os_write_stderr_selfhost(head + " the native backend needs r6.exe and couldn't find it.\n")
-        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to its path, or put it in bin\\r6.exe under the Orbit install. `orbit build --backend=c` needs neither.\n")
+        orbit_os_write_stderr_selfhost(head + " the native backend needs r6 and couldn't find it.\n")
+        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to its path, or put it in bin/r6 under the Orbit install. `orbit build --backend=c` needs neither.\n")
         return false
     }
     val refusal = r6RefusalReason(r6)
     if refusal != "" {
         uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost(head + " the native backend found '" + r6 + "' and it " + refusal + ".\n")
-        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to a current r6.exe, or build with --backend=c.\n")
+        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to a current r6, or build with --backend=c.\n")
         return false
     }
     var cmd = ""
     val rtDir = r6RuntimeDir()
     if rtDir != "" {
-        cmd = cmd + "set \"R6_RUNTIME_DIR=" + shellPath(rtDir) + "\" && "
+        if hostIsWindows() {
+            cmd = cmd + "set \"R6_RUNTIME_DIR=" + shellPath(rtDir) + "\" && "
+        } else {
+            cmd = cmd + "R6_RUNTIME_DIR=" + quotePath(rtDir) + " "
+        }
     }
     val tmpDir = buildTempDir()
     if tmpDir != "" {
-        cmd = cmd + "set \"R6_TMPDIR=" + shellPath(tmpDir) + "\" && "
+        if hostIsWindows() {
+            cmd = cmd + "set \"R6_TMPDIR=" + shellPath(tmpDir) + "\" && "
+        } else {
+            cmd = cmd + "R6_TMPDIR=" + quotePath(tmpDir) + " "
+        }
     }
     var objectFlag = ""
     if runtimeModule {
         objectFlag = "--object "
     }
-    cmd = cmd + "\"" + shellPath(r6) + "\" build " + objectFlag + "\"" + shellPath(irPath) + "\" -o \"" + shellPath(outputPath) + "\""
+    cmd = cmd + quotePath(r6) + " build " + objectFlag + quotePath(irPath) + " -o " + quotePath(outputPath)
     if verbose {
         print("r6 " + cmd)
     }
@@ -988,10 +1058,10 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     var captured = ""
     if capture != "" {
         captured = orbit_file_read_selfhost(capture)
-        val ignoredLog = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(capture) + "\" 2>NUL")
+        removeFileQuiet(capture)
     }
     if irIsTemp && verbose == false {
-        val ignoredDel = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(irPath) + "\" 2>NUL")
+        removeFileQuiet(irPath)
     }
     if code != 0 {
         uiBuildFinish(ui, false)
@@ -1017,7 +1087,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 // file holding the `export fn` functions of a file that has no `main`, to be
 // archived into the runtime library (docs/IR_SPEC.md).
 fn compileSourceMode(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, runtimeModule: bool) -> bool {
-    return compileSourceTitled(source, inputPath, outputPath, verbose, quiet, colorMode, release, emitIrPath, backendArg, "build", runtimeModule)
+    return compileSourceTitled(source, inputPath, outputPath, verbose, quiet, colorMode, release, emitIrPath, backendArg, "build", runtimeModule, false)
 }
 
 // What the stage rows call the code generator, and whether a link row follows.
@@ -1029,10 +1099,16 @@ fn uiBackendLabel(backendArg: string) -> string {
 }
 
 // `title` is the command the screen names: build, or run for `orbit run`.
-fn compileSourceTitled(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, title: string, runtimeModule: bool) -> bool {
+fn compileSourceTitled(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, title: string, runtimeModule: bool, migrateOnly: bool) -> bool {
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
+    // A Windows host that named no backend lands on C only because this one
+    // has no r6.exe. Say which generator ran, once, before the screen starts;
+    // a fallback nobody can see reads as a compiler that changed its mind.
+    if quiet == false && requestedBackend(backendArg) == "" && hostIsWindows() && orbit_os_env_selfhost("ORBIT_SKIP_CC") == "" && resolveBackend(backendArg) == "c" {
+        orbit_os_write_stderr_selfhost(palettePaint(paletteDim(), "orbit " + title + ": no r6.exe found; using the C backend (set ORBIT_R6, or install bin\\r6.exe, for native).", useColorErr) + "\n")
+    }
     var blockTier = 0
     if quiet == false {
         blockTier = uiTier(colorMode, true)
@@ -1115,11 +1191,6 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
         return false
     }
     val native = backendName == "native" && orbit_os_env_selfhost("ORBIT_SKIP_CC") == ""
-    if native && hostIsWindows() == false {
-        uiBuildFinish(ui, false)
-        orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " the native backend targets Windows x86-64 only. Use --backend=c on this platform.\n")
-        return false
-    }
 
     // --emit-ir dumps IRv1 straight after the builder, before the optimizer
     // and the C backend touch the module, so registerTypes is what buildAST
@@ -1178,6 +1249,7 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     }
 
     val backend = initCBackend(irModule)
+    backend.migrateOnly = migrateOnly
     val cCode = generateC(backend)
     val hCode = generateCHeader(backend)
     reportMemStage("codegen")
@@ -1254,6 +1326,17 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     }
 
     val rtDir = compilerRuntimeDir()
+    if rtDir == "" {
+        val named = orbit_os_env_selfhost("ORBIT_RUNTIME_DIR")
+        if named != "" {
+            orbit_os_write_stderr_selfhost("orbit " + title + ": ORBIT_RUNTIME_DIR names '" + named + "', which holds no runtime headers.\n")
+        } else {
+            orbit_os_write_stderr_selfhost("orbit " + title + ": could not find the runtime headers.\n")
+            orbit_os_write_stderr_selfhost("  Looked in <compiler directory>/runtime and ./runtime. Set ORBIT_RUNTIME_DIR to the directory holding runtime.h.\n")
+        }
+        uiBuildFinish(ui, false)
+        return false
+    }
     var dbFlags = ""
     val isWindowsHost = osName == "Windows_NT" || winDir != ""
     if hasDb {
@@ -1300,7 +1383,7 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     // 102.4 ms -> 13.8 ms (3.2x / 7.4x) for +1.77 s of build wall time, and
     // -O2 buys nothing measurable on either route (15.5 / 13.5 ms) while
     // adding a further +2.5 s. The trivial routes are unaffected at any level
-    // (their cost is the log and Kynx admission, not the handler). `-s` still
+    // (their cost is the log and admission, not the handler). `-s` still
     // strips the shipped binary. -O2 strict-aliasing on generated C is
     // pre-anticipated in the emitter, so it is opt-in, not the default:
     // `orbit build --release` selects it. ORBIT_CCFLAGS_EXTRA is appended

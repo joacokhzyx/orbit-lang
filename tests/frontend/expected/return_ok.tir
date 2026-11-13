@@ -1,0 +1,8 @@
+orbit-tir 1
+module fixture
+function 0 make result<string>
+block 0 0
+instr 0 0 0 const string "ready"
+instr 0 0 1 result_ok result 200 v0
+instr 0 0 2 return unit v1
+end-function 0

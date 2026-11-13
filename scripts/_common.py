@@ -10,9 +10,11 @@ runnable compilers went missing that way during a single session, and
 `doctor_scope_gate.py` was writing its scratch to a different disk from the one
 holding the cache.
 
-`--cc` and `--compiler` are worse, because the inconsistency is invisible. Fourteen
-scripts accept `--cc`, fifteen accept `--compiler`, three accept neither, and
-`doctor_gate.py` accepts `--cc` and ignores it. `cli_probe.py` runs the compiler
+`--cc` and `--compiler` are worse, because the inconsistency is invisible. Of
+the 42 scripts besides this one, 24 accept `--cc`, 22 accept `--compiler`, 17
+accept both and 13 accept neither (counted 2026-11-05 from `add_argument`
+declarations plus the two files that inherit both from `add_common_args`).
+`cli_probe.py` runs the compiler
 with `cwd` set to its own work directory, so a relative `--compiler` resolves
 against the wrong place and the failure is a `FileNotFoundError` on the gate's own
 argument. Anyone driving these from a script has to know which of the two each one
@@ -50,7 +52,7 @@ def resolve_cc(explicit=None, required=True):
     """The C compiler, in the order the bootstrap itself uses.
 
     ORBIT_CC, then CC, then the usual names. The order is duplicated from
-    build_selfhost.py rather than imported, because importing a bootstrap script
+    the bootstrap (scripts/trust.py build) rather than imported, because importing a bootstrap script
     from the tool that drives it couples the tool's lifetime to that script's
     import-time behaviour, and the order is three lines.
     """
@@ -74,8 +76,9 @@ def add_common_args(ap):
 
     Two flags rather than one because they really are two things: `--cc` is the
     C toolchain the compiler shells out to, `--compiler` is the orbit binary
-    under test. Nine of the scripts need both, three need only the first, and
-    until this existed each one declared whichever it happened to want.
+    under test. Seventeen of the 42 scripts accept both, seven accept only the
+    first and five only the second, and until this existed each one declared
+    whichever it happened to want.
     """
     ap.add_argument("--cc", default=None,
                     help="C compiler (default: ORBIT_CC/CC/gcc/clang/cc)")
@@ -285,6 +288,125 @@ def tail(text, lines=8):
         return ""
     return "\n".join(text.strip().splitlines()[-lines:])
 
+
+def run(argv, cwd=None, env=None, timeout=180, label=""):
+    """Spawn a child, capture it, never raise. Returns (rc, text).
+
+    Three outcomes and no exception. A nonzero exit is the child's answer, so it
+    comes back as that number. A timeout comes back as -1 with the label and the
+    wait in the text, because a hung gate otherwise looks exactly like a gate
+    that printed nothing -- and a runner that says "no output" sends the
+    maintainer to read the source of the gate instead of the log. A missing
+    binary comes back as -2 naming the path: `cli_probe.py` runs the compiler
+    with `cwd` set to its own work directory, and the relative path that resolved
+    against the wrong place was a `FileNotFoundError` in a shared frame.
+
+    The sites this replaces each wrapped `subprocess.run` themselves:
+    `trust.py:build`, `doctor_gates.py:doctor` (three sites),
+    `doctor_gate.py:481`, `negative_gate.py:186`, `frontend_gate.py:172` and
+    `triangle.py:70`. Several of them set no timeout at all.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(argv, cwd=cwd, env=env, timeout=timeout,
+                              capture_output=True, text=True, errors="replace")
+    except subprocess.TimeoutExpired:
+        return -1, "%s timed out after %ss" % (label or argv[0], timeout)
+    except OSError as exc:
+        return -2, "%s could not be started: %s" % (argv[0], exc)
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def owned_scratch(prefix="orbit_gate_"):
+    """A scratch directory this call owns and removes, wherever TEMP points.
+
+    Six sites register an `atexit` cleanup for a scratch made with
+    `mkdtemp` -- `trust.py` (its build, verify and
+    shard sections), `dual_judge.py`, `measure.py` (its measure-selfhost
+    section), `triangle.py` -- and 9 files call
+    `mkdtemp` (`grep -n mkdtemp scripts/*.py | wc -l` printed 25 on
+    2026-11-07, after the merges moved the six sections into their two
+    entry points), so the rest leak on every run. The context manager makes
+    the removal
+    unconditional, including on the failure path a gate takes when it returns 1
+    early, which is the path that used to leak. The directory is created under
+    the temp this module points at, because the compiler writes its intermediate
+    C there and a scratch on another filesystem splits the compile cache from the
+    file it caches.
+    """
+    import contextlib
+    import shutil
+    import tempfile
+
+    @contextlib.contextmanager
+    def _made():
+        path = tempfile.mkdtemp(prefix=prefix)
+        try:
+            yield path
+        finally:
+            shutil.rmtree(path, ignore_errors=True)
+
+    return _made()
+
+
+def compare_or_record(path, actual, update, formatter=None):
+    """The golden bargain in one place: record when asked, compare otherwise.
+
+    Returns (ok, message). On a mismatch the message carries both sides, because
+    a gate that prints only the expected text cannot be debugged from its own
+    output -- which is the defect class `ENGINEERING.md` records for the suite
+    runner. `formatter` is the per-caller serializer: `parity_selfhost.py:154`
+    stamps `exit=` and `kind=` above the payload in its golden and
+    `doctor_gate.py:569` compares one whole file, so one function serves both
+    without either losing its shape.
+    """
+    import difflib
+
+    text = formatter(actual) if formatter else actual
+    path = pathlib.Path(path)
+    if update:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return True, "recorded %s" % path
+    if not path.exists():
+        return False, "no golden at %s; run with --update to record %r" % (
+            path, text[:120])
+    expected = path.read_text(encoding="utf-8")
+    if expected == text:
+        return True, ""
+    diff = "\n".join(list(difflib.unified_diff(
+        expected.splitlines(), text.splitlines(),
+        fromfile="expected", tofile="actual", lineterm=""))[:40])
+    return False, "golden differs at %s:\n%s" % (path, diff)
+
+
+def add_gate_args(ap, cc=False, compiler=False, work=False, update=False,
+                  selftest=False):
+    """Declare the flags a gate takes, in the words every gate uses already.
+
+    Not audited by `flag_coverage.py`, because this module binds no namespace:
+    the caller reads what it asked for, and asking for a flag the caller never
+    reads is visible in its own file. The help text is the one `_common` already
+    writes for `--cc` and `--compiler`, so the two spellings cannot drift.
+    """
+    if cc:
+        ap.add_argument("--cc", default=None,
+                        help="C compiler (default: ORBIT_CC/CC/gcc/clang/cc)")
+    if compiler:
+        ap.add_argument("--compiler", default=None,
+                        help="the orbit binary to test (default: ask scripts/dev.py)")
+    if work:
+        ap.add_argument("--work", default=None,
+                        help="scratch directory for this run")
+    if update:
+        ap.add_argument("--update", action="store_true",
+                        help="record the expected output instead of comparing it")
+    if selftest:
+        ap.add_argument("--self-test", action="store_true",
+                        help="prove this tool can still fail")
+    return ap
+
+
 def self_test() -> int:
     """Assert the shared helpers do what seven gates now assume they do.
 
@@ -422,10 +544,103 @@ def self_test() -> int:
                   "compiler on that path on purpose")
             return 1
 
+        # ---- run(): the spawn every gate re-implements, and the three things
+        # it has to get right. A nonzero exit is an answer, not a crash; a
+        # timeout has to name the gate and the wait; a missing binary must not
+        # become a traceback in a shared frame.
+        rc, _ = run([sys.executable, "-c", "import sys; sys.exit(3)"])
+        if rc != 3:
+            print("self-test FAILED: run() did not pass through a child's exit "
+                  f"code 3, it reported {rc}")
+            return 1
+        rc, text = run([sys.executable, "-c", "import time; time.sleep(5)"],
+                       timeout=1, label="sleeper")
+        if rc != -1 or "sleeper" not in text or "1s" not in text:
+            print("self-test FAILED: run() did not turn a timeout into rc -1 "
+                  "naming the label and the wait; a hung gate currently looks "
+                  "like a gate that printed nothing")
+            return 1
+        rc, text = run(["orbit-no-such-binary-xyz"])
+        if rc != -2 or "orbit-no-such-binary-xyz" not in text:
+            print("self-test FAILED: run() raised or stayed silent on a binary "
+                  "that is not there, which is the FileNotFoundError that bit "
+                  "cli_probe with a relative --compiler")
+            return 1
+
+        # ---- owned_scratch(): the directory is gone when the block is, and it
+        # lives under the temp this module points at, not the system temp.
+        with owned_scratch("common_selftest_scratch_") as sd:
+            scratch_dir = pathlib.Path(sd)
+            (scratch_dir / "x.c").write_text("int main(void){return 0;}",
+                                             encoding="utf-8")
+            if not scratch_dir.is_dir():
+                print("self-test FAILED: owned_scratch yielded a path that is "
+                      "not a directory")
+                return 1
+        if scratch_dir.exists():
+            print("self-test FAILED: owned_scratch left its directory behind, "
+                  "which is the disk-fill a gate leaks on a failure path")
+            return 1
+
+        # ---- compare_or_record(): the golden bargain, in one place. Record on
+        # request, compare otherwise, and on a mismatch print both sides.
+        golden = work / "expected.txt"
+        ok, msg = compare_or_record(golden, "one\n", update=False)
+        if ok or "expected.txt" not in msg:
+            print("self-test FAILED: compare_or_record passed a missing golden "
+                  f"instead of naming it: {msg!r}")
+            return 1
+        ok, _ = compare_or_record(golden, "one\n", update=True)
+        if not ok or golden.read_text(encoding="utf-8") != "one\n":
+            print("self-test FAILED: compare_or_record with update=True did not "
+                  "write the golden it was handed")
+            return 1
+        ok, _ = compare_or_record(golden, "one\n", update=False)
+        if not ok:
+            print("self-test FAILED: compare_or_record called an equal golden a "
+                  "mismatch")
+            return 1
+        ok, msg = compare_or_record(golden, "two\n", update=False)
+        if ok or "one" not in msg or "two" not in msg:
+            print("self-test FAILED: compare_or_record hid one side of a "
+                  "mismatch; a gate that prints only the expected text cannot be "
+                  "debugged from its own output")
+            return 1
+
+        # ---- add_gate_args(): the flags are declared once, with the same help
+        # text every gate shows, and only the ones the caller asks for appear.
+        # No parse_args here on purpose: binding a namespace would make this
+        # module an owner in the eyes of scripts/flag_coverage.py, which then
+        # demands that the flags declared here are read here -- and the reader is
+        # the caller by design.
+        import argparse
+        ap = add_gate_args(argparse.ArgumentParser(), cc=True, compiler=True,
+                           update=True)
+        declared = sorted(a.dest for a in ap._actions)
+        if declared != ["cc", "compiler", "help", "update"]:
+            print("self-test FAILED: add_gate_args declared a different set than "
+                  f"asked for: {declared}")
+            return 1
+        if (ap.get_default("cc") is not None
+                or ap.get_default("compiler") is not None
+                or ap.get_default("update") is not False):
+            print("self-test FAILED: add_gate_args did not default the flags it "
+                  "declared")
+            return 1
+        plain = add_gate_args(argparse.ArgumentParser())
+        if sorted(a.dest for a in plain._actions) != ["help"]:
+            print("self-test FAILED: add_gate_args declared flags nobody asked "
+                  "for")
+            return 1
+
     print("Finished _common self-test: build_env points TEMP/TMP and both "
           "compiler names, exports no cache unless asked, resolves the C "
           "cache wrapper with the real driver still named, resolve_cc found "
-          f"'{resolve_cc()}', and tail behaves on empty and short input.")
+          f"'{resolve_cc()}', tail behaves on empty and short input, run() "
+          "passes an exit code through and names a timeout and a missing "
+          "binary, owned_scratch cleans up, compare_or_record covers record, "
+          "equal and differing, and add_gate_args declares exactly the flags "
+          "asked for.")
     return 0
 
 

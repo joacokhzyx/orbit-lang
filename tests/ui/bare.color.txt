@@ -1,4 +1,4 @@
- [36m(*[0m [1morbit 0.1.0-rc.2[0m  [90mself-hosted compiler, C to native[0m
+ [36m(*[0m [1morbit N[0m  [90mself-hosted compiler, C to native[0m
 
   [1mcheck    [0mhello.orb             [90mtypecheck and verify the IR[0m
   [1mbuild    [0mhello.orb -o hello    [90mcompile to native[0m

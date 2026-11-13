@@ -1,0 +1,16 @@
+// `xs[0]` on a `list<int>` is the instruction the build already emits for
+// `xs.get(0)`: `compiler/ir/builder.orb` lowers both spellings to
+// `IROpcode.list_get`, and this pass prints that one as `call <type> get`. The
+// element kind is the one the source wrote in the receiver's type text, so the
+// index form answers `int` where it used to be a give-up.
+//
+// A list written without an element kind stays a give-up. `list` alone says
+// nothing about the inside, and an invented element type is the lie the
+// `unknown` count exists to make visible. Emitting the instruction anyway would
+// add an `unknown` while suppressing the same file text.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn first(xs: list<int>) -> int { return xs[0] }"
+    print(compileFrontendSource("fixture", source))
+}

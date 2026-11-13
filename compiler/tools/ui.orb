@@ -728,6 +728,7 @@ fn uiHelp(tier: int, version: string) -> string {
     out = out + uiHelpRow(tier, "fmt", "<file.orb>", "format a file; --check <file|dir> lists the rest")
     out = out + uiHelpRow(tier, "doctor", "[dir] [--fix]", "project checks")
     out = out + uiHelpRow(tier, "cluster", "up|status|down ...", "single-host multiprocess orchestration")
+    out = out + uiHelpRow(tier, "migrate", "<file.orb>", "apply the program's migrations and exit")
     out = out + "\n " + uiPaint(tier, paletteDim(), "flags  --quiet  --verbose  --color always|never|auto  --backend=c|native  --release") + "\n"
     out = out + " " + uiPaint(tier, paletteDim(), "orbit <command> --help shows one command; ORBIT_UI=plain turns this screen off") + "\n"
     return out

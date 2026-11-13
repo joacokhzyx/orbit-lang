@@ -10,7 +10,7 @@ list of ints, `print(undeclaredThing)`. All of those compiled clean.
 Run it:
 
 ```sh
-python scripts/negative_gate.py --compiler /tmp/orbit_fp
+python scripts/corpus_gates.py negative --compiler /tmp/orbit_fp
 ```
 
 ## Header directives
@@ -24,6 +24,7 @@ Each file declares exactly one, in a header comment.
 | `// wrong-value: <stdout>` | Optional, on a `known-defect:` case only. The program is built and run, and its stdout must still be exactly this (`\n` separates lines). |
 | `// cc-rejects: <substring>` | Optional, on a `known-defect:` case only. The front end must stay silent **and** the C toolchain must still reject the output with `<substring>`. |
 | `// no-diagnostic:` | Optional, on a `known-defect:` case only, and **instead of** the two above. The program must still build and must still die without saying anything: non-zero exit, nothing on stdout or stderr. This is for the class where the wrong answer is a crash, which a `wrong-value:` cannot hold. |
+| `// one-diagnostic:` | Optional, on an `expect-error:` case only. The rejection is **exactly one** `error[<CODE>]` line. A substring match passes when the same refusal prints four times, so the count is the part this directive holds. |
 
 A case may pin at most one of `wrong-value:`, `cc-rejects:` and
 `no-diagnostic:` — they are three ways of saying what the program actually does,
@@ -82,13 +83,13 @@ fuzzer output for a whole wave.
 
 | | what it asks | what it cannot see |
 |---|---|---|
-| `scripts/negative_gate.py` (this directory) | what the **compiler must reject**. Every program here must fail `orbit check`, with a pinned diagnostic. | a program that computes the wrong number. Just over half the cases here are programs the compiler wrongly *accepts*, so this gate's own verdict is often "still broken" — it holds the defect, it does not detect it. |
-| `scripts/diff_fuzz.py` | what the **compiler computes**, against a reference implementation in Python with the same truncating semantics. | anything it has no case for. It generates integer arithmetic, integer literals, division by zero, string escapes and floats; it has never looked at a list, a map, a model or a control-flow edge. |
-| `scripts/unknown_ratchet.py` | the static measure: what share of emitted instructions the front end typed `unknown`. | the behaviour. 75% of that can be right. |
+| `scripts/corpus_gates.py negative` (this directory) | what the **compiler must reject**. Every program here must fail `orbit check`, with a pinned diagnostic. | a program that computes the wrong number. Just over half the cases here are programs the compiler wrongly *accepts*, so this gate's own verdict is often "still broken" — it holds the defect, it does not detect it. |
+| `scripts/measure.py diff-fuzz` | what the **compiler computes**, against a reference implementation in Python with the same truncating semantics. | anything it has no case for. It generates integer arithmetic, integer literals, division by zero, string escapes and floats; it has never looked at a list, a map, a model or a control-flow edge. |
+| `scripts/measure.py ratchet` | the static measure: what share of emitted instructions the front end typed `unknown`. | the behaviour. 75% of that can be right. |
 
 The hole is what both of the other two leave: a **compile-only** gate cannot
 see a wrong value, and a **crash-only** fuzzer cannot either, because a wrong
-answer is not an event. `scripts/fuzz_frontend.py` looks for crashes; a crash
+answer is not an event. `scripts/corpus_gates.py fuzz_frontend` looks for crashes; a crash
 announces itself. `print(1.5)` returns 1 and nothing anywhere says a word. That
 hole is where all 99 were, and it is not a gap in coverage so much as a gap in
 *kind*: nothing in the suite had ever executed a program and compared the
@@ -112,7 +113,7 @@ and is not done. Three are **decisions**, and they deliberately have none — th
 argument is below. The count is read, not held: `scripts/diff_fuzz_ratchet.py`
 and its baseline were retired when the corpus reached 0 disagreements in 678
 cases, because a one-way ratchet whose floor is zero cannot detect a regression.
-`scripts/diff_fuzz.py` prints the count and the corpus sha on every run.
+`scripts/measure.py diff-fuzz` prints the count and the corpus sha on every run.
 
 | fuzzer class | n | verdict | pin |
 |---|---|---|---|
@@ -171,7 +172,7 @@ will read it. So the reference now implements the documented rule instead of
 C's, which turns 24 "disagreements" into 24 **asserted agreements** — a stronger
 pin than a note, because if the escape behaviour ever changes the count goes up
 and the summary says so. Reversing the decision stays possible and stays
-deliberate: edit the table in `scripts/diff_fuzz.py`, and the corpus sha moves
+deliberate: edit the table in `scripts/measure.py diff-fuzz`, and the corpus sha moves
 with it, so the change is recorded rather than silent.
 
 ## Why the substring is asserted
@@ -189,7 +190,7 @@ case can be cited; the name after the underscore is what the gate prints.
 ## Where the codes are documented
 
 Every `E`-code the compiler emits and every `F`-finding the corpus was built
-from is catalogued in [docs/ERROR_CODES.md](../../docs/ERROR_CODES.md): what
+from is catalogued in [the diagnostics table](../../docs/LANGUAGE_REFERENCE.md#diagnostics): what
 each code means, where it fires, how to fix it, and which case pins it. When
 a ratchet fires and the header needs re-declaring, that catalog is where the
 new code (or the absence of one) gets looked up — never guessed.
@@ -198,7 +199,7 @@ new code (or the absence of one) gets looked up — never guessed.
 
 Write the smallest program that exhibits the defect. If `orbit check` accepts
 it, it is a `known-defect` case and it needs a reference — an `F` finding from
-the index in `docs/ERROR_CODES.md` if one exists, otherwise the name of the
+the index in `docs/LANGUAGE_REFERENCE.md` if one exists, otherwise the name of the
 check that is missing. If `orbit check`
 rejects it, put the real diagnostic substring in the header. Do not invent a
 diagnostic: a case that cannot pass because the compiler is wrong is a finding,
@@ -224,9 +225,13 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-107 cases: 107 are `expect-error:` - each program is rejected, with a pinned
+121 cases: 121 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 107/107 pass (0 known defects still accepted)`. `n100` is the first
+negative: 121/121 pass (0 known defects still accepted)`. `n130` pins the 33rd route limit: the runtime table holds 32 and drops the rest, so the checker refuses the program instead of serving a route under a weaker policy. `n129` pins the payload a bare `-> result` never wrote: `ok(5)` read back through a `string` annotation was a fault, and the checker now refuses the annotation. `n122` pins what a `match` binding knows: an int payload used as a string argument is refused. `n121` is the case
+where refusing is the whole point: two unions declare one variant name and the
+construction writes only the name, so the checker has no owner to read the
+payload from and no expected type to infer one - `E1011` names both owners
+rather than taking the first row. `n100` is the first
 case that sema accepts and the IR verifier refuses: an object field read with
 no stated kind. `n110` pins the other direction, a name the checker used to
 provide with no lowering behind it: `sort(xs)` reached the C step as a call to
@@ -256,5 +261,5 @@ A number in a document goes stale, which is F-0021 and it is why this section
 exists at all. Recompute it rather than trust it:
 
 ```sh
-python scripts/negative_gate.py --compiler <orbit> --list
+python scripts/corpus_gates.py negative --compiler <orbit> --list
 ```

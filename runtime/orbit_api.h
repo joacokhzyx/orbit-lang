@@ -49,9 +49,9 @@
  * Shared state: the performance counters (orbit_perf_stats,
  * orbit_perf_lat_hist in performance.h) are owned by the library TU
  * (ORBIT_PERF_IMPL) and bound via extern from a separate user TU, so both
- * modes count into the same object -- the same shape the Kynx lease pointer
+ * modes count into the same object -- the same shape the admission lease pointer
  * (current_lease) already used. Every other runtime state (ledger, arenas,
- * Kynx, energy, clock) lives behind library functions in both modes.
+ * admission, energy, clock) lives behind library functions in both modes.
  *
  * orbit_string_intern is intentionally absent: it is a static inline helper
  * with no caller in any emitted TU surveyed. DB/auth symbols are absent too:
@@ -140,13 +140,17 @@ typedef struct OrbitArena {
     size_t peak_used;
     size_t committed_bytes;
     size_t reserved_bytes;
-    /* Kept in step with the private definition in runtime/arena.c: the
-     * committed-bytes ceiling and whether the last refusal was that ceiling
-     * rather than the OS running out. */
+    /* Kept in step with the definition in runtime/arena.h: the
+     * committed-bytes ceiling, where that number came from, and whether the
+     * last refusal was that ceiling rather than the OS running out. */
     size_t max_rule;
+    bool max_rule_from_env;
     bool ceiling_hit;
 
     uint64_t generation;
+    /* Kept in step with runtime/arena.h: which VA segment the cursor lives in.
+     * A checkpoint offset is only comparable inside one segment. */
+    uint64_t segment;
     uint64_t alloc_count;
 
     struct OrbitArena* parent;
@@ -163,6 +167,7 @@ typedef struct OrbitArena {
 typedef struct {
     size_t offset;
     uint64_t generation;
+    uint64_t segment;
 } OrbitArenaCheckpoint;
 
 typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);
@@ -271,7 +276,6 @@ typedef struct {
 /* ── HTTP request/response (canonical: runtime/http.c) ───────────────── */
 #ifndef ORBIT_HTTP_API_H
 #define ORBIT_HTTP_API_H
-#define ORBIT_MAX_PATH_PARAMS 32
 typedef struct {
     char* method;
     char* path;
@@ -280,9 +284,10 @@ typedef struct {
     char* headers;
     size_t body_len;
     size_t headers_len;
-    char* param_names[ORBIT_MAX_PATH_PARAMS];
-    char* param_values[ORBIT_MAX_PATH_PARAMS];
+    char** param_names;
+    char** param_values;
     int param_count;
+    int param_capacity;
 } OrbitRequest;
 #endif
 
@@ -373,7 +378,7 @@ OrbitOomHandler orbit_get_oom_handler(void);
  * router arms and disarms it around one request -- arming hands over the
  * jmp_buf of the frame that will take the longjmp -- and answers with a 503
  * that carries the refusal's numbers. ENGINEERING.md section 7,
- * kynx-lease-abort. */
+ * admission-lease-abort. */
 void orbit_request_oom_install(void);
 void orbit_request_oom_arm(jmp_buf* target);
 void orbit_request_oom_disarm(void);
@@ -643,11 +648,25 @@ orbit_string orbit_os_cwd(OrbitArena* arena);
 bool orbit_os_chdir(orbit_string path);
 orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name);
 orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command);
+/* A protocol reader: one line without its terminator, a byte count taken
+   verbatim, and whether the stream ended. A body has no line structure, so
+   the two are separate calls rather than one "read a message". */
+orbit_string orbit_stdin_read_line(OrbitArena* arena);
+orbit_string orbit_stdin_read_bytes(OrbitArena* arena, orbit_int n);
+bool orbit_stdin_at_end(void);
+/* Bytes out, not the platform's newline translation: a JSON-RPC header
+   terminator written to a text-mode stream becomes "\r\r\n" on Windows. */
+bool orbit_stdout_binary(void);
+/* `print` appends a newline; a framed protocol cannot have one. */
+bool orbit_stdout_write(orbit_string text);
 void orbit_os_exit(orbit_int code);
 orbit_int orbit_os_spawn(orbit_string command);
 orbit_int orbit_os_run_timeout(orbit_string command, orbit_int timeout_ms, orbit_string capture_path);
 orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile);
 orbit_int orbit_os_kill(orbit_int pid, orbit_int mode);
+orbit_int orbit_stop_channel_open(orbit_int pid);
+orbit_int orbit_stop_channel_poll(void);
+orbit_int orbit_stop_channel_ask(orbit_int pid);
 orbit_int orbit_os_argc(void);
 orbit_string orbit_os_argv(OrbitArena* arena, orbit_int index);
 OrbitResult orbit_random_bytes(OrbitArena* arena, orbit_int n);
@@ -676,6 +695,8 @@ orbit_int system_uptime(void);
 orbit_int system_pid(void);
 orbit_int system_active_workers(void);
 orbit_int system_http_requests_total(void);
+orbit_int system_http_requests_ok(void);
+orbit_int system_http_requests_error(void);
 orbit_int system_latency_avg_us(void);
 orbit_int system_latency_p50_us(void);
 orbit_int system_latency_p95_us(void);
@@ -707,6 +728,7 @@ orbit_string orbit_os_cwd_selfhost(void);
 orbit_string orbit_os_temp_dir_selfhost(void);
 void orbit_os_exit_selfhost(orbit_int code);
 void orbit_os_write_stderr_selfhost(orbit_string content);
+void orbit_sleep_ms_selfhost(orbit_int ms);
 orbit_string orbit_file_read_selfhost(orbit_string path);
 bool orbit_file_write_selfhost(orbit_string path, orbit_string content);
 OrbitList* orbit_file_list_dir_selfhost(orbit_string path);
@@ -764,7 +786,7 @@ void orbit_http_cleanup(void);
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed);
 #endif
 
-/* ── External functions: Kynx (canonical: runtime/kynx.c) ────────────── */
+/* ── External functions: admission (canonical: runtime/admission.c) ────────────── */
 typedef struct {
     int   pool_size;
     int   rate_limit;
@@ -775,30 +797,30 @@ typedef struct {
     int   score_decay;
     int   ban_duration_s;
     bool  enabled;
-} OrbitKynxConfig;
+} OrbitAdmissionConfig;
 
-uint64_t orbit_kynx_now_ns(void);
-void orbit_kynx_add_trusted_proxy(const char* cidr);
-bool orbit_kynx_is_trusted_proxy(const char* ip_str);
-bool orbit_kynx_has_trusted_proxies(void);
-void orbit_kynx_effective_ip(const char* peer, const char* xff, char* out, size_t out_len);
-void orbit_kynx_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
-bool orbit_kynx_check(const char* ip_str);
-bool orbit_kynx_check_route(const char* ip_str, const char* method, const char* path);
-void orbit_kynx_init(OrbitKynxConfig config);
-void orbit_kynx_cleanup(void);
-void orbit_kynx_reset(void);
-OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
-void orbit_kynx_lease_destroy(OrbitKynxLease* lease);
-void orbit_kynx_lease_abandon(void);
-bool orbit_kynx_lease_check_limits(size_t additional_response_bytes);
-uint64_t orbit_kynx_get_total_checks(void);
-uint64_t orbit_kynx_get_total_blocked(void);
-bool orbit_kynx_is_siege_mode(void);
-int orbit_kynx_get_suspicion(const char* ip_str);
-int orbit_kynx_last_retry_ms(void);
-double orbit_kynx_lease_joules(const OrbitKynxLease* lease);
-uint64_t orbit_kynx_lease_cycles(const OrbitKynxLease* lease);
+uint64_t orbit_admission_now_ns(void);
+void orbit_admission_add_trusted_proxy(const char* cidr);
+bool orbit_admission_is_trusted_proxy(const char* ip_str);
+bool orbit_admission_has_trusted_proxies(void);
+void orbit_admission_effective_ip(const char* peer, const char* xff, char* out, size_t out_len);
+void orbit_admission_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
+bool orbit_admission_check(const char* ip_str);
+bool orbit_admission_check_route(const char* ip_str, const char* method, const char* path);
+void orbit_admission_init(OrbitAdmissionConfig config);
+void orbit_admission_cleanup(void);
+void orbit_admission_reset(void);
+OrbitAdmissionLease* orbit_admission_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
+void orbit_admission_lease_destroy(OrbitAdmissionLease* lease);
+void orbit_admission_lease_abandon(void);
+bool orbit_admission_lease_check_limits(size_t additional_response_bytes);
+uint64_t orbit_admission_get_total_checks(void);
+uint64_t orbit_admission_get_total_blocked(void);
+bool orbit_admission_is_siege_mode(void);
+int orbit_admission_get_suspicion(const char* ip_str);
+int orbit_admission_last_retry_ms(void);
+double orbit_admission_lease_joules(const OrbitAdmissionLease* lease);
+uint64_t orbit_admission_lease_cycles(const OrbitAdmissionLease* lease);
 
 /* ── External data: Pulse dashboard (canonical: runtime/pulse.c) ─────── */
 orbit_string orbit_pulse_get_stats_json(OrbitArena* arena);

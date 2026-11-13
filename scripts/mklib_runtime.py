@@ -6,7 +6,7 @@ declarations in runtime/orbit_api.h; the definitions live in this archive.
 The archive holds one member per runtime module (CORE_MODULES, NET_MODULES),
 each compiled from its own runtime/<module>.c with -DORBIT_RUNTIME_MODULE
 against the module headers. ld pulls only the members a program references,
-so a program that never touches Kynx never links the Kynx tables, and a
+so a program that never touches admission never links the admission tables, and a
 program with no network never imports ws2_32. Unity builds (runtime.h without
 the flag) include the same .c files and are unchanged.
 
@@ -45,13 +45,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / "runtime"
 
 # One archive member per module. perf.c owns the performance counters and the
-# Kynx lease pointer; every other module binds to them through extern.
+# admission lease pointer; every other module binds to them through extern.
 CORE_MODULES = ("perf", "console", "crash",
                 "arena", "arena_alloc", "arena_oom", "arena_reset", "arena_checkpoint",
                 "arena_child", "arena_stats", "arena_global", "arena_pool",
                 "collections", "json", "file", "os", "builtins", "crypto",
                 "selfhost", "energy", "ledger")
-NET_MODULES = ("http", "kynx", "pulse")
+NET_MODULES = ("http", "admission", "pulse")
 DB_MODULES = ("database", "auth")
 
 # Modules compiled with -DORBIT_WITH_NET (their sources branch on it).
@@ -59,7 +59,7 @@ DB_MODULES = ("database", "auth")
 # defines ORBIT_CUSTOM_ROUTER and its own orbit_handle_request.
 MODULE_DEFINES = {m: ("ORBIT_WITH_NET", "ORBIT_LIB_NO_ROUTER") for m in NET_MODULES}
 # The DB modules sit in the DB archive only. The progress handler they install
-# is defined in kynx.c, so the DB archive carries the network modules too.
+# is defined in admission.c, so the DB archive carries the network modules too.
 MODULE_DEFINES.update({m: ("ORBIT_WITH_DB", "ORBIT_WITH_NET") for m in DB_MODULES})
 
 # Symbols the archive must export (a TU-visible function the split relies
@@ -87,17 +87,29 @@ def fnv1a_hex(data):
     return "%08x" % h
 
 
+def platform_tag():
+    """The host the archive is built for: windows or unix.
+
+    One checkout can be shared between a Windows host and a POSIX one, and the
+    archive holds objects for whichever host built it. Without this line a
+    Windows archive looks fresh on Linux (same sources, same digests) and the
+    linker names MinGW symbols instead.
+    """
+    return "windows" if os.name == "nt" else "unix"
+
+
 def runtime_stamp(runtime_dir):
-    """One "<name> <digest>" line per runtime source the archive is built from.
+    """One "<name> <digest>" line per runtime source the archive is built from,
+    after one "platform <tag>" line naming the host it was built for.
 
     The compiler links the archive by default (compiler/host/pipeline.orb,
     runtimeArchiveFresh) only when it finds these lines for the runtime
-    directory it resolves, so an archive built from older sources is skipped
-    instead of linked. The file set is the .c and .h files directly in the
-    directory and in its gen/ subdirectory (named "gen/<name>"), minus test_*,
-    and must match runtimeSourceCounts there.
+    directory it resolves, so an archive built from older sources -- or for
+    another host -- is skipped instead of linked. The file set is the .c and .h
+    files directly in the directory and in its gen/ subdirectory (named
+    "gen/<name>"), minus test_*, and must match runtimeSourceCounts there.
     """
-    lines = []
+    lines = ["platform %s\n" % platform_tag()]
     root = pathlib.Path(runtime_dir)
     for prefix, folder in (("", root), ("gen/", root / "gen")):
         if not folder.is_dir():
@@ -234,7 +246,7 @@ def build_lib(cc, out_path, work, defines=(), modules=None, r6=None, compiler=No
 
 
 def self_test(cc):
-    """The tool must be able to say no twice: bad C, missing runtime."""
+    """The tool must be able to say no twice, and the --db recipe must build."""
     with tempfile.TemporaryDirectory(prefix="mklib_selftest_") as td:
         work = pathlib.Path(td)
         bad_src = work / "bad.c"
@@ -260,8 +272,29 @@ def self_test(cc):
         if "Traceback (most recent call last)" in (proc.stdout + proc.stderr):
             print("self-test FAILED: missing runtime died with a traceback")
             return 1
-    out.finish("mklib self-test", 2, 2,
-               extra="compile failure and missing runtime are both reported")
+        # The plain archive never compiles these two, so a call into another
+        # module whose header is not included stays invisible until a consumer
+        # asks for --db (the release does, and so does the native backend).
+        # Compiling them alone is the cheapest place that failure shows up.
+        for module in DB_MODULES:
+            argv = [cc, "-O2", "-Wall", "-DORBIT_RUNTIME_MODULE"]
+            for define in MODULE_DEFINES.get(module, ()):
+                argv.append("-D" + define)
+            argv += ["-I", str(RUNTIME), "-I", str(RUNTIME / "vendor"),
+                     str(RUNTIME / (module + ".c")), "-c", "-o",
+                     str(work / (module + ".o"))]
+            built = subprocess.run(argv, cwd=str(ROOT), capture_output=True,
+                                   text=True, errors="replace")
+            if built.returncode != 0:
+                print(f"self-test FAILED: the {module} module does not "
+                      f"compile on its own, and --db needs it to")
+                sys.stdout.write(built.stdout or "")
+                sys.stderr.write(built.stderr or "")
+                return 1
+    checks = 2 + len(DB_MODULES)
+    out.finish("mklib self-test", checks, checks,
+               extra="compile failure and missing runtime are both reported, "
+                     "and every DB-only module compiles on its own")
     return 0
 
 

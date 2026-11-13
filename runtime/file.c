@@ -33,7 +33,7 @@ OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
      * file that was there came back as Err(OUT_OF_MEMORY): a failure that was
      * never attempted. The fallback below is what the modules that allocate for
      * a nullable arena do (collections.c:131, os.c:91); the five that do not
-     * (auth.c, database.c, pulse.c, kynx.c, string_pool.c) are only ever handed
+     * (auth.c, database.c, pulse.c, admission.c, string_pool.c) are only ever handed
      * an arena by the router, and this one is reached the other way. */
     if (!arena || !arena->base) arena = orbit_arena_get_global();
 

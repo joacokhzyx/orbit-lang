@@ -13,9 +13,69 @@ fn tirValue(valueId: int) -> string {
     return "v" + tirIntText(valueId)
 }
 
+// The type a literal carries. A chunk of an interpolated string is text with
+// its backslash escapes still in it, and the value it builds is a string, so
+// the reader of types and the lowerer answer `string` for it rather than the
+// parser's own tag.
 fn tirLiteralType(node: LiteralNode) -> string {
     if node.valType == "identifier" { return "unknown" }
+    if node.valType == "string_chunk" { return "string" }
     return node.valType
+}
+
+// The type a file-scope `val`/`const` carries, from the literal it is written
+// with. A negated or complemented literal is the operand's type, and a negated
+// boolean is not a value. "" keeps the name out of the table.
+// orbit-walk: none -- answers the type a literal writes
+fn constantValueType(value: ASTNode) -> string {
+    match value {
+        ASTNode.Literal(literal) => {
+            if literal.valType == "identifier" { return "" }
+            if literal.valType == "string_chunk" { return "string" }
+            return literal.valType
+        }
+        ASTNode.UnaryOp(unary) => {
+            if unary.op == "-" || unary.op == "~" { return constantValueType(unary.operand) }
+            if unary.op == "!" { return "bool" }
+        }
+        _ => {}
+    }
+    return ""
+}
+
+// Every file-scope `val` and `const` written with a literal. The C backend makes
+// each one a `#define`, so no instruction emits it and a read of the name used to
+// be E2001; the type is in the source, beside the value.
+fn collectConstants(module: TirModule, program: ProgramNode) {
+    var i = 0
+    while i < program.decls.len() {
+        match program.decls.get(i) {
+            ASTNode.VarDecl(declaration) => {
+                val constantType = constantValueType(declaration.value)
+                if constantType != "" {
+                    module.constants.push(TirConstant(declaration.name, constantType))
+                }
+            }
+            ASTNode.ConstDecl(constant) => {
+                val constantType = constantValueType(constant.value)
+                if constantType != "" {
+                    module.constants.push(TirConstant(constant.name, constantType))
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+}
+
+fn declaredConstantType(module: TirModule, name: string) -> string {
+    var i = 0
+    while i < module.constants.len() {
+        val constant: TirConstant = module.constants.get(i)
+        if constant.name == name { return constant.typeName }
+        i = i + 1
+    }
+    return ""
 }
 
 fn tirBinaryType(op: string, leftType: string, rightType: string) -> string {
@@ -33,6 +93,14 @@ fn tirBinaryType(op: string, leftType: string, rightType: string) -> string {
     if op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>" {
         if leftType == "int" && rightType == "int" { return "int" }
         return "unknown"
+    }
+    // A `+` with a string on either side is a concatenation and answers
+    // `string`, whatever the other operand carries. `compiler/ir/builder.orb`
+    // states this for the build path -- the emitter lowers it to
+    // `orbit_string_concat` -- and the case was missing here, which is how 84
+    // `+` instructions of the corpus stayed `unknown`.
+    if op == "+" {
+        if leftType == "string" || rightType == "string" { return "string" }
     }
     if leftType == rightType { return leftType }
     return "unknown"
@@ -58,18 +126,616 @@ fn copyBindings(bindings: list < TirBinding >) -> list < TirBinding > {
     return copied
 }
 
+// The return type the program declares for this function name, or "" when it
+// declares none. Every answer below used to be a name written into this file:
+// `tirIntText` and `isVisited` and `hasErrors` each needed their own line, and a
+// function the reader did not think of answering stayed `unknown`. The lowering
+// registers each function before it lowers its body, so a call to one already
+// declared is typed from the declaration itself.
+fn declaredReturnType(module: TirModule, name: string) -> string {
+    var i = module.signatures.len()
+    while i > 0 {
+        i = i - 1
+        val declared: TirSignature = module.signatures.get(i)
+        if declared.name == name { return declared.returnType }
+    }
+    return ""
+}
+
+// The signatures the file declares, read before any body. A function's own
+// entry lands in `module.signatures` only when `lowerFunction` runs, so a call
+// to a function declared later in the file had nothing to answer with: the load
+// of its name reported E2001, the `if` around a call that answers bool reported
+// E2100, and `tirCanonical` prints nothing while an error-severity diagnostic
+// exists. Scanning the declarations once first costs a list and removes a whole
+// class of self-inflicted blindness.
+// orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ImportStmtNode, ImplDeclNode, MigrationDeclNode, ModelDeclNode, RouteDeclNode, ScheduleDeclNode, TraitDeclNode, TypeDeclNode, UseStmtNode, VarDeclNode
+fn collectSignatures(module: TirModule, program: ProgramNode) {
+    var i = 0
+    while i < program.decls.len() {
+        match program.decls.get(i) {
+            ASTNode.FunctionDecl(declaration) => {
+                module.signatures.push(TirSignature(declaration.name, declaration.returnType))
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+}
+
+// Does this file declare a model under this name? One pass over the table the
+// program filled. The answer is about the name, not the model behind it: the
+// language accepts `model Node { value: int  next: Node }` today
+// (tests/suite/model_local_named_mid.orb) and a mutual pair as well, so a
+// lookup that resolved a field type to a leaf has no bound to stop at. The
+// chain's depth comes from the AST instead -- one lookup per hop, and the hop
+// that names no declared model is the hop that answers `unknown`.
+fn tirDeclaresModel(module: TirModule, name: string) -> bool {
+    var i = 0
+    while i < module.types.len() {
+        val declared: TirType = module.types.get(i)
+        if declared.name == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The name of a declared type when the node is a bare identifier that names one,
+// and "" otherwise. `TokType.EOF` starts with a name that is not a value: there
+// is nothing to load, and lowering it as a load asked for a binding of `TokType`,
+// got none, and reported E2001 for the whole file.
+fn declaredTypeName(module: TirModule, object: ASTNode) -> string {
+    match object {
+        ASTNode.Literal(literal) => {
+            if literal.valType == "identifier" {
+                if tirDeclaresModel(module, literal.text) { return literal.text }
+            }
+        }
+        _ => {}
+    }
+    return ""
+}
+
+// Is this qualified name a variant of this declared type that carries a payload?
+// `ASTNode.Literal(x)` constructs `ASTNode`, so the call answers the type the
+// source wrote before the dot and there is no value to read first. Lowering the
+// callee as an expression asked for a binding of `ASTNode`, a name no function
+// binds, and reported E2001 for the load and E2004 for the read after it.
+fn declaresVariantCtor(module: TirModule, typeName: string, variant: string) -> bool {
+    val qualified = typeName + "." + variant
+    var i = 0
+    while i < module.ctors.len() {
+        if module.ctors.get(i) == qualified { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// Is this name a model the program declares? `Token(tag, text, line, col, start,
+// len)` is a construction of that model, and the name is not a value read from
+// anywhere: no function is called `Token` and no binding holds it. Lowering the
+// callee as an expression loaded the name, reported E2001 for the load, and left
+// the call after it reporting E2005 for a result the pass had just made unreadable.
+fn declaresModelCtor(module: TirModule, name: string) -> bool {
+    var i = 0
+    while i < module.ctors.len() {
+        if module.ctors.get(i) == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The models the file declares, read before any body, for the one reason
+// `collectSignatures` exists: a `model` written after the function whose body
+// reads one of its fields was not in the table while that body lowered, so the
+// read answered `unknown` for a type the file states a few lines later. The
+// table is a resolution table and prints nothing, so collecting it early costs a
+// list and no line of the canonical text.
+fn collectModels(module: TirModule, program: ProgramNode) {
+    var i = 0
+    while i < program.decls.len() {
+        match program.decls.get(i) {
+            ASTNode.ModelDecl(modelDecl) => { tirCollectModel(module, modelDecl) }
+            ASTNode.TypeDecl(typeDecl) => {
+                if typeDecl.kind == "enum" || typeDecl.kind == "union" {
+                    tirCollectVariants(module, typeDecl)
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+}
+
+// The field type the file itself declares. Three answers, and each is the text
+// the source writes beside the field's name: a builtin, a `list` or `list<T>`
+// container, and the name of another model this file declares. A `list<T>`
+// carries its element kind to the read, so `bag.items.get(0)` answers what the
+// field wrote inside the brackets. The bare `list` a literal answers is not an
+// element kind: a read of one element of that stays the give-up
+// tests/frontend/index_write.orb names, and a name this file does not declare
+// is no answer either. An empty
+// answer means the read stays `unknown`, which is what E2004 reports today.
+fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> string {
+    val baseName = tirTypeBaseName(typeName)
+    val args = tirTypeArguments(typeName)
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == baseName {
+            var f = 0
+            while f < declared.fields.len() {
+                val field: TirField = declared.fields.get(f)
+                if field.name == fieldName {
+                    val fromInstance = tirSubstitutedFieldType(module, declared, field, args)
+                    if fromInstance != "" {
+                        return fromInstance
+                    }
+                    if field.declaredType == "int" { return "int" }
+                    if field.declaredType == "string" { return "string" }
+                    if field.declaredType == "bool" { return "bool" }
+                    if field.declaredType == "float" { return "float" }
+                    // `list` and `list<T>`: the prefix is read from the parsed
+                    // type text, the way `declaredPayloadType` reads `result<`.
+                    // The written text is the answer, so a field declared
+                    // `list<string>` carries its element kind to the read, and
+                    // `bag.items.get(0)` answers `string` the same way a
+                    // `list<string>` parameter does.
+                    // A `&Inner` field type keeps its ampersand and answers
+                    // nothing, because the name this table holds has none.
+                    if field.declaredType == "list" { return "list" }
+                    if field.declaredType.length >= 7 {
+                        if field.declaredType.slice(0, 5) == "list<" {
+                            if field.declaredType.slice(field.declaredType.length - 1, field.declaredType.length) == ">" {
+                                return field.declaredType
+                            }
+                        }
+                    }
+                    if tirDeclaresModel(module, field.declaredType) { return field.declaredType }
+                    return ""
+                }
+                f = f + 1
+            }
+        }
+        t = t + 1
+    }
+    return ""
+}
+
+// The names a model declares as its type parameters, in the order it writes
+// them: `model Pair[A, B]` gives `A` then `B`, because an instance answers by
+// position.
+// orbit-walk: none -- names a node; it visits no children
+fn tirGenericParamNames(params: list < ASTNode >) -> list < string > {
+    val names = []
+    var i = 0
+    while i < params.len() {
+        match params.get(i) {
+            ASTNode.GenericParam(gparam) => {
+                names.push(gparam.name)
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return names
+}
+
+// The model a type text names, without its arguments: `Box<int>` is `Box`, and a
+// bare `Box` is `Box`.
+fn tirTypeBaseName(typeText: string) -> string {
+    var out = ""
+    var i = 0
+    while i < typeText.length {
+        val c = typeText.slice(i, i + 1)
+        if c == "<" {
+            return out
+        }
+        if c != " " {
+            out = out + c
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// The arguments a type text writes, split on the commas outside a `<...>`, so
+// `Pair<int, list<string>>` is `int` and `list<string>`. A type text written
+// without arguments gives none, and that is the bare name the pass keeps.
+fn tirTypeArguments(typeText: string) -> list < string > {
+    val out = []
+    var current = ""
+    var depth = 0
+    var i = 0
+    while i < typeText.length {
+        val c = typeText.slice(i, i + 1)
+        if c == "<" {
+            if depth > 0 {
+                current = current + c
+            }
+            depth = depth + 1
+        } else if c == ">" {
+            depth = depth - 1
+            if depth > 0 {
+                current = current + c
+            } else if current != "" {
+                out.push(tirTrimTypeSpaces(current))
+                current = ""
+            }
+        } else if depth == 1 {
+            if c == "," {
+                if current != "" {
+                    out.push(tirTrimTypeSpaces(current))
+                    current = ""
+                }
+            } else {
+                current = current + c
+            }
+        } else if depth > 1 {
+            current = current + c
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn tirTrimTypeSpaces(typeText: string) -> string {
+    var start = 0
+    while start < typeText.length && typeText.slice(start, start + 1) == " " {
+        start = start + 1
+    }
+    var finish = typeText.length
+    while finish > start && typeText.slice(finish - 1, finish) == " " {
+        finish = finish - 1
+    }
+    return typeText.slice(start, finish)
+}
+
+// A field whose declared type is one of the model's parameters answers the
+// argument the instance writes: `v: T` under `Box<int>` is `int`, and
+// `items: list<T>` under `Bag<string>` is `list<string>`. The argument has to be
+// a type this pass already states, because a text it cannot read back would put
+// a new spelling into the file's canonical text.
+fn tirSubstitutedFieldType(module: TirModule, declared: TirType, field: TirField, args: list < string >) -> string {
+    if args.len() == 0 {
+        return ""
+    }
+    return tirSubstituteText(module, declared, field.declaredType, args)
+}
+
+// The instance argument a declaration's text writes, or "" when the text names
+// no parameter. A field and a variant payload read this the same way; the
+// answer is only a type this pass already states, because a text it cannot read
+// back would put a new spelling into the file's canonical text.
+fn tirSubstituteText(module: TirModule, declared: TirType, text: string, args: list < string >) -> string {
+    var p = 0
+    while p < declared.params.len() && p < args.len() {
+        if declared.params.get(p) == text {
+            return tirStatedType(module, args.get(p))
+        }
+        if text.length >= 7 {
+            if text.slice(0, 5) == "list<" {
+                if text.slice(text.length - 1, text.length) == ">" {
+                    if text.slice(5, text.length - 1) == declared.params.get(p) {
+                        val inner = tirStatedType(module, args.get(p))
+                        if inner != "" {
+                            return "list<" + inner + ">"
+                        }
+                    }
+                }
+            }
+        }
+        p = p + 1
+    }
+    return ""
+}
+
+// The type texts this pass prints and can read back: four builtins, `object`, a
+// model this file declares, `list`, and a `list` of one of those.
+fn tirStatedType(module: TirModule, typeText: string) -> string {
+    if typeText == "int" || typeText == "string" || typeText == "bool" || typeText == "float" {
+        return typeText
+    }
+    if typeText == "object" || typeText == "list" {
+        return typeText
+    }
+    if tirDeclaresModel(module, typeText) {
+        return typeText
+    }
+    if typeText.length >= 7 {
+        if typeText.slice(0, 5) == "list<" {
+            if typeText.slice(typeText.length - 1, typeText.length) == ">" {
+                val inner = tirStatedType(module, typeText.slice(5, typeText.length - 1))
+                if inner != "" {
+                    return "list<" + inner + ">"
+                }
+            }
+        }
+    }
+    return ""
+}
+
+// Whether the file declares a type by this name: a model or a union, with or
+// without arguments. A binding annotation the source wrote is a type this pass
+// can print only when the file declares it.
+fn tirDeclaresType(module: TirModule, name: string) -> bool {
+    val baseName = tirTypeBaseName(name)
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == baseName { return true }
+        t = t + 1
+    }
+    return false
+}
+
+// The argument one literal writes for one declared parameter: the type of the
+// value written for a field declared as that parameter, or the element of a
+// `list<T>` field. "" when the literal writes neither, or writes a value with no
+// stated type.
+fn literalArgumentType(module: TirModule, bindings: list < TirBinding >, field: TirField, body: ObjectLiteralNode) -> string {
+    val elementField = listSpellingWithElement(field.declaredType)
+    var fi = 0
+    while fi < body.fields.len() {
+        match body.fields.get(fi) {
+            ASTNode.FieldInit(init) => {
+                if init.name == field.name {
+                    val valueType = tirStatedType(module, typeOfExpression(module, bindings, init.value))
+                    if elementField {
+                        val element = listElementKind(valueType)
+                        if element != "" { return element }
+                    } else if valueType != "" {
+                        return valueType
+                    }
+                }
+            }
+            _ => {}
+        }
+        fi = fi + 1
+    }
+    return ""
+}
+
+// The instance a named model literal writes: `Box { v: 1 }` is `Box<int>`.
+// `compiler/ir/builder.orb` infers the argument from the value written for the
+// field that uses it, and a field read is answered from the instance, so the
+// read needs the same argument here. A literal that leaves one out -- no initial
+// for that field, or a value the pass cannot state -- keeps the bare name the
+// source wrote, and the field read stays the E2004 it was.
+fn typedLiteralInstanceType(module: TirModule, bindings: list < TirBinding >, typed: TypedLiteralNode) -> string {
+    val declaredName = typed.declaredType
+    var declaredIndex = -1
+    var t = 0
+    while t < module.types.len() {
+        val candidate: TirType = module.types.get(t)
+        if candidate.name == declaredName { declaredIndex = t }
+        t = t + 1
+    }
+    if declaredIndex < 0 { return declaredName }
+    val declared: TirType = module.types.get(declaredIndex)
+    if declared.params.len() == 0 { return declaredName }
+    var instance = declaredName + "<"
+    var p = 0
+    while p < declared.params.len() {
+        val param = declared.params.get(p)
+        var argType = ""
+        var f = 0
+        while f < declared.fields.len() {
+            val field: TirField = declared.fields.get(f)
+            var namesParam = false
+            if field.declaredType == param { namesParam = true }
+            if listSpellingWithElement(field.declaredType) {
+                if field.declaredType.slice(5, field.declaredType.length - 1) == param { namesParam = true }
+            }
+            if namesParam && argType == "" {
+                match typed.value {
+                    ASTNode.ObjectLiteral(body) => {
+                        argType = literalArgumentType(module, bindings, field, body)
+                    }
+                    _ => {}
+                }
+            }
+            f = f + 1
+        }
+        if argType == "" { return declaredName }
+        if p > 0 { instance = instance + ", " }
+        instance = instance + argType
+        p = p + 1
+    }
+    return instance + ">"
+}
+
+// The value type written inside a declared `result`. `typeOfExpression` answers
+// a call to a function this file declares with the text after `->`, so the payload
+// a `try` reads is in the file's own bytes. Only a builtin is an answer: this rule
+// is handed one type string and reads no declaration with it, not even the model
+// table `declaredFieldType` reads. An empty answer is the give-up E3001 reports.
+fn declaredPayloadType(typeName: string) -> string {
+    if typeName.length < 9 { return "" }
+    if typeName.slice(0, 7) != "result<" { return "" }
+    if typeName.slice(typeName.length - 1, typeName.length) != ">" { return "" }
+    val payload = typeName.slice(7, typeName.length - 1)
+    if payload == "int" { return "int" }
+    if payload == "bool" { return "bool" }
+    if payload == "string" { return "string" }
+    if payload == "float" { return "float" }
+    // The anonymous container is the fifth answer, not a sixth: this module
+    // already prints `object` for the literal and for a field read of one, so a
+    // signature that writes `result<object>` names a type the pass states.
+    if payload == "object" { return "object" }
+    return ""
+}
+
+// Record a model the file declares, so a field read can be answered from the
+// text rather than guessed from the name. The model's own name enters `ctors`
+// too: `Point(1, 2)` constructs it, and is not a call through a value.
+fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
+    val fields = []
+    var i = 0
+    while i < modelDecl.fields.len() {
+        match modelDecl.fields.get(i) {
+            ASTNode.FieldDecl(field) => {
+                fields.push(TirField(field.name, field.fieldType))
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    module.ctors.push(modelDecl.name)
+    module.types.push(TirType(modelDecl.name, fields, tirGenericParamNames(modelDecl.genericParams), [], []))
+}
+
+// An enum enters the same table, with its variants as the fields and its own
+// name as the declared type of each one. That is the text the source writes:
+// `TokType.EOF` has type `TokType`, and the build path gives the same shape to a
+// variant as an integer tag under the name `TAG_TokType_EOF`. A union variant
+// that carries a payload is not a constant and does not enter that table: the
+// value needs an argument this pass is not being handed. It enters `ctors`,
+// which is the answer to a different question -- is this qualified name a
+// construction of the type that declares it.
+fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
+    val fields = []
+    val names = []
+    val payloads = []
+    var i = 0
+    while i < typeDecl.variants.len() {
+        // A variant with a payload is a construction that needs an argument, not
+        // a name this pass can answer. Only the payload-less ones enter the table,
+        // and they are read as constants of the type that declares them.
+        var payload = ""
+        if i < typeDecl.variantPayloads.len() {
+            payload = typeDecl.variantPayloads.get(i)
+        }
+        match typeDecl.variants.get(i) {
+            ASTNode.Literal(variant) => {
+                // The order is the tag: `compiler/emit/c_backend.orb:2082` numbers
+                // every variant by its index, payload or not, and a match arm is
+                // compared against that number. `payloads` keeps the same order so
+                // a `match` arm that binds the payload knows what it binds.
+                names.push(variant.text)
+                payloads.push(payload)
+                if payload == "" {
+                    fields.push(TirField(variant.text, typeDecl.name))
+                } else {
+                    module.ctors.push(typeDecl.name + "." + variant.text)
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    // The parameters the declaration writes, so a payload declared `T` can
+    // answer the argument the instance names: `Some(T)` under `Option<int>` is
+    // `int`. A model field has been read this way since the model's table kept
+    // its parameters; a union's did not, so every matching arm bound `T`.
+    module.types.push(TirType(typeDecl.name, fields, tirGenericParamNames(typeDecl.genericParams), names, payloads))
+}
+
+// The element kind a list type text carries. `list<int>` answers `int`; `list`
+// answers "", because the source said nothing about the inside and an invented
+// element type is the lie the `unknown` count exists to make visible. The text
+// arrives normalized -- `param 0 0 xs list<int>` is what the golden shows -- so
+// the prefix and the closing bracket are the whole parse.
+fn listElementKind(typeText: string) -> string {
+    if typeText.length < 7 { return "" }
+    if typeText.slice(0, 5) != "list<" { return "" }
+    if typeText.slice(typeText.length - 1, typeText.length) != ">" { return "" }
+    return typeText.slice(5, typeText.length - 1)
+}
+
+// The callee of a call, spelled the way the source spells it, for the one
+// message that had no name in it. E2001 names the identifier and E2004 names the
+// field, and the census splits both by where the name is declared. E2005 said
+// only "this call", so the largest class of untyped instructions could not be
+// classified at all: 621 of them over the corpus, and no way to say how many
+// were a builtin, a method on an untyped receiver, or a name nothing declares.
+// orbit-walk: none -- names a node; it visits no children
+fn callCalleeText(callee: ASTNode) -> string {
+    match callee {
+        ASTNode.Literal(literal) => {
+            return literal.text
+        }
+        ASTNode.MemberAccess(member) => {
+            return "." + member.field
+        }
+        _ => {}
+    }
+    return "(expression)"
+}
+
+// The model query helpers. `compiler/ir/builder.orb:4711` through `:4726` turn
+// `Item.all()`, `Item.where(...)`, `Item.find(...)` and `Item.first()` into a call of
+// `orbit_db_query_*` with the table as its first argument: no field of `Item` is read
+// for any of them. Measured 2026-11-05 with `orbit build --emit-ir`, every one of the
+// four result registers carries the type `string` -- the JSON the runtime returns.
+fn modelQueryHelper(memberName: string) -> bool {
+    if memberName == "all" { return true }
+    if memberName == "where" { return true }
+    if memberName == "find" { return true }
+    if memberName == "first" { return true }
+    return false
+}
+
+// The type of a `system.<method>` read. `compiler/front/sema.orb` answers `int`
+// for these ten names and nothing for any other, and the list is kept here as
+// one function so a method the checker does not know keeps answering `unknown`.
+fn systemMethodType(member: string) -> string {
+    if member == "uptime" { return "int" }
+    if member == "pid" { return "int" }
+    if member == "active_workers" { return "int" }
+    if member == "http_requests_total" { return "int" }
+    if member == "http_requests_ok" { return "int" }
+    if member == "http_requests_error" { return "int" }
+    if member == "latency_avg_us" { return "int" }
+    if member == "latency_p50_us" { return "int" }
+    if member == "latency_p95_us" { return "int" }
+    if member == "latency_p99_us" { return "int" }
+    return ""
+}
+
+// The block a labelled transfer jumps to: the innermost loop on the function's stack
+// whose name is the label the source wrote, the same search `compiler/ir/builder.orb:3467`
+// makes over its own lists. -1 when no enclosing loop carries the name.
+fn tirLoopLabelBlock(function: TirFunction, label: string, forContinue: bool) -> int {
+    var i = function.loopLabels.len()
+    while i > 0 {
+        i = i - 1
+        if function.loopLabels.get(i) == label {
+            if forContinue { return function.loopContinues.get(i) }
+            return function.loopExits.get(i)
+        }
+    }
+    return -1
+}
+
 // orbit-walk: none -- asks what type an expression is
-fn typeOfExpression(bindings: list < TirBinding >, node: ASTNode) -> string {
+fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(literal) => {
-            if literal.valType == "identifier" { return bindingType(bindings, literal.text) }
-            return literal.valType
+            if literal.valType == "identifier" {
+                // The null pointer constant: `compiler/front/sema.orb` resolves
+                // the name and the C backend types it `void*`, so the value
+                // exists in the language. The name the build IR uses for it is
+                // "NULL", which is what this answers.
+                if literal.text == "NULL" { return "NULL" }
+                val bound = bindingType(bindings, literal.text)
+                if bound != "unknown" { return bound }
+                val fromDeclaration = declaredReturnType(module, literal.text)
+                if fromDeclaration != "" { return fromDeclaration }
+                // A file-scope `val`/`const` is a `#define` in the build and a
+                // name with a type here.
+                val fromConstant = declaredConstantType(module, literal.text)
+                if fromConstant != "" { return fromConstant }
+                if literal.text == "system" { return "system" }
+                return "unknown"
+            }
+            return tirLiteralType(literal)
         }
         ASTNode.BinaryOp(binary) => {
-            return tirBinaryType(binary.op, typeOfExpression(bindings, binary.lhs), typeOfExpression(bindings, binary.rhs))
+            return tirBinaryType(binary.op, typeOfExpression(module, bindings, binary.lhs), typeOfExpression(module, bindings, binary.rhs))
         }
         ASTNode.UnaryOp(unary) => {
-            val operandType = typeOfExpression(bindings, unary.operand)
+            val operandType = typeOfExpression(module, bindings, unary.operand)
             if unary.op == "!" {
                 if operandType == "bool" { return "bool" }
                 return "unknown"
@@ -85,34 +751,323 @@ fn typeOfExpression(bindings: list < TirBinding >, node: ASTNode) -> string {
         }
         ASTNode.MemberAccess(member) => {
             if member.field == "len" || member.field == "length" { return "int" }
+            // A read of a field the program declared in this file has a type,
+            // and it is the one written beside the field's name. Before this,
+            // every member read that was not `len` answered `unknown`, and the
+            // census counted 5,389 of them as E2004.
+            val typeName = declaredTypeName(module, member.object)
+            if typeName != "" {
+                val variantType = declaredFieldType(module, typeName, member.field)
+                if variantType != "" { return variantType }
+            }
+            val ownerType = typeOfExpression(module, bindings, member.object)
+            if ownerType != "unknown" {
+                val fromModel = declaredFieldType(module, ownerType, member.field)
+                if fromModel != "" { return fromModel }
+            }
+            // A field read off an `object` answers `object`: the register the
+            // build allocates for it is declared `object` in
+            // `compiler/ir/builder.orb`, which is the same answer the literal
+            // itself carries. Which field the runtime then finds is not a type
+            // this pass can claim from the reader.
+            if ownerType == "object" { return "object" }
+            return "unknown"
+        }
+        // The type a list literal carries. `lowerExpression` emits the same
+        // answer, and the two must agree: a binding seeded with a type the
+        // reader does not know is an `unknown` load at every later use of the
+        // name. The element kind is the elements' own type, which is the one
+        // thing the source does write; no element, no kind.
+        ASTNode.ListLiteral(listNode) => {
+            val literalElement = listLiteralElement(module, bindings, listNode)
+            if literalElement != "" { return "list<" + literalElement + ">" }
+            return "list"
+        }
+        // An interpolated string is one value the source wrote in pieces, and the
+        // piece that is text is always text. The element kind of a list is not
+        // known here; nothing about an interpolation is.
+        ASTNode.Interp(interpNode) => {
+            return "string"
+        }
+        // A model literal names the type it builds, so the answer is the written
+        // name and not an inference. `lowerExpression` emits the same string, and
+        // the two must agree: a `val` bound to a literal this reader calls
+        // `unknown` loads back `unknown` at every later use of the name.
+        ASTNode.TypedLiteral(typedNode) => {
+            return typedLiteralInstanceType(module, bindings, typedNode)
+        }
+        // The anonymous spelling of the same value. The build IR calls it
+        // `object` (`buildObjectLiteralAsModel`'s type answer in
+        // `compiler/ir/builder.orb`), and the instruction this pass emits says
+        // the same, so a binding to one loads back what it is rather than
+        // `unknown`.
+        ASTNode.ObjectLiteral(objectNode) => {
+            return "object"
+        }
+        // The index form of a list read is the instruction the build emits for
+        // `xs.get(i)` -- `IROpcode.list_get` at `compiler/ir/builder.orb:5820` --
+        // so the answer is the same one: the element kind the receiver's type
+        // text writes. A receiver that writes none answers none, and the give-up
+        // E3001 reports it.
+        ASTNode.IndexAccess(indexNode) => {
+            val receiverText = typeOfExpression(module, bindings, indexNode.object)
+            val elementKind = listElementKind(receiverText)
+            if elementKind != "" { return elementKind }
             return "unknown"
         }
         ASTNode.Call(call) => {
             match call.callee {
                 ASTNode.Literal(l) => {
+                    val declared = declaredReturnType(module, l.text)
+                    if declared != "" { return declared }
+                    if declaresModelCtor(module, l.text) { return l.text }
+                    // `Circle(5)` with no type before the dot is a construction of
+                    // the one union that declares `Circle`. The name is not loaded
+                    // and the call answers that union's value.
+                    val variantOwner = declaredVariantOwner(module, l.text)
+                    if variantOwner != "" { return variantOwner }
+                    // `ok` and `err` are the result constructors the checker
+                    // accepts by name. Two other modules already give this answer --
+                    // `compiler/ir/builder.orb:389` and
+                    // `compiler/emit/c_backend.orb:4622` both answer `result` -- and
+                    // the name is not a value the program loads.
+                    if l.text == "ok" || l.text == "err" { return "result" }
                     if l.text == "len" || l.text == "indexOf" || l.text == "orbit_os_argc_selfhost" || l.text == "orbit_string_char_at_selfhost" { return "int" }
                     if l.text == "orbit_int_to_string_selfhost" || l.text == "orbit_float_to_string_selfhost" || l.text == "orbit_os_argv_selfhost" || l.text == "orbit_os_exec_selfhost" || l.text == "orbit_os_env_selfhost" || l.text == "orbit_file_read_selfhost" || l.text == "slice" || l.text == "at" || l.text == "tirEscape" || l.text == "tirIntText" { return "string" }
                     if l.text == "orbit_file_write_selfhost" || l.text == "hasErrors" || l.text == "tirHasErrors" || l.text == "isVisited" { return "bool" }
+                    if l.text == "print" { return "void" }
                     return bindingType(bindings, l.text)
                 }
                 ASTNode.MemberAccess(ma) => {
+                    val calleeTypeName = declaredTypeName(module, ma.object)
+                    if calleeTypeName != "" {
+                        if declaresVariantCtor(module, calleeTypeName, ma.field) { return calleeTypeName }
+                        if modelQueryHelper(ma.field) { return "string" }
+                    }
                     if ma.field == "len" || ma.field == "length" || ma.field == "indexOf" { return "int" }
+                    // `s.to_int()` reads the number the text spells, and both
+                    // `compiler/ir/builder.orb:1982` and `compiler/front/sema.orb:4623`
+                    // answer `int` for it.
+                    if ma.field == "to_int" { return "int" }
+                    // An element of a list is the kind the receiver's declared
+                    // type writes. This answered `string` for every receiver,
+                    // including a list, because the only `at` and `slice` sites
+                    // the rule was read from were string ones.
+                    val receiverText = typeOfExpression(module, bindings, ma.object)
+                    if receiverText == "system" {
+                        val systemType = systemMethodType(ma.field)
+                        if systemType != "" { return systemType }
+                    }
+                    val elementKind = listElementKind(receiverText)
+                    if elementKind != "" {
+                        // `pop` yields an element, and `compiler/ir/builder.orb`
+                        // answers it from the receiver's element type beside `get`
+                        // and `at`; `sema.orb` groups the three the same way.
+                        if ma.field == "get" || ma.field == "at" || ma.field == "pop" { return elementKind }
+                        if ma.field == "slice" { return receiverText }
+                    }
+                    // A list write returns nothing. `push` and `set` are emitted by
+                    // the build as a statement block -- `compiler/emit/c_backend.orb`
+                    // calls `orbit_list_push` inside `{ ... }` and gives the register
+                    // no value -- so the answer is the one the build already gives,
+                    // read off the method's name rather than the receiver's kind.
+                    // `list` and `list<T>` are both receivers that answer it.
+                    if receiverText == "list" || elementKind != "" {
+                        if ma.field == "push" || ma.field == "set" { return "void" }
+                    }
+                    // `s.at(i)` is the character code, which the build types
+                    // `int` (`compiler/ir/builder.orb:1984`). This pass answered
+                    // the string spelling for it, so `c - 48` over an `at` read
+                    // was two unknown operands in every lexer-shaped loop.
+                    if receiverText == "string" && ma.field == "at" { return "int" }
                     if ma.field == "slice" || ma.field == "at" { return "string" }
+                    // A member call on an `object` answers `object`: the value
+                    // model is one word with no tag, and
+                    // `compiler/ir/builder.orb:4803` allocates an `object`
+                    // register for exactly this call.
+                    if receiverText == "object" { return "object" }
+                    // A member call naming a declared function is that function
+                    // with the receiver as its first argument -- the builder's
+                    // default method path, which `compiler/front/sema.orb:4676`
+                    // describes. Nothing above answered, so the name is read as a
+                    // function.
+                    val asFunction = declaredReturnType(module, ma.field)
+                    if asFunction != "" { return asFunction }
                 }
                 _ => {}
             }
             return "unknown"
         }
+        // The value of an `if` used as a value: the then branch's type, when the
+        // else branch answers the same. `branchTypeName`
+        // (`compiler/ir/builder.orb:2134`) reads the then branch this way, and the
+        // second check is this pass's own. `lowerExpression` emits the same answer, so
+        // the instruction and the binding built from it cannot disagree.
+        ASTNode.If(ifNode) => {
+            return ifValueType(module, bindings, ifNode)
+        }
+        // A `try` answers with the value the `result` carries, so its type is the
+        // one the callee's declaration writes inside it. `lowerExpression` emits
+        // the same answer, and the two must agree: a name bound to a `try` loads
+        // back whatever the reader called it at every later use of the name.
+        ASTNode.Try(tryNode) => {
+            val unwrapType = declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr))
+            if unwrapType != "" { return unwrapType }
+            return "unknown"
+        }
+        // A `match` used as a value answers the type its arms agree on.
+        ASTNode.Match(m) => { return matchValueType(module, bindings, m) }
         _ => return "unknown"
     }
 }
 
-// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, VarDeclNode, WhileNode
+// The element kind a list literal writes. `listLiteralKindName`
+// (`compiler/ir/builder.orb:1725`) decides it in the build: every element that names a
+// type must name the same one, an element the build cannot type is skipped, and a
+// literal with nothing decided answers nothing. The same rule here keeps the two
+// modules reading one container the same way.
+fn listLiteralElement(module: TirModule, bindings: list < TirBinding >, listNode: ListLiteralNode) -> string {
+    var decided = ""
+    var li = 0
+    while li < listNode.elements.len() {
+        val et = typeOfExpression(module, bindings, listNode.elements.get(li))
+        if et != "unknown" && et != "void" {
+            if decided == "" {
+                decided = et
+            } else if decided != et {
+                return ""
+            }
+        }
+        li = li + 1
+    }
+    return decided
+}
+
+// Which node the frontend gave up on. E3001 printed one sentence for every
+// unsupported expression and E3000 one sentence for every unsupported
+// declaration, so the census could report 9,233 give-ups and nobody could say
+// what they were. The name is the variant the source writes, because that is the
+// string a reader meets in `compiler/front/ast.orb` and in the walk-coverage
+// declarations. A position is not here: the nodes that carry one disagree about
+// which field holds it, and `typeOfExpression` has no line to pass either.
+// orbit-walk: none -- names a node; it visits no children
+fn astNodeKind(node: ASTNode) -> string {
+    match node {
+        ASTNode.Program(n) => { return "Program" }
+        ASTNode.FunctionDecl(n) => { return "FunctionDecl" }
+        ASTNode.RouteDecl(n) => { return "RouteDecl" }
+        ASTNode.ModelDecl(n) => { return "ModelDecl" }
+        ASTNode.TypeDecl(n) => { return "TypeDecl" }
+        ASTNode.FieldDecl(n) => { return "FieldDecl" }
+        ASTNode.TraitDecl(n) => { return "TraitDecl" }
+        ASTNode.ImplDecl(n) => { return "ImplDecl" }
+        ASTNode.VarDecl(n) => { return "VarDecl" }
+        ASTNode.ConstDecl(n) => { return "ConstDecl" }
+        ASTNode.ScheduleDecl(n) => { return "ScheduleDecl" }
+        ASTNode.ConfigDecl(n) => { return "ConfigDecl" }
+        ASTNode.MigrationDecl(n) => { return "MigrationDecl" }
+        ASTNode.ImportStmt(n) => { return "ImportStmt" }
+        ASTNode.UseStmt(n) => { return "UseStmt" }
+        ASTNode.ExpressionStmt(n) => { return "ExpressionStmt" }
+        ASTNode.If(n) => { return "If" }
+        ASTNode.While(n) => { return "While" }
+        ASTNode.For(n) => { return "For" }
+        ASTNode.Return(n) => { return "Return" }
+        ASTNode.ReturnOk(n) => { return "ReturnOk" }
+        ASTNode.ReturnErr(n) => { return "ReturnErr" }
+        ASTNode.Match(n) => { return "Match" }
+        ASTNode.MatchCase(n) => { return "MatchCase" }
+        ASTNode.Try(n) => { return "Try" }
+        ASTNode.Literal(n) => { return "Literal" }
+        ASTNode.Interp(n) => { return "Interp" }
+        ASTNode.ObjectLiteral(n) => { return "ObjectLiteral" }
+        ASTNode.BinaryOp(n) => { return "BinaryOp" }
+        ASTNode.UnaryOp(n) => { return "UnaryOp" }
+        ASTNode.Call(n) => { return "Call" }
+        ASTNode.MemberAccess(n) => { return "MemberAccess" }
+        ASTNode.IndexAccess(n) => { return "IndexAccess" }
+        ASTNode.ListLiteral(n) => { return "ListLiteral" }
+        ASTNode.Assignment(n) => { return "Assignment" }
+        ASTNode.TypeAnnotation(n) => { return "TypeAnnotation" }
+        ASTNode.GenericParam(n) => { return "GenericParam" }
+        ASTNode.Decorator(n) => { return "Decorator" }
+        ASTNode.Block(n) => { return "Block" }
+        ASTNode.Break(n) => { return "Break" }
+        ASTNode.Continue(n) => { return "Continue" }
+        ASTNode.FieldInit(n) => { return "FieldInit" }
+        ASTNode.TypedLiteral(n) => { return "TypedLiteral" }
+        ASTNode.Empty => { return "Empty" }
+        ASTNode.Range(n) => { return "Range" }
+    }
+    return "unknown node"
+}
+
+// The operand text of an object literal: the field count, then each field name
+// and the register holding its value, in the order the source wrote them. The
+// two construction arms share it because they report one thing -- the body of
+// `{ x: 1 }` -- and differ only in whether a type name was written beside it.
+// "" is the only text that cannot come from a real literal: a valid one always
+// starts with the count.
+fn tirFieldText(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, body: ObjectLiteralNode) -> string {
+    var fieldText = tirIntText(body.fields.len())
+    var fi = 0
+    while fi < body.fields.len() {
+        val fnode = body.fields.get(fi)
+        match fnode {
+            ASTNode.FieldInit(init) => {
+                val fieldValue = lowerExpression(module, function, blockId, bindings, init.value)
+                if fieldValue < 0 { return "" }
+                fieldText = fieldText + " " + init.name + " " + tirValue(fieldValue)
+            }
+            _ => {}
+        }
+        fi = fi + 1
+    }
+    return fieldText
+}
+
+// The field initials of an object or model literal are visited by `tirFieldText`, which
+// arms FieldInit; this function has no arm of its own for it, which is what the list
+// below records per walk.
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
             if literal.valType == "identifier" {
-                val typeName = bindingType(bindings, literal.text)
+                // The null pointer constant, named the way the build IR names it.
+                // See `typeOfExpression`, which answers the same string: the two
+                // must agree or a binding to one loads back `unknown`.
+                if literal.text == "NULL" {
+                    return tirEmit(function, blockId, "load", "NULL", literal.text)
+                }
+                var typeName = bindingType(bindings, literal.text)
+                if typeName == "unknown" {
+                    // A name the program declares as a function is known. The
+                    // callee of `take(x)` is a load of `take`, and the load had
+                    // nothing to read, so the pass raised E2001 and
+                    // `tirCanonical` answers nothing at all when a diagnostic of
+                    // severity error exists: a file that called its own
+                    // functions printed no TIR. Only a non-empty answer counts
+                    // -- an undeclared name must keep its E2001, which is what
+                    // tests/frontend/unresolved_type.orb pins.
+                    val fromDeclaration = declaredReturnType(module, literal.text)
+                    if fromDeclaration != "" { typeName = fromDeclaration }
+                }
+                if typeName == "unknown" {
+                    // A file-scope `val`/`const` is a `#define` in the build and
+                    // a name with a type here. A local of that name wins above,
+                    // the way the checker reads a local as a local.
+                    val fromConstant = declaredConstantType(module, literal.text)
+                    if fromConstant != "" { typeName = fromConstant }
+                }
+                if typeName == "unknown" {
+                    // `system` is the telemetry receiver the checker resolves by
+                    // name: `compiler/front/sema.orb` answers `system` for the
+                    // identifier and `int` for each of its ten methods. A binding
+                    // of that name wins above, the way the checker reads a local
+                    // named `system` as a local.
+                    if literal.text == "system" { typeName = "system" }
+                }
                 if typeName == "unknown" {
                     tirError(module, "E2001", "unknown identifier " + literal.text, 0, 0)
                 }
@@ -121,8 +1076,8 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             return tirEmit(function, blockId, "const", tirLiteralType(literal), literal.text)
         }
         ASTNode.BinaryOp(binary) => {
-            val leftType = typeOfExpression(bindings, binary.lhs)
-            val rightType = typeOfExpression(bindings, binary.rhs)
+            val leftType = typeOfExpression(module, bindings, binary.lhs)
+            val rightType = typeOfExpression(module, bindings, binary.rhs)
             val left = lowerExpression(module, function, blockId, bindings, binary.lhs)
             val right = lowerExpression(module, function, blockId, bindings, binary.rhs)
             val resultType = tirBinaryType(binary.op, leftType, rightType)
@@ -133,15 +1088,26 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         }
         ASTNode.UnaryOp(unary) => {
             val operand = lowerExpression(module, function, blockId, bindings, unary.operand)
-            val resultType = typeOfExpression(bindings, node)
+            val resultType = typeOfExpression(module, bindings, node)
             if resultType == "unknown" {
                 tirError(module, "E2003", "invalid operand for unary " + unary.op, 0, 0)
             }
             return tirEmit(function, blockId, "unary." + unary.op, resultType, tirValue(operand))
         }
         ASTNode.MemberAccess(member) => {
+            // `TokType.EOF` names a variant of a declared type. It is not a read
+            // through a value, so there is no object to lower and no `member`
+            // instruction to emit: one constant carries the type and the variant,
+            // both spelled as the source spells them.
+            val qualifiedName = declaredTypeName(module, member.object)
+            if qualifiedName != "" {
+                val variantType = declaredFieldType(module, qualifiedName, member.field)
+                if variantType != "" {
+                    return tirEmit(function, blockId, "const", variantType, qualifiedName + "." + member.field)
+                }
+            }
             val objVal = lowerExpression(module, function, blockId, bindings, member.object)
-            val resType = typeOfExpression(bindings, node)
+            val resType = typeOfExpression(module, bindings, node)
             // A member read is the second-largest source of `unknown` in the
             // corpus and the largest one that said nothing: the lowering had a
             // diagnostic for a load, a binary op and a unary op, and none for
@@ -153,45 +1119,1023 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             return tirEmit(function, blockId, "member", resType, tirValue(objVal) + " " + member.field)
         }
         ASTNode.Call(call) => {
-            val callee = lowerExpression(module, function, blockId, bindings, call.callee)
-            var operands = tirValue(callee)
+            // `print` is a builtin the builder lowers to the runtime's print;
+            // there is no binding to resolve, and its result is no value.
+            var calleeIsPrint = false
+            match call.callee {
+                ASTNode.Literal(pl) => { if pl.text == "print" { calleeIsPrint = true } }
+                _ => {}
+            }
+            if calleeIsPrint {
+                var printOperands = "print"
+                var pi = 0
+                while pi < call.args.len() {
+                    val argument: ASTNode = call.args.get(pi)
+                    val value = lowerExpression(module, function, blockId, bindings, argument)
+                    printOperands = printOperands + " " + tirValue(value)
+                    pi = pi + 1
+                }
+                return tirEmit(function, blockId, "call", "void", printOperands)
+            }
+            // `xs.indexOf(2)` is a call with a receiver: the method name is not a
+            // value read off the list, so lowering the callee as a `member`
+            // instruction invented an instruction that no table can type. The
+            // census counted 1,445 of those unknown member reads on top of the
+            // calls that follow them. The name travels on the call instead, the
+            // way `print` above already carries it, with the receiver as its first
+            // operand.
+            var callOperands = ""
+            var callCalleeIsMethod = false
+            match call.callee {
+                ASTNode.MemberAccess(memberCallee) => {
+                    val qualifiedCallee = declaredTypeName(module, memberCallee.object)
+                    if qualifiedCallee == "" {
+                        val receiverValue = lowerExpression(module, function, blockId, bindings, memberCallee.object)
+                        if receiverValue >= 0 {
+                            callCalleeIsMethod = true
+                            callOperands = memberCallee.field + " " + tirValue(receiverValue)
+                        }
+                    } else {
+                        // The name before the dot is a declared type, and the name
+                        // after it is one of that type's payload-carrying variants:
+                        // the source is constructing a value, so nothing is read
+                        // off anything. `ASTNode.Literal(node)` travels as one call
+                        // with the qualified name the source wrote.
+                        if declaresVariantCtor(module, qualifiedCallee, memberCallee.field) {
+                            callCalleeIsMethod = true
+                            callOperands = qualifiedCallee + "." + memberCallee.field
+                        } else if modelQueryHelper(memberCallee.field) {
+                            // The name before the dot is a declared model and the name
+                            // after it is a query helper: the build calls a runtime
+                            // function and reads no field, so the qualified name travels
+                            // on the call the way a variant constructor does.
+                            callCalleeIsMethod = true
+                            callOperands = qualifiedCallee + "." + memberCallee.field
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if callCalleeIsMethod == false {
+                // The name of a model in call position is the construction, so it
+                // travels on the call and nothing is loaded for it. `ok` and `err`
+                // travel the same way: no program declares them, the checker knows
+                // them by name, and loading them asked for a binding that exists in
+                // no file -- 37 `err` and 13 `ok` loads over the corpus.
+                var modelCalleeName = ""
+                match call.callee {
+                    ASTNode.Literal(calleeLiteral) => {
+                        if declaresModelCtor(module, calleeLiteral.text) {
+                            modelCalleeName = calleeLiteral.text
+                        }
+                        if calleeLiteral.text == "ok" || calleeLiteral.text == "err" {
+                            modelCalleeName = calleeLiteral.text
+                        }
+                        if modelCalleeName == "" {
+                            val variantOwner = declaredVariantOwner(module, calleeLiteral.text)
+                            if variantOwner != "" {
+                                modelCalleeName = variantOwner + "." + calleeLiteral.text
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                if modelCalleeName != "" {
+                    callCalleeIsMethod = true
+                    callOperands = modelCalleeName
+                }
+            }
+            if callCalleeIsMethod == false {
+                val callee = lowerExpression(module, function, blockId, bindings, call.callee)
+                callOperands = tirValue(callee)
+            }
             var i = 0
             while i < call.args.len() {
                 val argument: ASTNode = call.args.get(i)
                 val value = lowerExpression(module, function, blockId, bindings, argument)
-                operands = operands + " " + tirValue(value)
+                callOperands = callOperands + " " + tirValue(value)
                 i = i + 1
             }
-            val returnType = typeOfExpression(bindings, node)
+            // `val out = []` writes no element, so the literal types as the bare
+            // `list` and every `out.get(i)` after it had nothing to answer. The
+            // value pushed into it is the element, and it is typed here already,
+            // so the statements after the push read the local with that element.
+            // Only the bare `list` is filled: `list<T>` came from an annotation
+            // or an earlier push and already says what it holds.
+            if callCalleeIsMethod {
+                match call.callee {
+                    ASTNode.MemberAccess(memberCallee) => {
+                        if memberCallee.field == "push" || memberCallee.field == "set" {
+                            var receiverName = ""
+                            match memberCallee.object {
+                                ASTNode.Literal(receiverLiteral) => {
+                                    if receiverLiteral.valType == "identifier" { receiverName = receiverLiteral.text }
+                                }
+                                _ => {}
+                            }
+                            if receiverName != "" && bindingType(bindings, receiverName) == "list" {
+                                var elementIndex = 0
+                                if memberCallee.field == "set" { elementIndex = 1 }
+                                if call.args.len() > elementIndex {
+                                    val elementType = typeOfExpression(module, bindings, call.args.get(elementIndex))
+                                    if elementType != "" && elementType != "unknown" {
+                                        bindings.push(TirBinding(receiverName, "list<" + elementType + ">"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            val returnType = typeOfExpression(module, bindings, node)
             // Same reasoning as E2004, and the larger of the two: a call whose
             // result cannot be typed is a call the front end does not know the
             // signature of, and it used to be indistinguishable from one it did
             // -- which is how an unchecked argument type reached codegen.
             if returnType == "unknown" {
-                tirError(module, "E2005", "cannot type the result of this call", 0, 0)
+                tirError(module, "E2005", "cannot type the result of this call " + callCalleeText(call.callee), 0, 0)
             }
-            return tirEmit(function, blockId, "call", returnType, operands)
+            return tirEmit(function, blockId, "call", returnType, callOperands)
+        }
+        // `[1, 2]` is a value, and the pass had no rule for it: the elements
+        // were never lowered and the whole expression was a give-up, 412 of them
+        // over the corpus. The container is typed `list` and not `list<int>`:
+        // the frontend keeps no element-kind table, and a type it cannot justify
+        // is the lie the `unknown` count exists to make visible. An empty list is
+        // the same shape with zero elements.
+        ASTNode.Interp(interp) => {
+            // `s"..."` is the parts concatenated, and the parts are either text
+            // the parser cut out of the literal or an expression written in
+            // `${...}`. The flag travels because whether the chunk is taken
+            // verbatim or unescaped is decided at the build, not here: the
+            // frontend records which reading its text carries rather than
+            // copying the unescape rule into this module.
+            var interpOperands = tirIntText(interp.parts.len())
+            if interp.isRaw {
+                interpOperands = interpOperands + " raw"
+            } else {
+                interpOperands = interpOperands + " unescaped"
+            }
+            var pi = 0
+            while pi < interp.parts.len() {
+                val part: ASTNode = interp.parts.get(pi)
+                val partValue = lowerExpression(module, function, blockId, bindings, part)
+                interpOperands = interpOperands + " " + tirValue(partValue)
+                pi = pi + 1
+            }
+            return tirEmit(function, blockId, "interp", "string", interpOperands)
+        }
+        ASTNode.ListLiteral(listNode) => {
+            var elements = ""
+            var li = 0
+            while li < listNode.elements.len() {
+                val item = lowerExpression(module, function, blockId, bindings, listNode.elements.get(li))
+                if item < 0 { return -1 }
+                elements = elements + " " + tirValue(item)
+                li = li + 1
+            }
+            // The reader's answer for the same node, so the instruction and the
+            // binding built from it cannot disagree about what is inside.
+            return tirEmit(function, blockId, "list", typeOfExpression(module, bindings, node), tirIntText(li) + elements)
+        }
+        // `Point { x: 0, y: 0 }` is a construction whose type the source wrote.
+        // The instruction names that type and lists the fields in the order they
+        // were written: `construct Point 2 x v0 y v1`. No model table is read, so
+        // a generic literal keeps the bare name the program wrote -- `Box`, not
+        // the `Box_int` the build mints -- because this text reports the source,
+        // not the resolved instance.
+        ASTNode.TypedLiteral(typed) => {
+            match typed.value {
+                ASTNode.ObjectLiteral(body) => {
+                    val fieldText = tirFieldText(module, function, blockId, bindings, body)
+                    if fieldText == "" { return -1 }
+                    return tirEmit(function, blockId, "construct", typedLiteralInstanceType(module, bindings, typed), fieldText)
+                }
+                _ => {}
+            }
+            tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
+            return -1
+        }
+        // `{ x: 1 }` is the same construction with no type name written beside
+        // it, so the name it reports is the one the build IR already gives it:
+        // `object`. The fields and their values are emitted exactly as the named
+        // form emits them, through the same helper, because it is one construct
+        // spelled two ways. What is not claimed here is which model it builds --
+        // the builder infers that from the position, and this pass reads no
+        // inference.
+        ASTNode.ObjectLiteral(body) => {
+            val fieldText = tirFieldText(module, function, blockId, bindings, body)
+            if fieldText == "" { return -1 }
+            return tirEmit(function, blockId, "construct", "object", fieldText)
+        }
+        // `try fetch(path) catch { return "none" }` tests a result and reads it in
+        // two paths, and the pass had no rule for either: the census counts 93 of
+        // them, each named `Try` by the fallback below, and each suppressing its
+        // file's text.
+        // It lowers when the payload is a type the declaration writes and the
+        // handler ends the block it is in. Then one path reaches the value and no
+        // merge value is needed -- the one an `if` in expression position still
+        // lacks. A bare `try` and a handler that falls through leave the other path
+        // open, a `catch e` binds the error message, and a payload naming a model is
+        // a name this rule does not read: each says which type is missing instead
+        // of inventing one. The `branch` ends the block the source wrote the `try`
+        // in, so the instructions after it are the ok path, and the value is read
+        // from the block the branch names.
+        ASTNode.Try(tryNode) => {
+            return lowerTryValue(module, function, blockId, bindings, tryNode, declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr)), -1, -1)
+        }
+        // `if c then 1 else 2` in value position: the two arms write one join name
+        // and the block after them reads it. The type is the then branch's, the way
+        // the build reads it, and the else branch has to answer the same thing -- one
+        // `instr` line carries one type, so a disagreement prints nothing.
+        ASTNode.If(ifNode) => {
+            return lowerIfValue(module, function, blockId, bindings, ifNode)
+        }
+        // `xs[i]` travels as the one call the build lowers it to, named the way
+        // the method spelling above names it: `call <type> get <container>
+        // <index>`. The condition is the receiver's type text. A list written
+        // without an element kind stays a give-up, because emitting it would add
+        // an `unknown` instruction and suppress the same file text -- the trade
+        // the `for` rule names.
+        ASTNode.IndexAccess(indexNode) => {
+            val indexType = typeOfExpression(module, bindings, node)
+            if indexType == "unknown" {
+                tirError(module, "E3001", "index read needs the element type this pass does not keep", 0, 0)
+                return -1
+            }
+            val containerValue = lowerExpression(module, function, blockId, bindings, indexNode.object)
+            val positionValue = lowerExpression(module, function, blockId, bindings, indexNode.index)
+            return tirEmit(function, blockId, "call", indexType, "get " + tirValue(containerValue) + " " + tirValue(positionValue))
+        }
+        // `match n { 0 => 10  _ => 30 }` as a value: the statement chain with the
+        // arms binding the join name, and the merge block loading it.
+        ASTNode.Match(matchNode) => {
+            return lowerMatchValue(module, function, blockId, bindings, matchNode)
         }
         _ => {
-            tirError(module, "E3001", "expression cannot be lowered to TIR", 0, 0)
+            tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
             return -1
         }
     }
 }
 
+// The handler block opened the way the build opens it: a named `catch` reads the
+// message first -- `result_unwrap_err`, which `compiler/emit/c_backend.orb:870` types
+// `string` -- and binds the name to that read. Both `try` shapes call this, so the value
+// case and the statement case cannot drift apart.
+fn enterTryHandler(function: TirFunction, handlerBlock: int, bindings: list < TirBinding >, tryNode: TryNode, resultValue: int) -> list < TirBinding > {
+    val handlerBindings = copyBindings(bindings)
+    if tryNode.errName != "" {
+        val messageValue = tirEmit(function, handlerBlock, "result_unwrap_err", "string", tirValue(resultValue))
+        tirEmit(function, handlerBlock, "bind", "unit", tryNode.errName + " " + tirValue(messageValue))
+        handlerBindings.push(TirBinding(tryNode.errName, "string"))
+    }
+    return handlerBindings
+}
+
+// A `list<T>` annotation that names its element. The bare `list` is not one:
+// it says nothing a later `.get` could answer.
+fn listSpellingWithElement(text: string) -> bool {
+    if text.length < 7 { return false }
+    if text.slice(0, 5) != "list<" { return false }
+    return text.slice(text.length - 1, text.length) == ">"
+}
+
+// The type a binding keeps from its annotation. `compiler/ir/builder.orb:3140`
+// retypes a `try`'s read register from exactly these when the callee's
+// signature writes no payload: the annotation is the promise, and the checker
+// has already compared it with the value. An empty answer is the give-up E3001
+// reports. The four scalars and `object` travel as written; a `list<T>` keeps
+// its whole spelling, because the element is what a later `.get` answers.
+fn bindingAnnotationType(annotation: string) -> string {
+    if annotation == "int" || annotation == "bool" || annotation == "string" || annotation == "float" {
+        return annotation
+    }
+    if annotation == "object" { return "object" }
+    if listSpellingWithElement(annotation) { return annotation }
+    return ""
+}
+
+// The number the C backend defines as `<Type>_TAG_<Variant>`: the variant's
+// position in the declaration, payload or not (`compiler/emit/c_backend.orb:2082`).
+// "" when this file declares neither the type or not that variant in it.
+fn declaredVariantTag(module: TirModule, typeName: string, variant: string) -> string {
+    val baseName = tirTypeBaseName(typeName)
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == baseName {
+            var v = 0
+            while v < declared.variants.len() {
+                if declared.variants.get(v) == variant { return tirIntText(v) }
+                v = v + 1
+            }
+            return ""
+        }
+        t = t + 1
+    }
+    return ""
+}
+
+// The one type that declares a variant by this bare name, "" when none does or
+// when two do. `module.ctors` carries a model by its own name and a variant as
+// `Type.Variant`, so an entry ending `.<variant>` names its owner before the
+// dot. Two unions may share a variant name; the source wrote no type, and
+// picking one would read the tag from the wrong table.
+fn declaredVariantOwner(module: TirModule, variant: string) -> string {
+    var owner = ""
+    var i = 0
+    while i < module.ctors.len() {
+        val qualified = module.ctors.get(i)
+        if qualified.length > variant.length + 1 {
+            val tail = qualified.slice(qualified.length - variant.length, qualified.length)
+            val dot = qualified.slice(qualified.length - variant.length - 1, qualified.length - variant.length)
+            if tail == variant && dot == "." {
+                val found = qualified.slice(0, qualified.length - variant.length - 1)
+                if owner == "" { owner = found }
+                else if owner != found { return "" }
+            }
+        }
+        i = i + 1
+    }
+    return owner
+}
+
+// The payload type a union variant declares, "" when it declares none or when
+// this file declares neither the type nor that variant in it. A `match` arm that
+// binds the payload names this type, and the arm's body reads fields from it.
+fn declaredVariantPayload(module: TirModule, typeName: string, variant: string) -> string {
+    val baseName = tirTypeBaseName(typeName)
+    val args = tirTypeArguments(typeName)
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == baseName {
+            var v = 0
+            while v < declared.variants.len() {
+                if declared.variants.get(v) == variant {
+                    if v >= declared.payloads.len() { return "" }
+                    val payload: string = declared.payloads.get(v)
+                    if args.len() == 0 { return payload }
+                    // A variant with several payloads packs them tab-separated,
+                    // and each part substitutes on its own: `Both(A, B)` under
+                    // `Pair<int, string>` is `int` and `string`, not one text.
+                    val parts = tirSplitPayloadTypes(payload)
+                    var out = ""
+                    var pi = 0
+                    while pi < parts.len() {
+                        var part: string = parts.get(pi)
+                        val substituted = tirSubstituteText(module, declared, part, args)
+                        if substituted != "" { part = substituted }
+                        if pi > 0 { out = out + "\t" }
+                        out = out + part
+                        pi = pi + 1
+                    }
+                    return out
+                }
+                v = v + 1
+            }
+            return ""
+        }
+        t = t + 1
+    }
+    return ""
+}
+
+// The payload types a variant declares, split on the tab sema joins them with.
+// "" for a unit variant, which has no entry at all.
+fn tirSplitPayloadTypes(joined: string) -> list < string > {
+    val parts = []
+    if joined == "" { return parts }
+    val n = joined.len()
+    var start = 0
+    var i = 0
+    while i <= n {
+        var atEnd = false
+        if i == n { atEnd = true }
+        var isTab = false
+        if atEnd == false {
+            if joined.at(i) == 9 { isTab = true }
+        }
+        if atEnd || isTab {
+            parts.push(joined.slice(start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return parts
+}
+
+// Bind one arm argument to the value read for it, when the argument is a name.
+fn tirBindArmName(function: TirFunction, blockId: int, arg: ASTNode, typeName: string, valueId: int, bodyBindings: list < TirBinding >) {
+    match arg {
+        ASTNode.Literal(binding) => {
+            if binding.valType == "identifier" {
+                tirEmit(function, blockId, "bind", "unit", binding.text + " " + tirValue(valueId))
+                bodyBindings.push(TirBinding(binding.text, typeName))
+            }
+        }
+        _ => {}
+    }
+}
+
+// Does any arm of this match test a variant? The tag is then read once, before the
+// first test, the way `buildMatchExpr` reads it into one register and compares that
+// register against every arm.
+fn matchTestsVariants(module: TirModule, scrutineeType: string, cases: list < ASTNode >) -> bool {
+    var i = 0
+    while i < cases.len() {
+        match cases.get(i) {
+            ASTNode.MatchCase(c) => {
+                match c.pattern {
+                    ASTNode.MemberAccess(member) => { return true }
+                    ASTNode.Call(callPattern) => { return true }
+                    // A bare unit variant -- `NoInt => ...` -- names a variant of
+                    // the value switched on, and it is a tag test too: lowering it
+                    // as an expression loaded a name nothing declares.
+                    ASTNode.Literal(literal) => {
+                        if declaredVariantTag(module, scrutineeType, literal.text) != "" { return true }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// The value a `match` used as an expression is worth: every arm answers the same
+// stated type, which is the rule `ifValueType` applies to two branches.
+fn matchValueType(module: TirModule, bindings: list < TirBinding >, m: MatchNode) -> string {
+    var valueType = ""
+    var i = 0
+    while i < m.cases.len() {
+        match m.cases.get(i) {
+            ASTNode.MatchCase(c) => {
+                val armType = ifBranchType(module, bindings, c.body)
+                if armType == "" || armType == "unknown" { return "" }
+                if valueType == "" { valueType = armType }
+                else if valueType != armType { return "" }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return valueType
+}
+
+// The block a match converges to: the merge block itself for a match used as a
+// statement, and the load of the join name for one used as a value.
+fn matchJoinBlock(function: TirFunction, mergeBlock: int, valueJoin: string, valueType: string) -> int {
+    if valueJoin == "" { return mergeBlock }
+    return tirEmit(function, mergeBlock, "load", valueType, valueJoin)
+}
+
+// `match s { Shape.Empty => …  _ => … }` in statement position. One test per arm,
+// each in the block the previous test fell through to: read the tag once, name the
+// variant's declared number, compare, and `branch` into the arm or into the next
+// test. An arm that returns ends its block, so no jump is written for it -- the
+// same rule the `if` statement already follows. A wildcard tests nothing, so its
+// body is lowered in the block the last test fell through to, which is the block
+// every arm that does not return has to reach.
+//
+// An arm that binds a payload reads the variant's data word with `data`, names
+// it with `bind`, and lowers the body with that name in scope. The type comes
+// from the variant's declaration, so a body that reads a field of the payload
+// resolves it the way the build path does. A variant that declares no payload
+// cannot be bound, and a pattern with more than one argument cannot be a union
+// variant: both are refused rather than lowered to a name with no value.
+fn lowerMatchStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, m: MatchNode, breakTarget: int, continueTarget: int, valueJoin: string) -> int {
+    val scrutineeType = typeOfExpression(module, bindings, m.expr)
+    val scrutineeValue = lowerExpression(module, function, blockId, bindings, m.expr)
+    var tagValue = -1
+    if matchTestsVariants(module, scrutineeType, m.cases) {
+        tagValue = tirEmit(function, blockId, "tag", "int", tirValue(scrutineeValue))
+    }
+    val mergeBlock = tirCreateBlock(function)
+    var testBlock = blockId
+    // Every arm copies these, so a refinement carried out of one arm is not
+    // visible while the next one lowers.
+    val baseCount = bindings.len()
+    val matchBindings = copyBindings(bindings)
+    var i = 0
+    while i < m.cases.len() {
+        val arm: ASTNode = m.cases.get(i)
+        var pattern: ASTNode = ASTNode.Empty
+        var body: ASTNode = ASTNode.Empty
+        match arm {
+            ASTNode.MatchCase(c) => {
+                pattern = c.pattern
+                body = c.body
+            }
+            _ => {}
+        }
+        var isWildcard = false
+        match pattern {
+            ASTNode.Literal(l) => { if l.text == "_" { isWildcard = true } }
+            _ => {}
+        }
+        if isWildcard {
+            val wildBindings = copyBindings(matchBindings)
+            if valueJoin != "" {
+                // An arm that ends the block answers no value, so no join is bound
+                // for it and nothing falls through -- the same rule the statement
+                // form applies to an arm that returns.
+                val wildValue = lowerIfArm(module, function, testBlock, wildBindings, body)
+                if wildValue >= 0 {
+                    tirEmit(function, testBlock, "bind", "unit", valueJoin + " " + tirValue(wildValue))
+                }
+                tirEmit(function, testBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+            } else {
+                val wildEnd = lowerStatement(module, function, testBlock, wildBindings, body, breakTarget, continueTarget)
+                if wildEnd >= 0 {
+                    tirEmit(function, wildEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+                }
+            }
+            carryListRefinements(bindings, wildBindings, baseCount)
+            return matchJoinBlock(function, mergeBlock, valueJoin, matchValueType(module, bindings, m))
+        }
+        val armBlock = tirCreateBlock(function)
+        val nextBlock = tirCreateBlock(function)
+        var bodyBindings = copyBindings(matchBindings)
+        match pattern {
+            ASTNode.Literal(l) => {
+                // `NoInt => ...` on a union is one of its variants, so the arm
+                // tests the tag read once above. Any other literal -- `0 =>` on an
+                // int -- is the value it compares the whole scrutinee with.
+                val bareTag = declaredVariantTag(module, scrutineeType, l.text)
+                if bareTag != "" {
+                    val tagNumber = tirEmit(function, testBlock, "const", "int", bareTag)
+                    val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
+                    tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+                } else {
+                    val patternValue = lowerExpression(module, function, testBlock, copyBindings(bindings), pattern)
+                    val compared = tirEmit(function, testBlock, "==", "bool", tirValue(scrutineeValue) + " " + tirValue(patternValue))
+                    tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+                }
+            }
+            ASTNode.MemberAccess(member) => {
+                val tagName = declaredVariantTag(module, scrutineeType, member.field)
+                if tagName == "" {
+                    tirError(module, "E3001", "a match needs the variant table of the type it switches on, which this pass does not keep", 0, 0)
+                    return -1
+                }
+                val tagNumber = tirEmit(function, testBlock, "const", "int", tagName)
+                val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
+                tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+            }
+            ASTNode.Call(callPattern) => {
+                // The owner the tag comes from: the type the pattern wrote
+                // (`Shape.Circle(r)`), or the scrutinee's own type for a bare
+                // `Circle(r)`. Two unions may declare one variant name.
+                var variant = ""
+                var owner = ""
+                match callPattern.callee {
+                    ASTNode.MemberAccess(member) => {
+                        variant = member.field
+                        match member.object {
+                            ASTNode.Literal(literal) => { owner = literal.text }
+                            _ => {}
+                        }
+                    }
+                    ASTNode.Literal(literal) => { variant = literal.text }
+                    _ => {}
+                }
+                if owner == "" { owner = scrutineeType }
+                val tagName = declaredVariantTag(module, owner, variant)
+                if tagName == "" {
+                    tirError(module, "E3001", "a match needs the variant table of the type it switches on, which this pass does not keep", 0, 0)
+                    return -1
+                }
+                val tagNumber = tirEmit(function, testBlock, "const", "int", tagName)
+                val compared = tirEmit(function, testBlock, "==", "bool", tirValue(tagValue) + " " + tirValue(tagNumber))
+                tirEmit(function, testBlock, "branch", "unit", tirValue(compared) + " b" + tirIntText(armBlock) + " b" + tirIntText(nextBlock))
+                // The instance the scrutinee names supplies the declaration's
+                // arguments; the pattern writes only the bare type.
+                var payloadOwner = owner
+                if tirTypeBaseName(scrutineeType) == owner { payloadOwner = scrutineeType }
+                val payloadText = declaredVariantPayload(module, payloadOwner, variant)
+                val payloads = tirSplitPayloadTypes(payloadText)
+                if callPattern.args.len() > 0 && payloads.len() == 0 {
+                    tirError(module, "E3001", "a match arm binds a payload and the variant declares none", 0, 0)
+                    return -1
+                }
+                if callPattern.args.len() != payloads.len() {
+                    tirError(module, "E3001", "a match arm binds " + tirIntText(callPattern.args.len()) + " name(s) and the variant declares " + tirIntText(payloads.len()) + " payload(s)", 0, 0)
+                    return -1
+                }
+                if payloads.len() == 1 {
+                    val payloadType: string = payloads.get(0)
+                    val dataValue = tirEmit(function, armBlock, "data", payloadType, tirValue(scrutineeValue))
+                    tirBindArmName(function, armBlock, callPattern.args.get(0), payloadType, dataValue, bodyBindings)
+                }
+                if payloads.len() > 1 {
+                    // Multi-payload: the data word holds the packed struct
+                    // `<Owner>_<Variant>`, and each name reads one field of it
+                    // (`T_V._0`, `T_V._1`). The reads come after the tag test, so
+                    // a unit variant's null data word is never read.
+                    val structName = owner + "_" + variant
+                    val dataValue = tirEmit(function, armBlock, "data", structName, tirValue(scrutineeValue))
+                    var ai = 0
+                    while ai < payloads.len() {
+                        val payloadType: string = payloads.get(ai)
+                        val fieldValue = tirEmit(function, armBlock, "member", payloadType, tirValue(dataValue) + " _" + tirIntText(ai))
+                        tirBindArmName(function, armBlock, callPattern.args.get(ai), payloadType, fieldValue, bodyBindings)
+                        ai = ai + 1
+                    }
+                }
+            }
+            _ => {
+                tirError(module, "E3001", "a match pattern this pass cannot lower", 0, 0)
+                return -1
+            }
+        }
+        if valueJoin != "" {
+            val armValue = lowerIfArm(module, function, armBlock, bodyBindings, body)
+            if armValue >= 0 {
+                tirEmit(function, armBlock, "bind", "unit", valueJoin + " " + tirValue(armValue))
+            }
+            tirEmit(function, armBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+        } else {
+            val armEnd = lowerStatement(module, function, armBlock, bodyBindings, body, breakTarget, continueTarget)
+            if armEnd >= 0 {
+                tirEmit(function, armEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            }
+        }
+        carryListRefinements(bindings, bodyBindings, baseCount)
+        testBlock = nextBlock
+        i = i + 1
+    }
+    tirEmit(function, testBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+    return matchJoinBlock(function, mergeBlock, valueJoin, matchValueType(module, bindings, m))
+}
+
+// `match n { 0 => 10  _ => 30 }` where the value is wanted: the same test chain as
+// the statement form, with each arm binding the join name instead of ending its
+// block. Every arm answers one stated type, which is what the merge loads.
+fn lowerMatchValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, m: MatchNode) -> int {
+    val valueType = matchValueType(module, bindings, m)
+    if valueType == "" {
+        tirError(module, "E3001", "a match in value position needs the same type in every arm, which this pass does not keep", 0, 0)
+        return -1
+    }
+    val joinName = "join" + tirIntText(function.nextValueId)
+    return lowerMatchStatement(module, function, blockId, bindings, m, -1, -1, joinName)
+}
+
+// The bindings a branch adds before it answers: every `val` it declares, in
+// order, typed the way the statement reader types one. Without this the last
+// expression of `{ val doubled = n * 2  doubled + 1 }` asked about a name the
+// branch had just introduced, and the answer was nothing.
+// orbit-walk: none -- reads the block's declarations; it visits no children
+fn branchBindings(module: TirModule, bindings: list < TirBinding >, body: ASTNode) -> list < TirBinding > {
+    val copied = copyBindings(bindings)
+    match body {
+        ASTNode.Block(b) => {
+            var i = 0
+            while i < b.statements.len() {
+                match b.statements.get(i) {
+                    ASTNode.VarDecl(declaration) => {
+                        var boundType = typeOfExpression(module, copied, declaration.value)
+                        if boundType == "unknown" {
+                            val annotated = bindingAnnotationType(declaration.typeAnnotation)
+                            if annotated != "" { boundType = annotated }
+                        }
+                        copied.push(TirBinding(declaration.name, boundType))
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return copied
+}
+
+// The value an `if` branch is worth, and the type it answers. Two shapes: a branch
+// that IS an expression (`if c then 1 else 2`) and a branch that is a block ending
+// in one (`if c { log(); 1 }`). A branch ending in a declaration or a `return`
+// answers nothing, because there is no value left to join.
+fn ifBranchType(module: TirModule, bindings: list < TirBinding >, body: ASTNode) -> string {
+    val bodyBindings = branchBindings(module, bindings, body)
+    match body {
+        ASTNode.Block(b) => {
+            val n = b.statements.len()
+            if n == 0 { return "" }
+            val last: ASTNode = b.statements.get(n - 1)
+            match last {
+                ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bodyBindings, e.expr) }
+                // A brace block can keep its last expression unwrapped, and a bare
+                // value is the same answer. A `return` or a declaration in that place
+                // answers `unknown` here, so the branch stays the give-up it was.
+                _ => { return typeOfExpression(module, bodyBindings, last) }
+            }
+        }
+        ASTNode.ExpressionStmt(e) => { return typeOfExpression(module, bodyBindings, e.expr) }
+        _ => { return typeOfExpression(module, bodyBindings, body) }
+    }
+}
+
+// The type an `if` in value position answers: the then branch's, when the else
+// branch answers the same. `branchTypeName` (`compiler/ir/builder.orb:2134`) reads
+// the then branch the same way; the second check is this pass's own, because one
+// `instr` line carries one type and a join of two different ones is not a statement
+// the text can make. An empty answer is the give-up E3001 reports.
+fn ifValueType(module: TirModule, bindings: list < TirBinding >, ifNode: IfNode) -> string {
+    val thenType = ifBranchType(module, bindings, ifNode.thenBody)
+    val elseType = ifBranchType(module, bindings, ifNode.elseBody)
+    if thenType == "" || thenType == "unknown" { return "" }
+    if elseType != thenType { return "" }
+    return thenType
+}
+
+// The value of one arm, lowered in the block the arm ends in. The statements before
+// the last one lower first, so a branch that does something and then answers a
+// value keeps both halves.
+fn lowerIfArm(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, body: ASTNode) -> int {
+    match body {
+        ASTNode.Block(b) => {
+            val n = b.statements.len()
+            if n == 0 { return -1 }
+            val last: ASTNode = b.statements.get(n - 1)
+            var armBlock = blockId
+            if n > 1 {
+                val leading = []
+                var i = 0
+                while i < n - 1 {
+                    leading.push(b.statements.get(i))
+                    i = i + 1
+                }
+                armBlock = lowerStatement(module, function, blockId, bindings, ASTNode.Block(BlockNode(leading)), -1, -1)
+                if armBlock < 0 { return -1 }
+            }
+            match last {
+                ASTNode.ExpressionStmt(e) => { return lowerExpression(module, function, armBlock, bindings, e.expr) }
+                // The unwrapped expression a brace block ends with. A `return` or a
+                // declaration only reaches here when the type rule above already
+                // refused the branch, so the reader sees the give-up message, not this.
+                _ => { return lowerExpression(module, function, armBlock, bindings, last) }
+            }
+        }
+        ASTNode.ExpressionStmt(e) => { return lowerExpression(module, function, blockId, bindings, e.expr) }
+        _ => { return lowerExpression(module, function, blockId, bindings, body) }
+    }
+}
+
+// `if c then 1 else 2` where the value is wanted. Three blocks like the statement
+// form, plus the name both arms write and the read after the join: `bind unit
+// join7 v3` in each arm and `load int join7` in the merge block. Writing a name in
+// a branch and reading it after the join is the convention this adds to the text,
+// and it is stated in `docs/architecture/TYPED_IR.md`.
+fn lowerIfValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, ifNode: IfNode) -> int {
+    val valueType = ifValueType(module, bindings, ifNode)
+    if valueType == "" {
+        tirError(module, "E3001", "an if in value position needs the same type in both branches, which this pass does not keep", 0, 0)
+        return -1
+    }
+    val condition = lowerExpression(module, function, blockId, bindings, ifNode.condition)
+    if typeOfExpression(module, bindings, ifNode.condition) != "bool" {
+        tirError(module, "E2100", "if condition must have type bool", 0, 0)
+    }
+    val thenBlock = tirCreateBlock(function)
+    val elseBlock = tirCreateBlock(function)
+    val mergeBlock = tirCreateBlock(function)
+    tirEmit(function, blockId, "branch", "unit", tirValue(condition) + " b" + tirIntText(thenBlock) + " b" + tirIntText(elseBlock))
+    val joinName = "join" + tirIntText(function.nextValueId)
+    val thenArmBindings = copyBindings(bindings)
+    val thenValue = lowerIfArm(module, function, thenBlock, thenArmBindings, ifNode.thenBody)
+    tirEmit(function, thenBlock, "bind", "unit", joinName + " " + tirValue(thenValue))
+    tirEmit(function, thenBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+    val elseArmBindings = copyBindings(bindings)
+    val elseValue = lowerIfArm(module, function, elseBlock, elseArmBindings, ifNode.elseBody)
+    tirEmit(function, elseBlock, "bind", "unit", joinName + " " + tirValue(elseValue))
+    tirEmit(function, elseBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+    return tirEmit(function, mergeBlock, "load", valueType, joinName)
+}
+
+// `try <expr> catch { <handler> }` in the block the source wrote it in. The type the
+// read yields comes from the signature when it writes a payload and from the binding
+// annotation otherwise; `lowerTryValue` is handed whichever answer the caller found, so
+// one lowering covers both.
+fn lowerTryValue(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, tryNode: TryNode, unwrapType: string, breakTarget: int, continueTarget: int) -> int {
+    if unwrapType == "" {
+        tirError(module, "E3001", "try needs the value type written inside the result, which this pass does not keep", 0, 0)
+        return -1
+    }
+    val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
+    val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
+    val okBlock = tirCreateBlock(function)
+    val handlerBlock = tirCreateBlock(function)
+    tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
+    val unwrapped = tirEmit(function, okBlock, "result_unwrap", unwrapType, tirValue(resultValue))
+    // A `try` with no `catch` propagates: the error path returns the original
+    // result unchanged, which is the `ret` the build emits for the same source
+    // (`compiler/ir/builder.orb:5935`). A handler the source wrote runs in the
+    // error block instead, and one that falls through still needs a merge value.
+    var hasHandler = true
+    match tryNode.catchBody {
+        ASTNode.Empty => { hasHandler = false }
+        _ => {}
+    }
+    if hasHandler == false {
+        tirEmit(function, handlerBlock, "return", "unit", tirValue(resultValue))
+        return unwrapped
+    }
+    val handlerBindings = enterTryHandler(function, handlerBlock, bindings, tryNode, resultValue)
+    // The handler is part of the block the `try` was written in, so a `continue`
+    // there leaves the same loop the statements beside it leave. Handing it -1
+    // refused the handler and, with it, the binding the `try` was read into.
+    val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, breakTarget, continueTarget)
+    if handlerEnd >= 0 {
+        tirError(module, "E3001", "a handler that falls through needs a merge value, which this pass does not model", 0, 0)
+        return -1
+    }
+    return unwrapped
+}
+
+// A `push` inside a loop body or an `if` branch refines the local's element kind
+// in that body's copy of the bindings, and the copy dies with the body. The
+// statements after it read the same local, so the refinement comes back out --
+// and only that shape: a name the body declared is out of scope here, and an
+// assignment is not a type. `bindingType` answers the last binding that names
+// the local, so the first refinement carried wins, which is the rule
+// `recordListKind` (`compiler/ir/builder.orb:1857`) applies: a name that already
+// has a kind keeps it.
+// orbit-walk: none -- reads binding names; it visits no children
+fn carryListRefinements(bindings: list < TirBinding >, bodyBindings: list < TirBinding >, baseCount: int) {
+    var carried = baseCount
+    while carried < bodyBindings.len() {
+        val refined: TirBinding = bodyBindings.get(carried)
+        if bindingType(bindings, refined.name) == "list" && listSpellingWithElement(refined.typeName) {
+            bindings.push(refined)
+        }
+        carried = carried + 1
+    }
+}
+
+// `breakTarget` and `continueTarget` are the blocks the enclosing loop jumps to,
+// or -1 outside a loop. A `break` used to fall to the expression reader and come
+// back as "expression cannot be lowered to TIR: Break" -- 91 over the corpus, 26
+// more for `continue` -- and the error suppressed the file's canonical TIR.
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
-fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, ReturnErrNode, RouteDeclNode, ScheduleDeclNode, TypedLiteralNode, UnaryOpNode
+fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode, breakTarget: int, continueTarget: int) -> int {
     if blockId < 0 { return blockId }
     match node {
         ASTNode.VarDecl(declaration) => {
+            match declaration.value {
+                // `val n: int = try digit(c) catch { return 9 }` where `digit` answers a
+                // bare `result`: the annotation is the promise, and the build retypes the
+                // read register to it (`compiler/ir/builder.orb:3140`). The signature still
+                // wins -- `declaredPayloadType` is asked first, as in the expression case.
+                ASTNode.Try(tryNode) => {
+                    var unwrapType = declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr))
+                    if unwrapType == "" {
+                        unwrapType = bindingAnnotationType(declaration.typeAnnotation)
+                    }
+                    val tryValue = lowerTryValue(module, function, blockId, bindings, tryNode, unwrapType, breakTarget, continueTarget)
+                    if tryValue < 0 { return blockId }
+                    tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(tryValue))
+                    bindings.push(TirBinding(declaration.name, unwrapType))
+                    return blockId
+                }
+                _ => {}
+            }
             val value = lowerExpression(module, function, blockId, bindings, declaration.value)
             tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(value))
-            bindings.push(TirBinding(declaration.name, typeOfExpression(bindings, declaration.value)))
+            // `val src3: string = sources.get(i)` promises a type the call does
+            // not answer. The annotation is checked against the value before
+            // this pass runs, so when the expression has no type the promise is
+            // what the binding carries; without it every read of the local is
+            // E2001 and every rule downstream of the register is skipped.
+            var boundType = typeOfExpression(module, bindings, declaration.value)
+            var annotated = bindingAnnotationType(declaration.typeAnnotation)
+            // `val p: Pair<int, string> = Pair.Both(3, "three")` names the
+            // instance the construction leaves bare: the value is typed `Pair`,
+            // and the arguments are the ones the annotation writes.
+            if annotated == "" && tirDeclaresType(module, declaration.typeAnnotation) {
+                annotated = declaration.typeAnnotation
+            }
+            if boundType == "unknown" {
+                if annotated != "" { boundType = annotated }
+            } else if tirTypeArguments(boundType).len() == 0 && tirTypeArguments(annotated).len() > 0 && tirTypeBaseName(boundType) == tirTypeBaseName(annotated) {
+                // The same name with the arguments the source wrote beside it.
+                boundType = annotated
+            } else if boundType == "list" && listSpellingWithElement(annotated) {
+                // `val out: list<DoctorEdit> = []` types its literal as the
+                // bare `list`, which says nothing a later `.get` can answer.
+                // The element the source wrote is the only element there is.
+                boundType = annotated
+            }
+            bindings.push(TirBinding(declaration.name, boundType))
             return blockId
         }
+        // `x = 5` in statement position rebinds a name the block already
+        // bound, which is the `bind` shape a `val` emits. Until now it fell to
+        // the fallback below, reached the expression reader and came back as
+        // "expression cannot be lowered to TIR: Assignment" -- 3,137 times over
+        // the corpus, the largest class the census counts. Writing through a
+        // place is a different shape, and both kinds of place have a rule now:
+        // `a.b = e` emits `store_field`, `xs[i] = e` emits `store_index`. Each
+        // lowers only when the thing written into is a value this pass can type.
+        ASTNode.Assignment(assignment) => {
+            val value = lowerExpression(module, function, blockId, bindings, assignment.value)
+            var storeName = ""
+            match assignment.target {
+                ASTNode.Literal(target) => {
+                    if target.valType == "identifier" { storeName = target.text }
+                }
+                ASTNode.MemberAccess(place) => {
+                    // `d.x = 2` writes through a place, and the write answers no
+                    // type. It is lowered when the place's own value is one the
+                    // pass can type -- `d` here, a parameter whose declared type
+                    // the binding carries. A chained place (`tok.line = 5` under a
+                    // receiver it cannot type) stays a give-up, because the read
+                    // of `tok.line` would enter the text as `unknown`, and an
+                    // `unknown` suppresses the file exactly as the give-up does
+                    // while also raising the count the ratchet holds. Where
+                    // `declaredFieldType` answers that hop, the place is typed and
+                    // the write lowers.
+                    // The check of the value against the field's declaration is
+                    // the checker's job in the build path, not this pass's.
+                    if typeOfExpression(module, bindings, place.object) != "unknown" {
+                        val receiver = lowerExpression(module, function, blockId, bindings, place.object)
+                        if receiver >= 0 {
+                            tirEmit(function, blockId, "store_field", "unit", tirValue(receiver) + " " + place.field + " " + tirValue(value))
+                            return blockId
+                        }
+                    }
+                }
+                // `xs[i] = v` writes an element, and the write answers no type, so
+                // the instruction carries `unit` and claims nothing about the
+                // element: this pass keeps no list element table. That is also why
+                // the read of the same place (`return xs[i]`) stays a give-up -- a
+                // load would have to say what it loaded. The value is already
+                // lowered, so the operands read container, index, value.
+                ASTNode.IndexAccess(place) => {
+                    if typeOfExpression(module, bindings, place.object) != "unknown" {
+                        val receiver = lowerExpression(module, function, blockId, bindings, place.object)
+                        val index = lowerExpression(module, function, blockId, bindings, place.index)
+                        if receiver >= 0 && index >= 0 {
+                            tirEmit(function, blockId, "store_index", "unit", tirValue(receiver) + " " + tirValue(index) + " " + tirValue(value))
+                            return blockId
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if storeName != "" {
+                tirEmit(function, blockId, "bind", "unit", storeName + " " + tirValue(value))
+                // A write goes into the slot the declaration made, so the name
+                // keeps the type it already had: `var ratio: float = 1.5` then
+                // `ratio = 3` is still a float, and the integer is the value the
+                // store converts. Only a name with no declared type takes the
+                // value's.
+                var assignedType = typeOfExpression(module, bindings, assignment.value)
+                val previous = bindingType(bindings, storeName)
+                if previous != "unknown" { assignedType = previous }
+                bindings.push(TirBinding(storeName, assignedType))
+                return blockId
+            }
+            tirError(module, "E3001", "cannot lower this assignment to TIR: " + astNodeKind(assignment.target), 0, 0)
+            return blockId
+        }
+        // `return ok 200 "ready"` wraps a value and returns it, which is two
+        // instructions because that is two things: `result_ok` builds the
+        // wrapper, under the name the build IR already gives it, and `return`
+        // returns what was built. The status code is the source's own and rides
+        // along; `return ok` with no payload writes `void`, because the parse
+        // keeps the empty expression rather than dropping it.
+        ASTNode.ReturnOk(ok) => {
+            var wrappedOperands = ""
+            if ok.status != "" { wrappedOperands = ok.status + " " }
+            if astNodeKind(ok.expr) == "Empty" {
+                wrappedOperands = wrappedOperands + "void"
+            } else {
+                val value = lowerExpression(module, function, blockId, bindings, ok.expr)
+                if value < 0 { return -1 }
+                wrappedOperands = wrappedOperands + tirValue(value)
+            }
+            val wrapped = tirEmit(function, blockId, "result_ok", "result", wrappedOperands)
+            tirEmit(function, blockId, "return", "unit", tirValue(wrapped))
+            return -1
+        }
         ASTNode.Return(ret) => {
+            // A bare `return` in a function that answers nothing has no value to
+            // lower. It reached the expression reader and came back as
+            // "expression cannot be lowered to TIR: Empty" -- 279 over the
+            // corpus, and the error suppressed the file's canonical text. The
+            // operand is written `void` rather than left empty, so every
+            // `instr` line keeps the same number of fields.
+            if astNodeKind(ret.expr) == "Empty" {
+                tirEmit(function, blockId, "return", "unit", "void")
+                return -1
+            }
             val value = lowerExpression(module, function, blockId, bindings, ret.expr)
             tirEmit(function, blockId, "return", "unit", tirValue(value))
             return -1
@@ -201,14 +2145,19 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             var currentBlock = blockId
             while i < block.statements.len() {
                 val statement: ASTNode = block.statements.get(i)
-                currentBlock = lowerStatement(module, function, currentBlock, bindings, statement)
+                currentBlock = lowerStatement(module, function, currentBlock, bindings, statement, breakTarget, continueTarget)
                 i = i + 1
             }
             return currentBlock
         }
+        // `match s { ... }` in statement position: a test chain, one arm block per
+        // case, and the merge block the arms that fall through jump to.
+        ASTNode.Match(m) => {
+            return lowerMatchStatement(module, function, blockId, bindings, m, breakTarget, continueTarget, "")
+        }
         ASTNode.If(branch) => {
             val condition = lowerExpression(module, function, blockId, bindings, branch.condition)
-            if typeOfExpression(bindings, branch.condition) != "bool" {
+            if typeOfExpression(module, bindings, branch.condition) != "bool" {
                 tirError(module, "E2100", "if condition must have type bool", 0, 0)
             }
             val thenBlock = tirCreateBlock(function)
@@ -216,16 +2165,40 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             val mergeBlock = tirCreateBlock(function)
             tirEmit(function, blockId, "branch", "unit", tirValue(condition) + " b" + tirIntText(thenBlock) + " b" + tirIntText(elseBlock))
 
+            val baseCount = bindings.len()
             val thenBindings = copyBindings(bindings)
-            val thenEnd = lowerStatement(module, function, thenBlock, thenBindings, branch.thenBody)
+            val thenEnd = lowerStatement(module, function, thenBlock, thenBindings, branch.thenBody, breakTarget, continueTarget)
             if thenEnd >= 0 {
                 tirEmit(function, thenEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
             }
 
             val elseBindings = copyBindings(bindings)
-            val elseEnd = lowerStatement(module, function, elseBlock, elseBindings, branch.elseBody)
+            val elseEnd = lowerStatement(module, function, elseBlock, elseBindings, branch.elseBody, breakTarget, continueTarget)
             if elseEnd >= 0 {
                 tirEmit(function, elseEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            }
+            // The then body is copied before the then carry, so a refinement the
+            // then branch made is not visible while the else body lowers.
+            carryListRefinements(bindings, thenBindings, baseCount)
+            carryListRefinements(bindings, elseBindings, baseCount)
+            return mergeBlock
+        }
+        // A `try` in statement position reads no value, so no merge value is wanted
+        // and no payload has to be written: the ok arm does nothing, the handler runs
+        // its body, and both arms jump to the block the statements after the `try`
+        // are lowered into. The block shape is the one the `if` above already emits.
+        ASTNode.Try(tryNode) => {
+            val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
+            val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
+            val okBlock = tirCreateBlock(function)
+            val handlerBlock = tirCreateBlock(function)
+            val mergeBlock = tirCreateBlock(function)
+            tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
+            tirEmit(function, okBlock, "jump", "unit", "b" + tirIntText(mergeBlock))
+            val handlerBindings = enterTryHandler(function, handlerBlock, bindings, tryNode, resultValue)
+            val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, breakTarget, continueTarget)
+            if handlerEnd >= 0 {
+                tirEmit(function, handlerEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
             }
             return mergeBlock
         }
@@ -236,17 +2209,195 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(conditionBlock))
 
             val condition = lowerExpression(module, function, conditionBlock, bindings, loopNode.condition)
-            if typeOfExpression(bindings, loopNode.condition) != "bool" {
+            if typeOfExpression(module, bindings, loopNode.condition) != "bool" {
                 tirError(module, "E2101", "while condition must have type bool", 0, 0)
             }
             tirEmit(function, conditionBlock, "branch", "unit", tirValue(condition) + " b" + tirIntText(bodyBlock) + " b" + tirIntText(exitBlock))
 
+            val baseCount = bindings.len()
             val bodyBindings = copyBindings(bindings)
-            val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body)
+            val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body, exitBlock, conditionBlock)
             if bodyEnd >= 0 {
                 tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(conditionBlock))
             }
+            carryListRefinements(bindings, bodyBindings, baseCount)
             return exitBlock
+        }
+        // `for x in lo..hi` counts an int between the bounds, so every value the
+        // loop reads has a type this pass can answer: the bounds once, the hidden
+        // counter as int, and the item as a copy of it. Over anything else the
+        // item's type is the element kind, and the pass keeps no element table --
+        // the same reason a chained field write stays a give-up -- so that path
+        // names what it is missing rather than emitting `unknown`. A label names a
+        // loop other than the innermost one, which one pair of targets cannot
+        // carry, so a labelled loop is a give-up too.
+        ASTNode.For(loopNode) => {
+            match loopNode.iterable {
+                ASTNode.Range(bounds) => {
+                    if typeOfExpression(module, bindings, bounds.lo) != "int" {
+                        tirError(module, "E2102", "for range lower bound must have type int", 0, 0)
+                        return blockId
+                    }
+                    if typeOfExpression(module, bindings, bounds.hi) != "int" {
+                        tirError(module, "E2102", "for range upper bound must have type int", 0, 0)
+                        return blockId
+                    }
+                    val loValue = lowerExpression(module, function, blockId, bindings, bounds.lo)
+                    val hiValue = lowerExpression(module, function, blockId, bindings, bounds.hi)
+                    // The counter carries the item's name plus a suffix, the same
+                    // hidden name the builder gives it, so the two passes describe
+                    // one loop alike. The item is rebound every iteration, and the
+                    // user's index alongside it: over a range the 0-based position
+                    // is the counter minus the lower bound, exactly as over a list.
+                    val counterName = loopNode.item + "_range"
+                    tirEmit(function, blockId, "bind", "unit", counterName + " " + tirValue(loValue))
+
+                    val conditionBlock = tirCreateBlock(function)
+                    val bodyBlock = tirCreateBlock(function)
+                    val incrementBlock = tirCreateBlock(function)
+                    val exitBlock = tirCreateBlock(function)
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(conditionBlock))
+
+                    val tested = tirEmit(function, conditionBlock, "load", "int", counterName)
+                    val stillGoing = tirEmit(function, conditionBlock, "<", "bool", tirValue(tested) + " " + tirValue(hiValue))
+                    tirEmit(function, conditionBlock, "branch", "unit", tirValue(stillGoing) + " b" + tirIntText(bodyBlock) + " b" + tirIntText(exitBlock))
+
+                    val bodyBindings = copyBindings(bindings)
+                    val itemValue = tirEmit(function, bodyBlock, "load", "int", counterName)
+                    tirEmit(function, bodyBlock, "bind", "unit", loopNode.item + " " + tirValue(itemValue))
+                    bodyBindings.push(TirBinding(loopNode.item, "int"))
+                    if loopNode.indexVar != "" {
+                        val positionValue = tirEmit(function, bodyBlock, "load", "int", counterName)
+                        val position = tirEmit(function, bodyBlock, "-", "int", tirValue(positionValue) + " " + tirValue(loValue))
+                        tirEmit(function, bodyBlock, "bind", "unit", loopNode.indexVar + " " + tirValue(position))
+                        bodyBindings.push(TirBinding(loopNode.indexVar, "int"))
+                    }
+                    function.loopLabels.push(loopNode.label)
+                    function.loopExits.push(exitBlock)
+                    function.loopContinues.push(incrementBlock)
+                    val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body, exitBlock, incrementBlock)
+                    function.loopLabels.pop()
+                    function.loopExits.pop()
+                    function.loopContinues.pop()
+                    if bodyEnd >= 0 {
+                        tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(incrementBlock))
+                    }
+
+                    // The increment is the block a `continue` reaches: jumping to
+                    // the condition with the counter unchanged repeats the same
+                    // item forever.
+                    val iterated = tirEmit(function, incrementBlock, "load", "int", counterName)
+                    val step = tirEmit(function, incrementBlock, "const", "int", "1")
+                    val nextValue = tirEmit(function, incrementBlock, "+", "int", tirValue(iterated) + " " + tirValue(step))
+                    tirEmit(function, incrementBlock, "bind", "unit", counterName + " " + tirValue(nextValue))
+                    tirEmit(function, incrementBlock, "jump", "unit", "b" + tirIntText(conditionBlock))
+                    return exitBlock
+                }
+                _ => {
+                    // A `for` over a list iterates the kind its receiver's type
+                    // text writes -- the same source `get`, `at`, `pop` and the
+                    // index form answer from. `compiler/ir/builder.orb:3530` lowers
+                    // this loop with a hidden `<item>_idx` counter, one length read
+                    // before the loop and the item through `list_get`, so the blocks
+                    // and the counter name are the build's, not a shape invented
+                    // here. With no kind written there is no answer, and emitting
+                    // `unknown` would suppress the same text while raising the
+                    // number the ratchet holds.
+                    val loopReceiver = typeOfExpression(module, bindings, loopNode.iterable)
+                    val elemKind = listElementKind(loopReceiver)
+                    if elemKind == "" {
+                        tirError(module, "E3001", "for over a non-range needs an element type this pass does not keep", 0, 0)
+                        return blockId
+                    }
+                    val iterValue = lowerExpression(module, function, blockId, bindings, loopNode.iterable)
+                    val lenValue = tirEmit(function, blockId, "member", "int", tirValue(iterValue) + " len")
+                    val zeroValue = tirEmit(function, blockId, "const", "int", "0")
+                    val counterName = loopNode.item + "_idx"
+                    tirEmit(function, blockId, "bind", "unit", counterName + " " + tirValue(zeroValue))
+
+                    val listConditionBlock = tirCreateBlock(function)
+                    val listBodyBlock = tirCreateBlock(function)
+                    val listIncrementBlock = tirCreateBlock(function)
+                    val listExitBlock = tirCreateBlock(function)
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(listConditionBlock))
+
+                    val tested = tirEmit(function, listConditionBlock, "load", "int", counterName)
+                    val stillGoing = tirEmit(function, listConditionBlock, "<", "bool", tirValue(tested) + " " + tirValue(lenValue))
+                    tirEmit(function, listConditionBlock, "branch", "unit", tirValue(stillGoing) + " b" + tirIntText(listBodyBlock) + " b" + tirIntText(listExitBlock))
+
+                    val listBodyBindings = copyBindings(bindings)
+                    val idxValue = tirEmit(function, listBodyBlock, "load", "int", counterName)
+                    val itemValue = tirEmit(function, listBodyBlock, "call", elemKind, "get " + tirValue(iterValue) + " " + tirValue(idxValue))
+                    tirEmit(function, listBodyBlock, "bind", "unit", loopNode.item + " " + tirValue(itemValue))
+                    listBodyBindings.push(TirBinding(loopNode.item, elemKind))
+                    if loopNode.indexVar != "" {
+                        tirEmit(function, listBodyBlock, "bind", "unit", loopNode.indexVar + " " + tirValue(idxValue))
+                        listBodyBindings.push(TirBinding(loopNode.indexVar, "int"))
+                    }
+                    function.loopLabels.push(loopNode.label)
+                    function.loopExits.push(listExitBlock)
+                    function.loopContinues.push(listIncrementBlock)
+                    val listBodyEnd = lowerStatement(module, function, listBodyBlock, listBodyBindings, loopNode.body, listExitBlock, listIncrementBlock)
+                    function.loopLabels.pop()
+                    function.loopExits.pop()
+                    function.loopContinues.pop()
+                    if listBodyEnd >= 0 {
+                        tirEmit(function, listBodyEnd, "jump", "unit", "b" + tirIntText(listIncrementBlock))
+                    }
+
+                    val goneIndex = tirEmit(function, listIncrementBlock, "load", "int", counterName)
+                    val oneStep = tirEmit(function, listIncrementBlock, "const", "int", "1")
+                    val nextIndex = tirEmit(function, listIncrementBlock, "+", "int", tirValue(goneIndex) + " " + tirValue(oneStep))
+                    tirEmit(function, listIncrementBlock, "bind", "unit", counterName + " " + tirValue(nextIndex))
+                    tirEmit(function, listIncrementBlock, "jump", "unit", "b" + tirIntText(listConditionBlock))
+                    return listExitBlock
+                }
+            }
+        }
+        // A statement with no instruction to emit lowers to nothing, so it is not
+        // a give-up. It reached the expression reader through the fallback below
+        // and came back as "expression cannot be lowered to TIR: Empty" -- 5,045
+        // times over the corpus, the largest class the census reported. The class
+        // naming is what showed it: a statement with no instruction to emit is not
+        // an expression the front end cannot type.
+        ASTNode.Empty => { return blockId }
+        // Out of a loop the construct is not a control transfer the pass can
+        // name: it jumps to nothing. It stays a give-up, with the reason. A named
+        // `break outer` wants a block other than the innermost loop's, and the
+        // targets only carry the innermost.
+        ASTNode.Break(loopBreak) => {
+            if loopBreak.label != "" {
+                val labelledExit = tirLoopLabelBlock(function, loopBreak.label, false)
+                if labelledExit >= 0 {
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(labelledExit))
+                    return -1
+                }
+                tirError(module, "E3001", "break with a label no enclosing loop carries", 0, 0)
+                return blockId
+            }
+            if breakTarget >= 0 {
+                tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(breakTarget))
+                return -1
+            }
+            tirError(module, "E3001", "break with no enclosing loop to leave", 0, 0)
+            return blockId
+        }
+        ASTNode.Continue(loopContinue) => {
+            if loopContinue.label != "" {
+                val labelledStep = tirLoopLabelBlock(function, loopContinue.label, true)
+                if labelledStep >= 0 {
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(labelledStep))
+                    return -1
+                }
+                tirError(module, "E3001", "continue with a label no enclosing loop carries", 0, 0)
+                return blockId
+            }
+            if continueTarget >= 0 {
+                tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(continueTarget))
+                return -1
+            }
+            tirError(module, "E3001", "continue with no enclosing loop to iterate", 0, 0)
+            return blockId
         }
         _ => {
             lowerExpression(module, function, blockId, bindings, node)
@@ -276,29 +2427,81 @@ fn lowerFunction(module: TirModule, declaration: FunctionDeclNode) {
         bindings.push(TirBinding(name, typeName))
         paramIndex = paramIndex + 1
     }
-    lowerStatement(module, function, entry, bindings, declaration.body)
+    lowerStatement(module, function, entry, bindings, declaration.body, -1, -1)
+}
+
+// The declarations the imported files carry, read before any body of this file
+// is lowered. Signatures and models are the two tables a body asks, and both
+// collectors only add, so running them over another program's declarations
+// widens the answers without lowering a single foreign body: the text this pass
+// prints stays the text of the file named on the command line.
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, BlockNode, BreakNode, ConfigDeclNode, ConstDeclNode, ContinueNode, DecoratorNode, EmptyNode, ExpressionStmtNode, FieldDeclNode, FieldInitNode, ForNode, FunctionDeclNode, GenericParamNode, IfNode, ImportStmtNode, IndexAccessNode, InterpNode, ListLiteralNode, LiteralNode, MatchCaseNode, MemberAccessNode, MigrationDeclNode, ModelDeclNode, ObjectLiteralNode, ProgramNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypeAnnotationNode, TypedLiteralNode, UnaryOpNode, UseStmtNode, VarDeclNode, WhileNode
+fn registerImportedDeclarations(module: TirModule, programs: list < ASTNode >) {
+    var i = 0
+    while i < programs.len() {
+        val node: ASTNode = programs.get(i)
+        match node {
+            ASTNode.Program(program) => {
+                collectSignatures(module, program)
+                collectModels(module, program)
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
 }
 
 fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
+    return lowerProgramWithImportsToTir(moduleName, root, [], [])
+}
+
+// `imported` is the parsed program of each file this one imports, at any depth.
+// A name declared there is a name this file can call; a body written there is
+// not this file's text. `notes` says why an import is missing: a file that does
+// not parse contributes no declarations, and the importer would otherwise be
+// blamed for a name the broken file never got to declare.
+fn lowerProgramWithImportsToTir(moduleName: string, root: ASTNode, imported: list < ASTNode >, notes: list < string >) -> TirModule {
     val module = initTirModule(moduleName)
+    var ni = 0
+    while ni < notes.len() {
+        tirError(module, "E1000", notes.get(ni), 0, 0)
+        ni = ni + 1
+    }
+    registerImportedDeclarations(module, imported)
     match root {
         ASTNode.Program(program) => {
+            collectSignatures(module, program)
+            collectModels(module, program)
+            collectConstants(module, program)
             var i = 0
             while i < program.decls.len() {
                 val declaration: ASTNode = program.decls.get(i)
                 match declaration {
                     ASTNode.FunctionDecl(function) => lowerFunction(module, function)
                     ASTNode.TypeDecl(typeDecl) => {}
+                    // Collected by `collectModels` before any body was lowered,
+                    // so the order the file declares its models in cannot change
+                    // what a read in this file answers.
                     ASTNode.ModelDecl(modelDecl) => {}
                     ASTNode.ConstDecl(constDecl) => {}
                     ASTNode.VarDecl(varDecl) => {}
                     ASTNode.ImportStmt(imp) => {}
                     ASTNode.UseStmt(useStmt) => {}
                     ASTNode.RouteDecl(rt) => {}
+                    // A directive that declares data, not code, has no
+                    // instruction to emit -- the reason a file-scope `const` or
+                    // `var` already lowers to nothing. `config` carries a literal
+                    // value and `migrations` a SQL string; the builder and the
+                    // runtime read both, and neither is a function body. A
+                    // `schedule` is not on this list: its handler is code, and
+                    // skipping it would hide a body from the pass that claims to
+                    // describe the file.
+                    ASTNode.ConfigDecl(configDecl) => {}
+                    ASTNode.MigrationDecl(migrationDecl) => {}
                     ASTNode.TraitDecl(traitDecl) => {}
                     ASTNode.ImplDecl(implDecl) => {}
                     ASTNode.Empty => {}
-                    _ => tirError(module, "E3000", "top-level declaration cannot be lowered to TIR", 0, 0)
+                    _ => tirError(module, "E3000", "top-level declaration cannot be lowered to TIR: " + astNodeKind(declaration), 0, 0)
                 }
                 i = i + 1
             }

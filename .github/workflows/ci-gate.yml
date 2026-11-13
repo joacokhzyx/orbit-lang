@@ -71,14 +71,14 @@ jobs:
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/routes_probe.py
+          "$PY" scripts/measure.py routes
 
       - name: Build and verify the self-host bootstrap (fixed-point gate, seed verifier)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           set +e
-          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale > gate_output.log 2>&1
+          "$PY" scripts/trust.py build --cc "${{ matrix.cc }}" --check-stale > gate_output.log 2>&1
           rc=$?
           set -e
           tail -n 40 gate_output.log
@@ -88,13 +88,13 @@ jobs:
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/verify_seed.py --cc "${{ matrix.cc }}"
+          "$PY" scripts/trust.py verify --cc "${{ matrix.cc }}"
 
   # The Python gates, by blast radius, through the one entry point. This is
   # `make all && make report`: doctor goldens, doctor scope, the CLI contract,
   # the language and std suites, the negative corpus, the frontend TIR, parity,
   # -Werror on generated C, the fuzzers, the schema and walk-coverage checks, the
-  # tool aliveness check, the runtime C tests, the Kynx live gate and the gate
+  # tool aliveness check, the runtime C tests, the admission live gate and the gate
   # self-tests.
   #
   # It builds its own fixed point rather than consuming one from `bootstrap`. An
@@ -151,12 +151,13 @@ jobs:
           cat gates.log report.log
           exit $rc
 
-  # Three checks that read files of text and need no compiler: what
-  # compiler/front/ast.orb declares against the code that builds nodes, what each
-  # AST walk in the compiler declares about the fields it skips, and whether the
-  # documents' counted claims about the corpus still match the tree they
-  # describe. About a second between them, which is why they are worth running on
-  # every push instead of being discovered by hand.
+  # The tier-0 checks: what compiler/front/ast.orb declares against the code
+  # that builds nodes, what each AST walk in the compiler declares about the
+  # fields it skips, and whether the documents' counted claims about the corpus
+  # still match the tree they describe. The first two are Orbit probes built
+  # with the fixed point; the rest read text and need no compiler. The tier is
+  # about 20 seconds here, which is why it runs on every push instead of being
+  # discovered by hand.
   #
   # Linux only: they analyse Orbit source, so a second runner would prove that
   # Python reads the same file identically twice, at the cost of a runner.
@@ -167,42 +168,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: AST schema conformance (ast.orb vs the code that builds nodes)
+      # The five static gates as one call. dev.py reads them from
+      # scripts/gate_registry.py, so the runner and this job cannot disagree
+      # about what T0 is; the step that fails says "Tier 0" and the gate line
+      # inside its log says which of the six it was.
+      - name: Tier 0 -- fmt plus the five static gates
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/schema_conformance.py
-
-      - name: AST walk coverage (every walk declares the fields it skips)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/walk_coverage.py
-
-      - name: Documented counts match the tree
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/doc_counts.py
-
-      - name: Declared CLI flags have readers (no flag promises what nothing reads)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/flag_coverage.py
+          "$PY" scripts/dev.py static
 
       - name: Gate self-tests (the gates can say no)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/schema_conformance.py --self-test
-          "$PY" scripts/walk_coverage.py --self-test
-          "$PY" scripts/doc_counts.py --self-test
-          "$PY" scripts/flag_coverage.py --self-test
+          "$PY" scripts/static_gates.py schema --self-test
+          "$PY" scripts/static_gates.py walk --self-test
+          "$PY" scripts/static_gates.py counts --self-test
+          "$PY" scripts/static_gates.py flags --self-test
+          "$PY" scripts/static_gates.py cites --self-test
           "$PY" scripts/runtime_c_tests.py --self-test
-          "$PY" scripts/kynx_gate.py --self-test
-          "$PY" scripts/unknown_ratchet.py --self-test
-          "$PY" scripts/werror_gate.py --self-test
+          "$PY" scripts/admission_gate.py --self-test
+          "$PY" scripts/measure.py ratchet --self-test
+          "$PY" scripts/corpus_gates.py werror --self-test
           "$PY" scripts/alive_check.py --self-test
 
   # The runtime C tests and the auth harness. They compile C with a C compiler
@@ -242,7 +230,7 @@ jobs:
   # by design: where tcc is unavailable the acquire step exits 0 after
   # printing TCC-SKIP (a visible skip, never a silent pass), and this job
   # has no `needs:` edge into the gates, so it cannot turn another job
-  # red. What tcc may and may not do is docs/TOOLCHAIN.md.
+  # red. What tcc may and may not do is docs/SUPPORTED.md.
   tcc-shim:
     name: tcc shim smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -272,7 +260,7 @@ jobs:
           set -e
           cat tcc_setup.log
           if [ $rc -eq 2 ]; then
-            echo "TCC-SKIP: no tcc on this runner; lane skipped, gcc/clang lanes unaffected (docs/TOOLCHAIN.md)"
+            echo "TCC-SKIP: no tcc on this runner; lane skipped, gcc/clang lanes unaffected (docs/SUPPORTED.md)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -378,7 +366,7 @@ jobs:
           set -e
           cat tcc_setup.log
           if [ $rc -eq 2 ]; then
-            echo "DUAL-SKIP: no tcc on this runner; gcc/clang lanes unaffected (docs/TOOLCHAIN.md)"
+            echo "DUAL-SKIP: no tcc on this runner; gcc/clang lanes unaffected (docs/SUPPORTED.md)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -402,7 +390,7 @@ jobs:
           ORBIT_TCC="$TCC" "$PY" scripts/dual_judge.py \
             --compiler "$FP" --cc "${{ matrix.cc }}" --tcc "$TCC"
 
-      - name: DDC triangle (Linux only: needs gcc-O0/gcc-O2 arms)
+      - name: "DDC triangle (Linux only: needs gcc-O0/gcc-O2 arms)"
         if: runner.os == 'Linux' && steps.acquire.outputs.skip != 'true'
         shell: bash
         run: |
@@ -447,5 +435,5 @@ jobs:
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           echo "[stress] iteration ${{ matrix.iteration }} of 8"
-          "$PY" scripts/verify_seed.py --cc gcc
+          "$PY" scripts/trust.py verify --cc gcc
           echo "[stress] iteration ${{ matrix.iteration }} passed"

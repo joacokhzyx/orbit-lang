@@ -1,0 +1,16 @@
+// A call to a function nothing declares stays an error, and an error suppresses
+// the TIR. This is the other side of the callee rule: reading the program's own
+// declarations must not turn an undeclared name into a typed one. An earlier
+// attempt assigned the declaration lookup -- which answers "" for a name the
+// program does not declare -- over "unknown", E2001 fell to zero across the
+// corpus and the census read 11.0% instead of 20.4%. That is what this fixture
+// keeps from coming back.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn main() -> int { return missing(1) }"
+    val output = compileFrontendSource("undeclared", source)
+    if output == "" {
+        print("undeclared callee suppressed TIR")
+    }
+}

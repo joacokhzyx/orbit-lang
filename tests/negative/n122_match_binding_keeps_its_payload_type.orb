@@ -1,0 +1,23 @@
+// case: match-binding-keeps-payload-type
+// what: `n` is bound from `Count(int)`, so it is an int and `shout` takes a
+//      string. Every match binding used to be declared `unknown` -- the checker
+//      read the payload from a registry keyed on the variant name alone and had
+//      no owner to ask -- so the arm body carried no type and this argument was
+//      not an error. The registry resolves through the owner now, and so does
+//      the binding.
+// expect-error: is declared string but the argument is int
+union Packet {
+    Count(int)
+    Empty
+}
+
+fn shout(s: string) -> string { return s }
+
+fn read(p: Packet) -> string {
+    match p {
+        Packet.Count(n) => { return shout(n) }
+        Packet.Empty => { return "e" }
+    }
+}
+
+fn main() -> int { return 0 }

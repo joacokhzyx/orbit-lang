@@ -1,0 +1,14 @@
+// A call to a function declared LATER in the same file used to have no answer.
+// The pass registered a function's return type when it lowered that function, so
+// `later(n)` read a name nothing had typed yet: E2001 on the load, and because
+// `tirCanonical` prints nothing while an error-severity diagnostic exists, the
+// whole file's text was suppressed for the order of two declarations.
+//
+// The signatures are read from the program before any body now, so the load
+// answers `int` -- the text the source wrote beside the name.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn useIt(n: int) -> int { return later(n) }  fn later(n: int) -> int { return n + 1 }"
+    print(compileFrontendSource("fixture", source))
+}

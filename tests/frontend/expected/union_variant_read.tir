@@ -1,0 +1,7 @@
+orbit-tir 1
+module fixture
+function 0 tag void
+block 0 0
+instr 0 0 0 const Shape Shape.Square
+instr 0 0 1 bind unit s v0
+end-function 0

@@ -1,0 +1,16 @@
+// A `val` with an annotation on the right of a `try` answers the unwrap. The callee
+// below is declared `-> result` with nothing inside, so the payload table has no answer,
+// while the program does write the type at the binding -- and `compiler/ir/builder.orb`
+// retypes a try's unwrap register from exactly that promise: `float`, `int`, `bool`,
+// `string`, or a `list`. This pass reads the same five, and also `object` and a whole
+// `list<T>`, which is what `val o: object = try parse(t) catch { ... }` writes when
+// the callee answers a bare `result`.
+//
+// A `return try ...` has no annotation to read and stays a give-up, and a bare `val x =
+// try ...` with no annotation asks the same question the payload table answers.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn digit(c: int) -> result { return ok 200 c }  fn take(c: int) -> int { val n: int = try digit(c) catch { return 9 } return n }"
+    print(compileFrontendSource("fixture", source))
+}

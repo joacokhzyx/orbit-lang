@@ -1,0 +1,245 @@
+// The minimal language server: `orbit lsp`.
+//
+// An editor needs three things from a server before it shows anything: it must
+// frame messages (Content-Length headers), answer `initialize`, and publish
+// diagnostics for the text it was given. This does exactly those. Full-sync
+// only (`textDocumentSync: 1`): every `didChange` carries the whole document,
+// so the server keeps no incremental state it could get wrong.
+//
+// Diagnostics come from `orbit check` run on a temporary file. The checker is
+// the one the command line runs, so the editor cannot disagree with the build
+// about what a program means; what this file owns is the protocol, not the
+// analysis. The cost is one process per change, which is what a minimal server
+// should pay rather than duplicating the checker.
+
+import "../host/extern.orb"
+
+extern fn orbit_json_parse(text: string) -> result
+extern fn orbit_object_get_int(obj: object, key: string) -> int
+extern fn orbit_object_get_string(obj: object, key: string) -> string
+extern fn orbit_object_get_object(obj: object, key: string) -> object
+extern fn orbit_stdin_read_line() -> string
+extern fn orbit_stdin_read_bytes(n: int) -> string
+extern fn orbit_stdin_at_end() -> bool
+extern fn orbit_stdout_binary() -> bool
+extern fn orbit_stdout_write(text: string) -> bool
+
+fn lspLower(c: int) -> int {
+    if c >= 65 && c <= 90 { return c + 32 }
+    return c
+}
+
+// The byte a header line names, or -1 when the line is not Content-Length.
+// Header names are case-insensitive and the value is the digits after the
+// colon; a line this cannot read as that header is not guessed at.
+fn lspHeaderLength(line: string) -> int {
+    val prefix = "content-length:"
+    if orbit_string_len(line) < orbit_string_len(prefix) { return -1 }
+    var i = 0
+    while i < orbit_string_len(prefix) {
+        if lspLower(orbit_string_char_at_selfhost(line, i)) != orbit_string_char_at_selfhost(prefix, i) { return -1 }
+        i = i + 1
+    }
+    var digits = ""
+    while i < orbit_string_len(line) {
+        val c = orbit_string_char_at_selfhost(line, i)
+        if c >= 48 && c <= 57 { digits = digits + orbit_string_slice(line, i, i + 1) }
+        else if c != 32 && c != 9 { return -1 }
+        i = i + 1
+    }
+    if digits == "" { return -1 }
+    return orbit_string_to_int(digits)
+}
+
+// One message: headers up to an empty line, then exactly that many bytes. ""
+// means the stream ended, which is how the loop knows to stop.
+fn lspReadMessage() -> string {
+    var length = -1
+    while true {
+        val line = orbit_stdin_read_line()
+        if line == "" {
+            if orbit_stdin_at_end() { return "" }
+            break
+        }
+        val n = lspHeaderLength(line)
+        if n >= 0 { length = n }
+    }
+    if length <= 0 { return "" }
+    return orbit_stdin_read_bytes(length)
+}
+
+fn lspWrite(payload: string) {
+    val framed = "Content-Length: " + orbit_int_to_string_selfhost(orbit_string_len(payload)) + "\r\n\r\n" + payload
+    val ignored = orbit_stdout_write(framed)
+}
+
+fn lspQuote(s: string) -> string {
+    var out = "\""
+    var i = 0
+    while i < orbit_string_len(s) {
+        val c = orbit_string_char_at_selfhost(s, i)
+        if c == 34 { out = out + "\\\"" }
+        else if c == 92 { out = out + "\\\\" }
+        else if c == 10 { out = out + "\\n" }
+        else if c == 13 { out = out + "\\r" }
+        else if c == 9 { out = out + "\\t" }
+        else if c < 32 { out = out + " " }
+        else { out = out + orbit_string_slice(s, i, i + 1) }
+        i = i + 1
+    }
+    return out + "\""
+}
+
+fn beginsWith(s: string, prefix: string) -> bool {
+    if orbit_string_len(s) < orbit_string_len(prefix) { return false }
+    return orbit_string_slice(s, 0, orbit_string_len(prefix)) == prefix
+}
+
+fn indexOfChar(s: string, target: int) -> int {
+    var i = 0
+    while i < orbit_string_len(s) {
+        if orbit_string_char_at_selfhost(s, i) == target { return i }
+        i = i + 1
+    }
+    return orbit_string_len(s)
+}
+
+fn lastColonBefore(s: string, before: int) -> int {
+    var i = before - 1
+    while i >= 0 {
+        if orbit_string_char_at_selfhost(s, i) == 58 { return i }
+        i = i - 1
+    }
+    return -1
+}
+
+fn intIn(s: string, from: int, to: int) -> int {
+    var digits = ""
+    var i = from
+    while i < to {
+        val c = orbit_string_char_at_selfhost(s, i)
+        if c >= 48 && c <= 57 { digits = digits + orbit_string_slice(s, i, i + 1) }
+        i = i + 1
+    }
+    if digits == "" { return 0 }
+    return orbit_string_to_int(digits)
+}
+
+fn trimSpace(s: string) -> string {
+    var start = 0
+    while start < orbit_string_len(s) && orbit_string_char_at_selfhost(s, start) == 32 { start = start + 1 }
+    var end = orbit_string_len(s)
+    while end > start && orbit_string_char_at_selfhost(s, end - 1) == 32 { end = end - 1 }
+    return orbit_string_slice(s, start, end)
+}
+
+fn lspDiagnostic(pending: string, where: string) -> string {
+    val open = indexOfChar(pending, 91)
+    val close = indexOfChar(pending, 93)
+    val code = orbit_string_slice(pending, open + 1, close)
+    val message = trimSpace(orbit_string_slice(pending, indexOfChar(pending, 58) + 1, orbit_string_len(pending)))
+    val colColon = lastColonBefore(where, orbit_string_len(where))
+    if colColon < 0 { return "" }
+    val rowColon = lastColonBefore(where, colColon)
+    if rowColon < 0 { return "" }
+    val row = intIn(where, rowColon + 1, colColon)
+    val col = intIn(where, colColon + 1, orbit_string_len(where))
+    if row < 1 || col < 1 { return "" }
+    return "{\"range\":{\"start\":{\"line\":" + orbit_int_to_string_selfhost(row - 1) + ",\"character\":" + orbit_int_to_string_selfhost(col - 1) + "},\"end\":{\"line\":" + orbit_int_to_string_selfhost(row - 1) + ",\"character\":" + orbit_int_to_string_selfhost(col) + "}},\"severity\":1,\"source\":\"orbit\",\"code\":" + lspQuote(code) + ",\"message\":" + lspQuote(message) + "}"
+}
+
+// `error[E1001]: the message` followed by `--> path:row:col`, indented. Help
+// lines have no place in a diagnostic, so they are skipped rather than joined
+// to one.
+fn lspParseDiagnostics(text: string) -> string {
+    var items = ""
+    var pending = ""
+    var start = 0
+    var i = 0
+    while i <= orbit_string_len(text) {
+        if i == orbit_string_len(text) || orbit_string_char_at_selfhost(text, i) == 10 {
+            val line = orbit_string_slice(text, start, i)
+            val trimmed = trimSpace(line)
+            if beginsWith(line, "error[") || beginsWith(line, "warning[") {
+                pending = line
+            } else if pending != "" && beginsWith(trimmed, "--> ") {
+                val item = lspDiagnostic(pending, orbit_string_slice(trimmed, 4, orbit_string_len(trimmed)))
+                if item != "" {
+                    if items != "" { items = items + "," }
+                    items = items + item
+                }
+                pending = ""
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return "[" + items + "]"
+}
+
+// cmd.exe strips the first and last quote of a command line whose first
+// token is quoted, so a program path and a file path together unquote the
+// whole thing. Wrapping the command once more hands cmd the inner pair.
+fn lspIsWindows() -> bool {
+    val osName = orbit_os_env_selfhost("OS")
+    val winDir = orbit_os_env_selfhost("WINDIR")
+    if osName == "Windows_NT" || winDir != "" { return true }
+    return false
+}
+
+fn lspCheckCommand(compiler: string, path: string) -> string {
+    val inner = "\"" + compiler + "\" check \"" + path + "\" 2>&1"
+    if lspIsWindows() { return "\"" + inner + "\"" }
+    return inner
+}
+
+fn lspDiagnostics(text: string) -> string {
+    val tmp = orbit_os_temp_dir_selfhost()
+    if tmp == "" { return "[]" }
+    val path = tmp + "/orbit_lsp_check.orb"
+    if orbit_file_write_selfhost(path, text) == false { return "[]" }
+    val compiler = orbit_os_argv_selfhost(0)
+    if compiler == "" { return "[]" }
+    val checked = orbit_os_exec_selfhost(lspCheckCommand(compiler, path))
+    return lspParseDiagnostics(checked)
+}
+
+fn lspResponse(id: int, result: string) -> string {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + orbit_int_to_string_selfhost(id) + ",\"result\":" + result + "}"
+}
+
+fn lspPublish(uri: string, diagnostics: string) -> string {
+    return "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"uri\":" + lspQuote(uri) + ",\"diagnostics\":" + diagnostics + "}}"
+}
+
+// The loop. An editor sends `initialize`, then `didOpen` and one `didChange`
+// per edit; `shutdown` and `exit` close it. A request this server does not
+// know is answered with an error only when it carried an id, because a
+// notification has no place for a response.
+fn runLsp() -> int {
+    val binary = orbit_stdout_binary()
+    if binary == false { return 1 }
+    while true {
+        val message = lspReadMessage()
+        if message == "" { return 0 }
+        val parsed: result = orbit_json_parse(message)
+        val root: object = try parsed catch { return 0 }
+        val method = orbit_object_get_string(root, "method")
+        val id = orbit_object_get_int(root, "id")
+        if method == "exit" { return 0 }
+        if method == "initialize" {
+            lspWrite(lspResponse(id, "{\"capabilities\":{\"textDocumentSync\":1}}"))
+        } else if method == "shutdown" {
+            lspWrite(lspResponse(id, "null"))
+        } else if method == "textDocument/didOpen" || method == "textDocument/didChange" {
+            val params = orbit_object_get_object(root, "params")
+            val doc = orbit_object_get_object(params, "textDocument")
+            val uri = orbit_object_get_string(doc, "uri")
+            val text = orbit_object_get_string(doc, "text")
+            lspWrite(lspPublish(uri, lspDiagnostics(text)))
+        } else if id != 0 {
+            lspWrite("{\"jsonrpc\":\"2.0\",\"id\":" + orbit_int_to_string_selfhost(id) + ",\"error\":{\"code\":-32601,\"message\":\"method not found\"}}")
+        }
+    }
+    return 0
+}

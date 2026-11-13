@@ -12,14 +12,14 @@ them.
 Windows (verified):
 
 ```powershell
-python scripts\build_selfhost.py --cc gcc --out orbit.exe
+python scripts\trust.py build --cc gcc --out orbit.exe
 .\orbit.exe build examples\health_service.orb -o health_service.exe
 ```
 
 Linux (UNTESTED here - same path CI uses):
 
 ```sh
-python3 scripts/build_selfhost.py --cc gcc --out orbit
+python3 scripts/trust.py build --cc gcc --out orbit
 ./orbit build examples/health_service.orb -o health_service
 ```
 
@@ -53,7 +53,7 @@ Orbit 0.1.0
 
 - Local: http://localhost:8080
 - Workers: 8
-- Secured by Kynx.
+- Secured by admission.
 
 ✓ Starting...
 ✓ Ready in 4.8 ms
@@ -66,7 +66,7 @@ curl http://127.0.0.1:8080/health
 ```
 
 ```text
-{"status":"UP","version":"0.1.0-rc.2","uptime_seconds":0}
+{"status":"UP","version":"0.1.0","uptime_seconds":0}
 ```
 
 The port comes from the first argument, which overrides the file's
@@ -140,4 +140,4 @@ cluster down: all 2 nodes stopped, state removed.
 State lives in `.orbit/` (git-ignored). Logs stay in
 `.orbit/logs/` after `down`. One cluster per directory.
 `drain` and rolling restart are best-effort stops on Windows
-(drain is kill there) - see [Known Limitations](../KNOWN_LIMITATIONS.md).
+(drain is kill there) - see [Known Limitations](../internals/LIMITATIONS_LOG.md).

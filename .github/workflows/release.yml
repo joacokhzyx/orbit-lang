@@ -47,8 +47,8 @@ jobs:
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale
-          "$PY" scripts/verify_seed.py --release --refresh \
+          "$PY" scripts/trust.py build --cc "${{ matrix.cc }}" --check-stale
+          "$PY" scripts/trust.py verify --release --refresh \
             --emit-fixed-point "dist/${{ matrix.asset }}"
           if [ ! -f "dist/${{ matrix.asset }}" ]; then
             echo "[Release] FAILED: the fixed-point compiler was not emitted."

@@ -1,0 +1,9 @@
+orbit-tir 1
+module fixture
+function 0 add void
+param 0 0 xs list<int>
+block 0 0
+instr 0 0 0 load list<int> xs
+instr 0 0 1 const int 7
+instr 0 0 2 call void push v0 v1
+end-function 0

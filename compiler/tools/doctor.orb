@@ -1,5 +1,6 @@
 import "../front/ast.orb"
 import "../front/parser.orb"
+import "../host/extern.orb"
 import "../host/pipeline.orb"
 import "./palette.orb"
 
@@ -329,10 +330,10 @@ fn doctorEndsWithNewline(s: string) -> bool {
  *    no fix, because it is a fix nobody re-reads.
  */
 fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bool, colorMode: string) -> string {
-    if checkSourceWithFile(before, file, colorMode) == false {
+    if checkSourceForDoctor(before, file, colorMode) == false {
         return "skipped: this file does not pass the compiler's own checks, so a fix could not be verified"
     }
-    if checkSourceWithFile(edited, file, colorMode) == false {
+    if checkSourceForDoctor(edited, file, colorMode) == false {
         return "not applied: the result no longer passes the compiler's checks"
     }
     if verifyBuild {
@@ -559,17 +560,109 @@ fn doctorFirstLine(s: string) -> string {
 // Collect .orb files under root, recursing into subdirectories.
 // Needs only orbit_file_list_dir_selfhost: a path whose listing is
 // non-empty is treated as a directory, otherwise as a file.
+// Directory names the scan root's .gitignore lists with a trailing slash. Git
+// already says they are not part of the tree, so the scan skips them the way
+// it skips dot-directories. A plain `name/` line is what this reads: nested
+// .gitignore files, wildcards and anchored patterns are left to git.
+// The ignore rules written in `dir`'s own .gitignore, each tagged with the
+// directory that declared it: `dir + "|" + rule`. A rule is a plain directory
+// name (`build/`), the same thing anchored to its file's directory (`/build/`),
+// or a bare name without the slash. Git also carries wildcards and `!`
+// negations; this reads neither -- a guessed `*` match silently drops files from
+// the scan, which is worse than not ignoring them, and the entry says so.
+//
+// The tag is what makes the anchored form mean what git means: a rule written at
+// the root is a path, so `/scratch/` hides the root's `scratch/` and nothing
+// deeper, while the unanchored `scratch/` hides one at any depth.
+fn doctorIgnoreRules(dir: string) -> list < string > {
+    val out = []
+    val text = orbit_file_read_selfhost(dir + "/.gitignore")
+    if text == "" { return out }
+    val lines = splitBuildLines(text)
+    var i = 0
+    while i < lines.len() {
+        var line = doctorTrimSpace(lines.get(i))
+        var anchored = false
+        if doctorStartsWith(line, "/") {
+            anchored = true
+            line = line.slice(1, line.len())
+        }
+        if line.len() > 0 && doctorStartsWith(line, "#") == false && doctorStartsWith(line, "!") == false {
+            if doctorEndsWith(line, "/") {
+                val name = line.slice(0, line.len() - 1)
+                // A name with a slash inside it is a path below this directory,
+                // and this scan skips by entry name only; leave it to git rather
+                // than half-implement it.
+                if name.len() > 0 && orbit_string_indexOf(name, "/") == -1 && orbit_string_indexOf(name, "*") == -1 {
+                    out.push(dir + "|" + (anchored ? "/": "") + name)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Join two rule sets for the queue, keeping each rule's declaring directory.
+fn doctorRuleJoin(a: list < string >, b: list < string >) -> list < string > {
+    val out = []
+    var i = 0
+    while i < a.len() {
+        out.push(a.get(i))
+        i = i + 1
+    }
+    i = 0
+    while i < b.len() {
+        out.push(b.get(i))
+        i = i + 1
+    }
+    return out
+}
+
+// Whether the directory entry `name`, listed inside `parent`, is ignored by
+// `rules`. An anchored rule hides its name only in the directory that wrote it;
+// any other rule hides it at every depth below that directory, which is what
+// git does too.
+fn doctorRuleHides(rules: list < string >, parent: string, name: string) -> bool {
+    var i = 0
+    while i < rules.len() {
+        val rule = rules.get(i)
+        val bar = orbit_string_indexOf(rule, "|")
+        if bar > 0 {
+            val owner = rule.slice(0, bar)
+            var pat = rule.slice(bar + 1, rule.len())
+            var anchored = false
+            if doctorStartsWith(pat, "/") {
+                anchored = true
+                pat = pat.slice(1, pat.len())
+            }
+            if pat == name {
+                if anchored == false || owner == parent { return true }
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fn doctorCollectOrbFiles(root: string) -> list < string > {
     var files = []
     if doctorEndsWithOrb(root) {
         files.push(root)
         return files
     }
+    // Rules accumulate down the walk: each queued directory carries the set it
+    // inherits from its ancestors plus the set written in its own .gitignore, so
+    // a nested ignore file hides its subtree the way the root one hides the
+    // repository's.
     val dirs = []
+    val ruleSets = []
     dirs.push(root)
+    ruleSets.push(doctorIgnoreRules(root))
     var di = 0
     while di < dirs.len() {
         val dir: string = dirs.get(di)
+        val rules: list < string > = ruleSets.get(di)
         val entries = orbit_file_list_dir_selfhost(dir)
         var ei = 0
         while ei < entries.len() {
@@ -578,9 +671,18 @@ fn doctorCollectOrbFiles(root: string) -> list < string > {
             if doctorEndsWithOrb(e) {
                 files.push(full)
             } else {
-                val sub = orbit_file_list_dir_selfhost(full)
-                if sub.len() > 0 {
-                    dirs.push(full)
+                // A dot-directory is tool state, not source: .git, and .orbit
+                // with its thousands of build copies. Scanning .orbit is what
+                // made `orbit doctor .` exhaust the arena before it could
+                // report anything.
+                if doctorStartsWith(e, ".") == false {
+                    if doctorRuleHides(rules, dir, e) == false {
+                        val sub = orbit_file_list_dir_selfhost(full)
+                        if sub.len() > 0 {
+                            dirs.push(full)
+                            ruleSets.push(doctorRuleJoin(rules, doctorIgnoreRules(full)))
+                        }
+                    }
                 }
             }
             ei = ei + 1
@@ -3411,13 +3513,109 @@ fn doctorEndsWith(s: string, suffix: string) -> bool {
     return orbit_string_slice(s, sn - xn, sn) == suffix
 }
 
-fn doctorCheckRoutes(stats: DoctorStats, routes: list < DoctorRoute >) {
+// Route conflicts are a property of one program, not of a directory. Every
+// file that declares `main` is a program root, and a route belongs to the
+// programs whose import closure reaches its file. `examples/` holds
+// independent services, so a tree scan read five GET /health handlers as one
+// program's duplicates: the correct analysis of the wrong input.
+fn doctorProgramRoots(decls: list < DoctorDecl >) -> list < string > {
+    val roots = []
+    var i = 0
+    while i < decls.len() {
+        val d: DoctorDecl = decls.get(i)
+        if d.kind == "fn" && d.name == "main" {
+            if doctorListContains(roots, d.file) == false {
+                roots.push(d.file)
+            }
+        }
+        i = i + 1
+    }
+    return roots
+}
+
+// The files `path` reaches through imports, pushed into `seen`. Same edges as
+// doctorClosureWalkReuse, but nothing is concatenated: that walk builds a
+// digest per module, and the digest of a dense graph grows with its diamonds.
+// A closure needs the set of files, not the string, and building the string
+// took `doctor compiler` to a 3 GB arena on Linux.
+fn doctorProgramClosureWalk(path: string, imports: list < string >, seen: list < string >, knownFiles: list < string >, knownImports: list < list < string >>) {
+    val baseDir = getDir(path)
+    var i = 0
+    while i < imports.len() {
+        val rel: string = imports.get(i)
+        val full = normalizePath(resolveFilePath(baseDir, rel))
+        if doctorListContains(seen, full) == false {
+            seen.push(full)
+            val at = doctorIndexOfFile(knownFiles, full)
+            if at >= 0 {
+                val sub: list < string > = knownImports.get(at)
+                doctorProgramClosureWalk(full, sub, seen, knownFiles, knownImports)
+            } else {
+                val subSource = orbit_file_read_selfhost(full)
+                if subSource != "" {
+                    val parser = initParser(subSource)
+                    val ast = parseProgram(parser)
+                    val subImports = []
+                    doctorCollectImports(ast, subImports)
+                    doctorProgramClosureWalk(full, subImports, seen, knownFiles, knownImports)
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
+// The files one root reaches through imports, named the way the resolver names
+// a module. A root that did not parse contributes itself alone, which
+// under-reports rather than guessing at edges it could not read.
+fn doctorProgramClosure(root: string, parsedFiles: list < string >, parsedImports: list < list < string >>) -> list < string > {
+    val seen = [normalizePath(root)]
+    val at = doctorIndexOfFile(parsedFiles, root)
+    if at >= 0 {
+        val imps: list < string > = parsedImports.get(at)
+        doctorProgramClosureWalk(root, imps, seen, parsedFiles, parsedImports)
+    }
+    return seen
+}
+
+fn doctorProgramClosures(roots: list < string >, parsedFiles: list < string >, parsedImports: list < list < string >>) -> list < list < string >> {
+    val closures = []
+    var ri = 0
+    while ri < roots.len() {
+        closures.push(doctorProgramClosure(roots.get(ri), parsedFiles, parsedImports))
+        ri = ri + 1
+    }
+    return closures
+}
+
+// Two routes can collide only when one program reaches both files. Two files no
+// root reaches are not one program, so the answer does not depend on what else
+// the scan happened to include: `tests/doctor` alone and `tests` as a whole
+// report the same pair the same way.
+fn doctorSameProgram(aFile: string, bFile: string, closures: list < list < string >>) -> bool {
+    val a = normalizePath(aFile)
+    val b = normalizePath(bFile)
+    if a == b { return true }
+    var i = 0
+    while i < closures.len() {
+        val seen: list < string > = closures.get(i)
+        if doctorListContains(seen, a) && doctorListContains(seen, b) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn doctorCheckRoutes(stats: DoctorStats, routes: list < DoctorRoute >, closures: list < list < string >>) {
     var a = 0
     while a < routes.len() {
         var b = a + 1
         while b < routes.len() {
             val ra: DoctorRoute = routes.get(a)
             val rb: DoctorRoute = routes.get(b)
+            if doctorSameProgram(ra.file, rb.file, closures) == false {
+                b = b + 1
+                continue
+            }
             if ra.method == rb.method {
                 if ra.normPath == rb.normPath {
                     if ra.rawPath == rb.rawPath {
@@ -3702,7 +3900,7 @@ fn doctorUsedInText(files: list < string >, sources: list < string >, fileLines:
             // The line list comes from the run, not from splitting here. This
             // function runs once per unused declaration over every file, so
             // splitting inside it made the search O(decls x files x bytes).
-            val lines: list = fileLines.get(i)
+            val lines: list < string > = fileLines.get(i)
             var ln = 1
             while ln <= lines.len() {
                 var isDeclLine = false
@@ -3864,7 +4062,14 @@ fn doctorCodePart(line: string) -> string {
         k = k + 1
     }
     if hasStr == false { return cut }
-    val buf = orbit_cbuf_create_selfhost()
+    // Runs joined by concatenation, not through a chunk buffer: a buffer's first
+    // block is ORBIT_CBUF_INIT_CAP (64 KB), the arena releases nothing until the
+    // process ends, and this ran once per quoted line of every file in the scan.
+    // The lowest ORBIT_ARENA_MAX_MB that completes `orbit doctor compiler` over
+    // this repository went from 3888 MB to 432 MB on an 8192 MB Windows host, and
+    // on a 3904 MB Linux host the scan that aborted at the 2928 MB default
+    // finishes there now.
+    var out = ""
     var i = 0
     var inStr = false
     while i < n {
@@ -3885,11 +4090,11 @@ fn doctorCodePart(line: string) -> string {
                 while i < n && orbit_string_char_at_selfhost(cut, i) != 34 {
                     i = i + 1
                 }
-                orbit_cbuf_append_selfhost(buf, orbit_string_slice(cut, start, i))
+                out = out + orbit_string_slice(cut, start, i)
             }
         }
     }
-    return orbit_cbuf_build_selfhost(buf)
+    return out
 }
 
 fn doctorIsValidSystemMember(member: string) -> bool {
@@ -3897,6 +4102,8 @@ fn doctorIsValidSystemMember(member: string) -> bool {
     if member == "pid" { return true }
     if member == "active_workers" { return true }
     if member == "http_requests_total" { return true }
+    if member == "http_requests_ok" { return true }
+    if member == "http_requests_error" { return true }
     if member == "latency_avg_us" { return true }
     if member == "latency_p50_us" { return true }
     if member == "latency_p95_us" { return true }
@@ -3936,7 +4143,7 @@ fn doctorScanSystem(stats: DoctorStats, lines: list < string >, file: string) {
     while i < lines.len() {
         val bad = doctorScanSystemLine(doctorCodePart(lines.get(i)))
         if bad != "" {
-            doctorReport(stats, file, i + 1, "D005", "unknown member 'system." + bad + "'. Valid members are: uptime, pid, active_workers, http_requests_total, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.", "use one of: uptime, pid, active_workers, http_requests_total, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.")
+            doctorReport(stats, file, i + 1, "D005", "unknown member 'system." + bad + "'. Valid members are: uptime, pid, active_workers, http_requests_total, http_requests_ok, http_requests_error, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.", "use one of: uptime, pid, active_workers, http_requests_total, http_requests_ok, http_requests_error, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.")
         }
         i = i + 1
     }
@@ -4282,19 +4489,24 @@ fn doctorUsage() {
 
 /** @brief Where the typecheck cache lives, or "" when caching is off.
  *
- *  Follows the compiler's existing convention: ORBIT_DOCTOR_CACHE wins, then
- *  ORBIT_CCACHE_DIR (so one scratch dir serves the whole toolchain), then
- *  XDG_CACHE_HOME/orbit/doctor. ORBIT_DOCTOR_CACHE=0 disables it outright --
- *  a cache you cannot turn off is a cache you cannot debug. */
+ *  Opt-in: only ORBIT_DOCTOR_CACHE names a directory, and "0" or "" leaves the
+ *  cache off. The key is a file's source and its import closure, which cannot
+ *  see the compiler that answered. On 2026-11-06 a cache directory written on
+ *  2026-10-11 answered "ok" for a fixture the current compiler rejects, so D008
+ *  disappeared from the doctor gate and the row failed on one machine while
+ *  passing on another. A cache that outlives the compiler hides errors, which
+ *  is the direction this must never err in.
+ *
+ *  The cache used to be worth nothing on the trees this repo has: on
+ *  2026-11-06 `doctor compiler` took 7.0 s with it and 7.0 s without. Once the
+ *  cached answer includes the IR verifier, a second run halves: measured
+ *  2026-11-10 on the same tree, 4.5 s warm against 9.0 s without. A caller
+ *  that measures a win names the directory; the gate's cache case does so. */
 fn doctorCacheDir() -> string {
     val override = orbit_os_env_selfhost("ORBIT_DOCTOR_CACHE")
     if doctorTrimSpace(override) == "0" { return "" }
-    if override != "" { return override }
-    val shared = orbit_os_env_selfhost("ORBIT_CCACHE_DIR")
-    if shared != "" { return doctorJoinPath(shared, "doctor") }
-    val xdg = orbit_os_env_selfhost("XDG_CACHE_HOME")
-    if xdg == "" { return "" }
-    return doctorJoinPath(doctorJoinPath(xdg, "orbit"), "doctor")
+    if doctorTrimSpace(override) == "" { return "" }
+    return override
 }
 
 /** @brief Typecheck one file, reusing a previous answer for the same bytes.
@@ -4310,7 +4522,7 @@ fn doctorCacheDir() -> string {
  *  cannot keep. */
 /** @brief A fingerprint of everything the semantic check of `file` depends on.
  *
- *  The dependency is NOT the file. checkSourceWithFile resolves and typechecks
+ *  The dependency is NOT the file. checkSourceForDoctor resolves and typechecks
  *  the transitive import closure, so the answer changes when a module this file
  *  imports changes. Keying the cache on this file's own bytes therefore kept a
  *  stale "clean" answer alive across an edit to an imported module: doctor
@@ -4385,7 +4597,11 @@ fn doctorModuleFingerprintReuse(path: string, source: string, imports: list < st
     val hit = doctorMemoLookup(memo, path)
     if hit != "" { return hit }
     val sub = doctorClosureWalkReuse(path, imports, seen, knownFiles, knownImports, knownSources, memo)
-    val digest = sub + ":" + orbit_string_hash_selfhost(source)
+    // Fixed size: a module's digest is two hashes, not the concatenation of its
+    // subtree. Concatenating made the root's string grow with the graph's
+    // diamonds, and doctor over compiler/ reached a 3 GB arena on Linux before
+    // it could report a finding.
+    val digest = orbit_string_hash_selfhost(sub) + "-" + orbit_string_hash_selfhost(source)
     memo.push(path + "=" + digest)
     return digest
 }
@@ -4417,7 +4633,7 @@ fn doctorMemoLookup(memo: list < string >, path: string) -> string {
 
 /** @brief Every import path in declaration order, which is resolution order. */
 // orbit-walk: none -- collects import statements from the top level
-fn doctorCollectImports(node: ASTNode, out: list) {
+fn doctorCollectImports(node: ASTNode, out: list < string >) {
     match node {
         ASTNode.Program(p) => {
             var i = 0
@@ -4588,7 +4804,7 @@ fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string
         if probe == "bad" { return false }
     }
     val start = orbit_clock_ms()
-    val okRes = checkSourceWithFile(source, file, stats.color)
+    val okRes = checkSourceForDoctor(source, file, stats.color)
     stats.semaMs = stats.semaMs + (orbit_clock_ms() - start)
     if path != "" {
         if okRes {
@@ -4851,7 +5067,6 @@ fn doctorRun(opts: DoctorOptions) {
     // What the parse pass produced, kept for the fingerprint pass. Parsing a
     // file twice to find its imports is the one cost the cache cannot absorb.
     val parsedFiles = []
-    val parsedAsts = []
     val parsedImports = []
     val parsedSources = []
     var i = 0
@@ -4865,7 +5080,7 @@ fn doctorRun(opts: DoctorOptions) {
             // "the rest of the loop": a total that wraps three phases is not a
             // measurement of any of them, and the budgets are per phase.
             val textStart = orbit_clock_ms()
-            val fplines: list = fileLines.get(i)
+            val fplines: list < string > = fileLines.get(i)
             doctorCollectRoutes(fplines, fp3, routes)
             doctorScanSystem(stats, fplines, fp3)
             doctorScanLiterals(stats, fplines, fp3)
@@ -4898,7 +5113,6 @@ fn doctorRun(opts: DoctorOptions) {
                 val imps = []
                 doctorCollectImports(ast, imps)
                 parsedFiles.push(fp3)
-                parsedAsts.push(ast)
                 parsedImports.push(imps)
                 parsedSources.push(src3)
                 // D012 needs, per file, the names it references and the modules
@@ -4931,15 +5145,15 @@ fn doctorRun(opts: DoctorOptions) {
     while pi < parsedFiles.len() {
         val pfile: string = parsedFiles.get(pi)
         val psrc: string = parsedSources.get(pi)
-        val pimps: list = parsedImports.get(pi)
+        val pimps: list < string > = parsedImports.get(pi)
         val fingerprint = doctorClosureFingerprintReuse(pfile, psrc, pimps, parsedFiles, parsedImports, parsedSources, closureMemo)
         val okRes = doctorTypecheckByFingerprint(stats, pfile, psrc, fingerprint, cacheState)
         if okRes == false {
-            doctorReport(stats, pfile, 1, "D008", "this file does not pass the compiler's semantic checks.", "run `orbit check " + pfile + "` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)")
+            doctorReport(stats, pfile, 1, "D008", "this file does not pass the compiler's checks.", "run `orbit check " + pfile + "` and address the first error. (The detail is not reprinted here: it comes from the typecheck and the IR verifier, which a cached answer skips.)")
         }
         pi = pi + 1
     }
-    doctorCheckRoutes(stats, routes)
+    doctorCheckRoutes(stats, routes, doctorProgramClosures(doctorProgramRoots(decls), parsedFiles, parsedImports))
     doctorCheckUnused(stats, decls, refs, files, sources, fileLines)
     doctorCheckTelemetry(stats, routes, opts)
 

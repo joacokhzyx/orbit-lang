@@ -6,11 +6,11 @@ Orbit is a self-hosted language compiler; the checkers, codegen and runtime are 
 
 ```bash
 # fresh entry point; produces a compiler binary compiling .orb -> C -> native
-python3 scripts/build_selfhost.py --cc gcc --out /tmp/fp
+python3 scripts/trust.py build --cc gcc --out /tmp/fp
 chmod +x /tmp/fp
 ```
 
-`scripts/verify_seed.py --cc gcc --emit-fixed-point /tmp/fixed_point` builds the hermetic fixed-point compiler from the committed canonical `compiler/selfhost/stage3.exe.c`. Use that binary for every gate. Set `ORBIT_CCACHE_DIR` to a scratch dir (cached .o make bootstraps cheap), otherwise a runnable fp disappears when /tmp is cleaned.
+`scripts/trust.py verify --cc gcc --emit-fixed-point /tmp/fixed_point` builds the hermetic fixed-point compiler from the committed canonical `compiler/selfhost/stage3.exe.c`. Use that binary for every gate. Set `ORBIT_CCACHE_DIR` to a scratch dir (cached .o make bootstraps cheap), otherwise a runnable fp disappears when /tmp is cleaned.
 
 ## Verification gates (all local, all required)
 
@@ -18,39 +18,49 @@ chmod +x /tmp/fp
 
 ```bash
 make dev      # gates proportionate to what the working tree touched (default)
+make static   # fmt plus the five static gates: all a docs or scripts change needs
 make check    # T0..T2 unconditionally
 make all      # T0..T3, including the root of trust
 make fp       # just the fixed-point compiler, and print its version
 make list     # show what dev would run, without running it
 ```
 
-`dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/**/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
+`dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/**/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`. When the
+diff is documents or `scripts/` only, `make static` is the honest tier: 6 gates in 12 to
+13 seconds, measured 2026-11-06, and it builds no compiler to answer a question about
+text.
+
+Which gate runs in which tier is declared once, in `scripts/gate_registry.py`, and
+`scripts/dev.py` reads that table. A gate label is a stable identifier: `--filter` takes
+it, a filter naming no label exits nonzero instead of printing `nothing to run` and
+returning 0, and the table's own `--self-test` fails if a row loses its checker row in
+`scripts/alive_check.py`.
 
 **A gate that fails only on windows-latest is a toolchain or harness difference, not a platform defect.** Both failures found on 2026-10-09 reproduced on a Windows development machine and were fixed without platform-specific code. `ENGINEERING.md` §7 `gate-sequence` holds the contract and the ruled-out lists; the dated record is in git history, in the retired `docs/WINDOWS.md`. The `0xC0000005` in `test_migrations` is gate-sequence(6): it has not recurred, and its mechanism is not proven. The runtime C tests are green on both platforms.
 
 Useful when something breaks:
 
 ```bash
-python scripts/doctor_gate.py --compiler "$(make -s fp >/dev/null && echo /tmp/orbit-fp-*)"
+python scripts/doctor_gates.py doctor --compiler "$(make -s fp >/dev/null && echo /tmp/orbit-fp-*)"
 ```
 
 If you need the raw commands, they are listed with their rationale in `ENGINEERING.md` §8. Do not copy them from there; that is the drift this script exists to end.
 
 ## Replace-the-world rule
 
-The committed canonical is `compiler/selfhost/stage3.exe.c`, and `scripts/verify_seed.py` asserts it reproduces itself. Never hand-edit it or any golden. After changing compiler sources:
+The committed canonical is `compiler/selfhost/stage3.exe.c`, and `scripts/trust.py verify` asserts it reproduces itself. Never hand-edit it or any golden. After changing compiler sources:
 
 ```bash
-python3 scripts/build_selfhost.py --cc gcc --promote      # rewrites canonical C + PUBLISHED_C
-python3 scripts/verify_seed.py --cc gcc --emit-fixed-point /tmp/fp # sanity
-python3 scripts/parity_selfhost.py --cc gcc --compiler /tmp/fp --update   # ONLY if the diff is intended
+python3 scripts/trust.py build --cc gcc --promote      # rewrites canonical C + PUBLISHED_C
+python3 scripts/trust.py verify --cc gcc --emit-fixed-point /tmp/fp # sanity
+python3 scripts/corpus_gates.py parity --cc gcc --compiler /tmp/fp --update   # ONLY if the diff is intended
 ```
 
-Commit canonical + refreshed goldens + sources + `scripts/verify_seed.py` (PUBLISHED_C) together.
+Commit canonical + refreshed goldens + sources + `scripts/trust.py` (PUBLISHED_C) together.
 
-**Do not read the canonical's diff, read `make promote-diff` instead.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured: 19 of the last 60 commits change it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004.
+**Do not read the canonical's diff, read `make promote-diff` instead.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured 2026-11-03 on this branch: 27 of the last 60 commits change it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004.
 
-After `make promote` and before committing, run it. It diffs the canonical against `HEAD` with `r_N` and `label_N` flattened to `r` and `label` -- the only two generated-name families in 6,858,370 bytes -- and reports the raw line count, the count after flattening, the hunks, and the functions they land in. On the commit that removed the phantom `ParamNode`, that is 24 342 lines raw against **40** after flattening, in 9 hunks across 3 functions. The same flattening is applied by hand in the clean-emission entry of `ENGINEERING.md`, which is where the technique came from.
+After `make promote` and before committing, run it. It diffs the canonical against `HEAD` with `r_N` and `label_N` flattened to `r` and `label`. At `194f0c31` those are 205,202 and 27,954 occurrences in 7,242,694 bytes (measured 2026-11-03 with `grep -oE '\br_[0-9]+\b' | wc -l` and the same for `label_`, `wc -c`). It reports the raw line count, the count after flattening, the hunks, and the functions they land in. A third generated family is left numbered on purpose: the static slots `<name>__s<digits>`, 940 occurrences at the same commit. Flattening them would let a use that moved between two hoisted constants print as no change, so one function growing renumbers them across the file and a promote can name functions the commit never touched. Read the function list with that in mind. On the commit that removed the phantom `ParamNode`, that is 24 342 lines raw against **40** after flattening, in 9 hunks across 3 functions. The same flattening is applied by hand in the clean-emission entry of `ENGINEERING.md`, which is where the technique came from.
 
 So review the `.orb` diff, the commit's evidence block, and `make promote-diff` -- three things, all readable. Treat the canonical itself as the mechanical artifact it is and check only its hash.
 
@@ -62,11 +72,11 @@ These are gates. Do not perform them by hand and do not write them out as a habi
 - `tests/negative/*.orb` must FAIL to compile with the text their header pins. A `known-defect:` asserts the bug is STILL there, so a fix makes the gate red until you re-declare the case as `expect-error:` with the diagnostic you measured, never from memory. See `tests/negative/README.md`.
 - `alive_check` (D8) requires every file in `scripts/` to be able to fail. A new script with no row there is the same class of thing as a gate nobody reads.
 - `unknown_ratchet` fails only when the number goes UP. Raising a baseline is a deliberate act and `--write-baseline` refuses to move it up without `--allow-regression`.
-- `schema_conformance.py`, `walk_coverage.py`, `doc_counts.py` and `flag_coverage.py` run in T0, cost about a second, and need no compiler. They check `compiler/front/ast.orb` against the code that builds nodes, require every AST walk to declare the fields it skips, require every counted claim about the corpus in the docs to equal the tree, and require every CLI flag a script declares to be read by the script that owns it.
+- The five tier-0 gates are subcommands of `scripts/static_gates.py`: `schema`, `walk`, `counts`, `flags` and `cites`. `schema` and `walk` hold their analysis in Orbit probes, `scripts/schema_conformance.orb` and `scripts/walk_coverage.orb`, and the driver compiles each with the fixed point. Measured 2026-11-06 on Windows: 4 s per probe gate, and 19 s for the six-gate tier against 13 s when both were Python. `counts`, `flags` and `cites` read text, need no compiler, and cost about a second each. `schema` checks `compiler/front/ast.orb` against the code that builds nodes. `walk` requires every AST walk to declare the fields it skips. `counts` requires every counted claim about the corpus in the docs to equal the tree. `flags` requires every CLI flag a script declares to be read by the script that owns it. `cites` opens every `path:line` citation in the documents.
 
 ## Working with other agents
 
-**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/verify_seed.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. At d3352b5, 19 of the last 60 commits change it, so this is not a rare path. Before promoting, check who had it last:
+**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/trust.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. At d3352b5, 19 of the last 60 commits change it, so this is not a rare path. Before promoting, check who had it last:
 
 ```bash
 git log -1 --format='%h %ad %s' --date=short -- compiler/selfhost/stage3.exe.c
@@ -85,7 +95,7 @@ What may run in parallel, and why:
 | `runtime/*.c` | yes, carefully | the CI step compiles them by filename, so a shared `-D` is a shared change |
 | `docs/*.md` | yes, different files | |
 | `scripts/*.py` | yes, with one condition | a new script arrives with its `alive_check` row in the same commit |
-| `ENGINEERING.md` §7/§8, `AGENTS.md` | **no** | they are contracts; two agents editing the debt table step on each other |
+| `docs/internals/DEFECTS.md`, `ENGINEERING.md` §8, `AGENTS.md` | **no** | they are contracts; two agents editing the debt table step on each other |
 
 Use `git worktree` for two agents editing `compiler/**/*.orb` at once. The merge point is a commit, which is where `verify_seed` has something to say again. Without it, whichever agent promotes deletes the other's working binary.
 
@@ -110,7 +120,7 @@ A NO to any of the three means redo, with no argument about whether the case "sh
 Stop and ask rather than push on, when:
 
 - **A ratchet turns green.** That is good news: you fixed something recorded as broken. Re-declare the header with the diagnostic you measured and move the program to `tests/suite/` if it is no longer a defect.
-- **`ENGINEERING.md` §7 says something your change contradicts.** The debt table is the contract. Update it in the same commit, or ask first. Do not leave it lying to keep your diff smaller.
+- **An open row in `docs/internals/DEFECTS.md` says something your change contradicts.** That table is the contract. Update it in the same commit, or ask first. Do not leave it lying to keep your diff smaller.
 - **`verify_seed` fails after your `--promote`.** The sources do not converge to the canonical. Do not hand-edit the canonical to make it pass.
 - **A gate you did not run comes back red.** `gh run list --limit 3`, then `gh run view <id> --log`, and the STEP NAME is the finding. If it is not yours, do not fix it.
 - **You are about to do "one more thing" in the same place.** Every class of bug found here is the same loop: fixing A revealed B, fixing B revealed C. One commit is one defect. When you want to open the second, stop.
@@ -124,54 +134,11 @@ Stop and ask rather than push on, when:
 - `var` or `const` at file scope is an error (E1007), because a module-level `var` would be shared mutable state and the language has none that works. Top-level `val NAME = <int|bool lit>` is a global `#define`; it is emitted by `generateRoutePreamble`, not by route_runtime.
 - Test files the C gates do not like: `tests/negative/*.orb` are intentionally broken; every case pins `// expect-error: <substring>` (or `// known-defect: F-000N`), and the gate asserts the pinned text. Do not fmt them.
 - New files under `tests/suite/` MUST be `fmt`-clean: CI runs `fmt --check` on the directory and fails the whole job on one unformatted file (bit us twice).
-- `diff_fuzz.py` disagreements limit to runtime reference vs orbit canonical; C changes that alter generated text only change hashes in `tests/parity/golden/*` — regenerate with `--update` deliberately.
+- `measure.py diff-fuzz` disagreements limit to runtime reference vs orbit canonical; C changes that alter generated text only change hashes in `tests/parity/golden/*` — regenerate with `--update` deliberately.
 
-## Style / workflow
+## Style, writing and commits
 
-- Preserve existing shapes: 4-space, no `var` vs `val` concessions; comments explain why code is like this, not what the code says. No new comments unless they say something the code cannot.
-- Name things by what they are. Files, doc sections, examples, tests and gates carry descriptive names (`std_crypto_demo.orb`, not `std_wave4.orb`). Do not invent batch, phase or journey codenames for new work. A commit message and a document name the change or the mechanism, never the plan that produced them. Component names (`Kynx`) and diagnostic/defect codes (`D001`, `F-000N`) are stable identifiers, not codenames: keep them, and define a new identifier in docs before using it in code. Retired debt-table IDs (`STAB-N`, `PAR-N`, ...) stay retired; do not mint new ones.
-  - Day-0 read: codename (never invent, e.g. `std_wave4.orb`) vs stable identifier (keep, e.g. `Kynx`, `D001`, `F-000N`) vs retired slug (stay retired, e.g. `STAB-N`).
-- Changes to the emitted C need the whole-prelude byte-diff check: track one program byte-for-byte; only expected fragments (one register renumber, one removed line) should differ.
-- `gh` is the source of truth for CI state: `gh run list --limit 3; gh run view <id> --log` for the failing step's name. The failing step name is the finding; the step text is often as enough.
-- Register-name number shifts (`r_N`) in emitted C are benign renumbering; hash goldens will still flip, which is one probe, not a proof.
-
-## Writing
-
-Write for the maintainer who joined yesterday. They read English; they do not read our history.
-
-- Documentation is impersonal. The page says what was measured, not who measured it. A commit body may say "I".
-- One idea per sentence. Average under 22 words, none over 40. A semicolon usually means two sentences.
-- Write what the reader can act on. A §7 row holds a defect, its measurement and its decision. It is not a diary, and the list of everything checked is not the finding.
-- A table is for more than two columns. Two facts are a sentence.
-- Name the thing. "The 99 `return ""` sites", not "the surface". "What is left", not "the residual". "The line the gate checks", not "the witness".
-- Every claim carries a command, a number or a line. "Faster", "cleaner" and "more robust" carry nothing.
-- "Honest" describes the author, not the code. Write "measured", "unchecked" or "the reason". A measurement is enough; a confession is not a finding.
-- No hedges. "Should", "likely" and "probably" become a measurement or a question.
-- Do not explain the sentence you are about to write, or the one you just wrote. Delete the first sentence of a section if it only announces the section.
-
-Banned in new text: shape, surface, lane, load-bearing, battery, premise, clause, witness, residual, honest. They are our own metaphors, and a reader cannot look them up. Generic AI vocabulary is not the problem here: counting this repository on 2026-10-19 found none of it, so do not spend lines banning it.
-
-Defined once, used freely: **contract** (ENGINEERING.md §7, which a change must not contradict), **gate** (a check that fails the build), **row** (one line of the §7 table), **ceiling** (a measured upper bound on a named machine).
-
-## Commits
-
-Commits are how a change is found again, reviewed and undone. One defect, one commit.
-
-- Branches, merges and releases follow `docs/BRANCHES.md`: work happens on `feature/<topic>`, it merges into `develop` after the full gate, and `main` receives only tagged releases.
-- Commit when the change is small, verified and complete. A correction that changes behaviour or a document's claim gets its own commit, even if it is one line.
-- Do not wait for the rest of the work. A verified fix left in the working tree is a fix nobody can find in the history.
-- Do not mix. A code change and a documentation change are two commits, unless the document is the reason the code changed.
-- Do not commit a state you have not gated. The evidence block names the gate.
-- The exception is the root of trust: a promote commits the sources, `compiler/selfhost/stage3.exe.c`, the refreshed goldens and `PUBLISHED_C` together. They are one file in four copies, and a commit that splits them describes a tree that never existed.
-- A pushed commit is a record. Fix forward: the next commit carries the correction and says what it corrects. Do not rewrite history to make an old message tidy.
-- A commit is not a checkpoint or a diary. If the message needs "also", it is two commits.
-
-Message:
-
-- Subject: `area: what changed`, imperative, under 60 characters, no period.
-- The body says why. The diff says what.
-- No batch, phase or ticket label (`E2`, `B3`, `WT-1`, `wave4`) in the subject or the body. The message describes the change, not the plan that produced it.
-- One claim per sentence. Every number is one the reader can reproduce.
-- End with an Evidence block: one line per command and what it printed.
-- If something is unmeasured or left undone, one sentence says so, with the reason.
-- Never: "this commit", "as requested", a list of the files, or a summary of the diff.
+The naming, documentation, writing and commit rules are in
+[CONTRIBUTING.md](CONTRIBUTING.md#the-contract). They apply to agents exactly
+as written there; this file adds only the rules that are about working beside
+other writers.

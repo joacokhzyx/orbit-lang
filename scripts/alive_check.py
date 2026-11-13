@@ -70,7 +70,7 @@ TRACEBACK = "Traceback (most recent call last)"
 # a slow T3 while still catching yesterday's log.
 WITNESS_MAX_AGE_SECS = 7200
 
-# Single-census wiring: alive_check runs `unknown_census.py --json` once and
+# Single-census wiring: alive_check runs `measure.py census --json` once and
 # hands the document to the ratchet via --from-json, instead of the census and
 # the ratchet each censusing the corpus. The marker below is checked against
 # the census's stdout (pure JSON); the human "Corpus: ..." banner is not
@@ -158,51 +158,82 @@ def registry(compiler, cc, work):
              "selected from the working tree",
              lambda: _script("dev.py", "list"),
              r"T\d:", 120, allow_rc=(0, 1)),
-        # The schema gate. It needs no compiler, which is the point: it compares
-        # two files of text, so it runs in a second where a doctor check would
-        # cost a bootstrap. `allow_rc=(0, 1)` because it is allowed to report a
-        # real disagreement -- that is a finding, not a broken tool.
-        Tool("schema_conformance.py", "gate",
+        # The schema gate. Its analysis is an Orbit probe now
+        # (`scripts/schema_conformance.orb`), compiled by the fixed point, so
+        # this row passes the compiler and needs one. `allow_rc=(0, 1)` because
+        # it is allowed to report a real disagreement -- that is a finding, not
+        # a broken tool.
+        # The tier-0 family is one tool with five subcommands since the 2026-11-06
+        # merge. Five rows for one file is deliberate: a row that only proved the
+        # interpreter starts would not prove the analysis still runs, and each
+        # marker belongs to its own analysis.
+        Tool("static_gates.py", "gate",
              "compiler/front/ast.orb against the code that builds nodes: arity, "
              "phantom models and variants, and a node read with a list operation",
-             lambda: _script("schema_conformance.py"),
-             r"Finished schema-conformance", 120, allow_rc=(0, 1)),
+             lambda: _script("static_gates.py", "schema", *comp()),
+             r"Finished schema-conformance", 120, allow_rc=(0, 1),
+             needs=("compiler",)),
         # The companion to the corpus: it does not measure visits, it checks that
         # every AST walk in the compiler DECLARES the fields it skips, and that
         # the declaration still matches the arms. A walk that silently stopped
         # reaching a field is invisible everywhere else.
-        Tool("walk_coverage.py", "gate",
+        Tool("static_gates.py", "gate",
              "every AST walk in compiler/ declares the fields it skips, and "
              "every declaration matches the arms",
-             lambda: _script("walk_coverage.py"),
-             r"Finished walk-coverage", 120, allow_rc=(0, 1)),
+             lambda: _script("static_gates.py", "walk", *comp()),
+             r"Finished walk-coverage", 120, allow_rc=(0, 1),
+             needs=("compiler",)),
         # The companion to schema_conformance and walk_coverage for a different
         # kind of stale text: a document's counted claim about the corpus. It
         # reads the tree and the claim and fails when they disagree.
         # `allow_rc=(0, 1)` because a real disagreement is a finding, not a
         # broken tool.
-        Tool("doc_counts.py", "gate",
+        Tool("static_gates.py", "gate",
              "every counted claim about the corpus in the docs equals the tree",
-             lambda: _script("doc_counts.py"),
+             lambda: _script("static_gates.py", "counts"),
              r"Finished doc-counts", 120, allow_rc=(0, 1)),
+        # The same bargain for the other kind of claim a document makes: a
+        # location. Measured 2026-11-03, 125 of the 184 `path:line` cites in the
+        # audited documents did not open at the construct their sentence named --
+        # the arena split into nine members, c_backend.orb doubled, a pipeline
+        # moved host, and every inserted line moved each cite after it. Nothing
+        # in the gate set read a citation, so the drift was silent.
+        Tool("static_gates.py", "gate",
+             "every `path:line` in the documents opens at the construct its "
+             "sentence names; the self-test is the row that proves it can say "
+             "so about a wrong one",
+             lambda: _script("static_gates.py", "cites", "--self-test"),
+             r"Finished cite-coverage", 120, allow_rc=(0, 1)),
         # The companion to the three above for a claim one level out: a CLI flag
         # is a promise written in --help, and a promise nothing reads is the
         # quietest failure there is, because the run succeeds and the thing that
         # was asked for did not happen. It found this file's own `--list`, which
         # is why the listing mode above exists and why nothing caught it sooner.
-        Tool("flag_coverage.py", "gate",
+        Tool("static_gates.py", "gate",
              "every flag a script in scripts/ declares is read by the script "
              "that owns it, or carries a declared reason why not",
-             lambda: _script("flag_coverage.py"),
+             lambda: _script("static_gates.py", "flags"),
              r"Finished flag-coverage", 120, allow_rc=(0, 1)),
+        # The gate table itself. It is a table today and `dev.py` still builds
+        # its own argv; the row runs the table's `--self-test`, which compares
+        # every row against what dev.py actually constructs, so the two cannot
+        # drift apart while the second copy still exists. Cheap: no compiler,
+        # no build, and it is in the quick set for that reason.
+        Tool("gate_registry.py", "gate",
+             "the gate table can fail on a duplicated label, a missing script, "
+             "an empty tier, or an argv that no longer equals dev.py's",
+             lambda: _script("gate_registry.py", "--self-test"),
+             r"Finished gate-registry", 60, cost="cheap"),
         # This one exists to be read, not to fail. It diffs the canonical with
         # the generated register numbering flattened, so a reviewer can see what
         # a promote did without reading 20 000 lines of renumbering. Its
         # self-test is the row that matters; the full run needs a pending
         # promote to say anything.
-        Tool("promote_diff.py", "gate",
+        # (the tool is the `promote-diff` subcommand of scripts/trust.py since
+        # the root-of-trust merge of 2026-11-07; the marker is unchanged)
+        Tool("trust.py", "gate",
              "the canonical's diff with register and label numbering flattened",
-             lambda: _script("promote_diff.py", "--self-test"),
+             lambda: _script("trust.py", "promote-diff", "--self-test"),
              r"Finished promote-diff", 120, allow_rc=(0, 1)),
         # Not exempt, despite being a module rather than a tool. It is imported
         # by every gate that builds a compiler, so a defect in build_env or
@@ -216,11 +247,11 @@ def registry(compiler, cc, work):
         # Both of these were inline shell in ci-gate.yml, which is the shape
         # where a flag quietly stops being applied and nothing notices. Each
         # needs to be able to fail, and each has to be runnable by hand: the
-        # runtime one because it is the whole C test suite, the Kynx one because
+        # runtime one because it is the whole C test suite, the admission one because
         # it is the only gate that builds a service and starts it.
         # These two run their SELF-TESTS, and the reason is a measurement.
         # alive_check took 11 minutes on windows-latest against 2.5 on ubuntu,
-        # and 8 of those 11 were the Kynx gate re-running its load phase. Both
+        # and 8 of those 11 were the admission gate re-running its load phase. Both
         # tools are gates that already ran, moments earlier, in this same job --
         # alive_check re-executing them proves nothing the previous line did not,
         # and it doubles the most expensive thing in CI.
@@ -236,12 +267,12 @@ def registry(compiler, cc, work):
              "real run is a gate that just executed",
              lambda: _script("runtime_c_tests.py", "--self-test"),
              r"Finished runtime-c self-test", 120, allow_rc=(0, 1)),
-        Tool("kynx_gate.py", "gate",
+        Tool("admission_gate.py", "gate",
              "builds and bursts a live service; --self-test proves the "
              "readiness loop plus all four subcommands (live shares it, "
              "route-limit, burst, load) without starting a server",
-             lambda: _script("kynx_gate.py", "--self-test"),
-             r"Finished kynx-gate self-test", 300),
+             lambda: _script("admission_gate.py", "--self-test"),
+             r"Finished admission-gate self-test", 300),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does
@@ -254,77 +285,84 @@ def registry(compiler, cc, work):
         # two CI steps red and the second one tells nobody anything new -- which
         # is the "a tool that cannot fail is not a tool" argument run backwards
         # into "a check that cannot go green is not a check".
-        Tool("negative_gate.py", "gate",
+        # The corpus family: eight checkers, one entry point since the 2026-11-06
+        # merge. One row per checker is deliberate -- each marker names that gate's
+        # own verdict line, and a row that only proved the interpreter started would
+        # not prove the 128-program suite ran.
+        Tool("corpus_gates.py", "gate",
              "every program in tests/negative/ must NOT compile; a ratchet that "
              "fails on the fix. Exit 1 here means the corpus and the compiler "
              "disagree, which is the corpus's own hard CI step two dozen lines "
              "up reporting the same thing",
-             lambda: _script("negative_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "negative", *comp()),
              r"Finished negative: \d+/\d+", 600, allow_rc=(0, 1), cost="cheap",
              witness=r"Finished negative: \d+/\d+ pass",
              needs=("compiler",)),
-        Tool("dispatch_coverage.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "every ASTNode variant has an arm in the one checker, and every "
              "arm returns -- so a check cannot silently stop running",
-             lambda: _script("dispatch_coverage.py"),
+             lambda: _script("doctor_gates.py", "dispatch"),
              r"Finished dispatch-coverage: OK", 60, allow_rc=(0, 1),
              cost="cheap", needs=()),
-        Tool("frontend_gate.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "`orbit frontend` vs tests/frontend/expected/",
-             lambda: _script("frontend_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "frontend", *comp()),
              r"Finished frontend: \d+/\d+", 300, allow_rc=(0, 1),
              witness=r"Finished frontend: \d+/\d+ pass",
              needs=("compiler",)),
-        Tool("test_suite.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "the language behavior suite (this run covers the std subset; the "
              "full suite is the same runner over tests/suite)",
-             lambda: _script("test_suite.py", *comp("--dir", "tests/std")),
+             lambda: _script("corpus_gates.py", "suite", *comp("--dir", "tests/std")),
              witness=r"Finished suite: \d+/\d+ pass",
              marker=r"Finished suite: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         # The native lane has two honest outcomes: it runs the std subset
-        # through R6 (ORBIT_R6 set), or it skips with exit 77 and says why.
+        # through R6, or it skips with exit 77 and names the reason. The marker
+        # pins the prefix and requires a reason after it, not one fixed
+        # sentence. On 2026-11-04 a second skip sentence appeared, and the
+        # first one, pinned whole, called a correct skip a dead gate.
         # What it must never do is exit 0 with neither line.
-        Tool("test_suite.py:native", "gate",
+        Tool("corpus_gates.py", "gate",
              "test_suite.py --backend native: the std subset through R6, or "
-             "a loud skip (exit 77) when ORBIT_R6 is not set",
-             lambda: _script("test_suite.py",
+             "a loud skip (exit 77) naming why this host cannot run it",
+             lambda: _script("corpus_gates.py", "suite",
                              *comp("--dir", "tests/std", "--backend", "native")),
-             marker=r"Skipped suite_native: ORBIT_R6 is not set|Finished suite_native: \d+/\d+",
+             marker=r"Skipped suite_native: \S|Finished suite_native: \d+/\d+",
              timeout=900, allow_rc=(0, 1, 77), needs=("compiler",)),
-        Tool("runtime_module_gate.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "orbit build --runtime-module: an object linked into a program, "
              "and a file with main refused",
-             lambda: _script("runtime_module_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "runtime_module", *comp()),
              witness=r"Finished runtime_module: \d+/\d+ pass",
              marker=r"Finished runtime_module: \d+/\d+", timeout=900,
              allow_rc=(0, 1), needs=("compiler",)),
-        Tool("runtime_gen.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "runtime/gen/*.c equals the C the compiler emits for runtime/orb/*.orb",
-             lambda: _script("runtime_gen.py", *comp()),
+             lambda: _script("corpus_gates.py", "runtime_gen", *comp()),
              witness=r"Finished runtime_gen: \d+/\d+ pass",
              marker=r"Finished runtime_gen: \d+/\d+", timeout=900,
              allow_rc=(0, 1), needs=("compiler",)),
-        Tool("parity_selfhost.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "32 stability goldens, CLI path vs in-process path",
-             lambda: _script("parity_selfhost.py", *comp()),
+             lambda: _script("corpus_gates.py", "parity", *comp()),
              witness=r"Finished parity: \d+/\d+ pass",
              marker=r"Finished parity: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
-        Tool("werror_gate.py", "gate",
+        Tool("corpus_gates.py", "gate",
              "generated C must compile clean under -Werror",
-             lambda: _script("werror_gate.py", *comp()),
+             lambda: _script("corpus_gates.py", "werror", *comp()),
              witness=r"Finished werror: \d+/\d+ pass",
              marker=r"Finished werror: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
-        Tool("cli_probe.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "the orbit CLI contract, 50 cases",
-             lambda: _script("cli_probe.py", "--compiler", compiler,
+             lambda: _script("doctor_gates.py", "cli-probe", "--compiler", compiler,
                              "--work", _tmp(work, "cli")),
              r"Finished cli-probe: \d+/\d+", 600, allow_rc=(0, 1),
              witness=r"Finished cli-probe: \d+/\d+ pass",
              needs=("compiler",)),
-        Tool("ui_snapshots.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "the rich and color screens against tests/ui, and the cursor and "
              "style state after a build is interrupted",
-             lambda: _script("ui_snapshots.py", "--compiler", compiler, "--cc", cc,
+             lambda: _script("doctor_gates.py", "snapshots", "--compiler", compiler, "--cc", cc,
                              "--work", _tmp(work, "ui")),
              r"Finished ui-snapshots: \d+/\d+", 600, allow_rc=(0, 1),
              witness=r"Finished ui-snapshots: \d+/\d+ pass",
@@ -332,21 +370,21 @@ def registry(compiler, cc, work):
         # The scope gate: named directories must be clean. Not the whole repo --
         # tests/negative, tests/doctor and tests/parity are deliberately broken
         # fixtures, and examples/ is independent services whose routes collide
-        # when read as one program. A second row for doctor_gate.py on purpose:
-        # the goldens and the scope check are different code paths in one file.
+        # when read as one program. A second row for the doctor subcommand on
+        # purpose: the goldens and the scope check are different code paths of it.
         # Was scripts/doctor_scope_gate.py, folded in because the two shared
         # everything but the scan loop.
-        Tool("doctor_gate.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "scope-only mode: the directories that must have no doctor "
              "findings: compiler, std, tests/suite",
-             lambda: _script("doctor_gate.py", "--scope-only",
+             lambda: _script("doctor_gates.py", "doctor", "--scope-only",
                              "--compiler", compiler),
              r"Finished doctor_scope: \d+ director", 300, allow_rc=(0, 1),
              witness=r"Finished doctor_scope: \d+ director",
              needs=("compiler",)),
-        Tool("doctor_gate.py", "gate",
+        Tool("doctor_gates.py", "gate",
              "doctor's exact output against the goldens in tests/doctor/golden/",
-             lambda: _script("doctor_gate.py", "--compiler", compiler),
+             lambda: _script("doctor_gates.py", "doctor", "--compiler", compiler),
              # 900, not 300: this gate used to SKIP the three cases that verify a
              # --fix by compiling the result, and now it runs them, because the
              # compiler in CI lives in RUNNER_TEMP and cannot otherwise reach the
@@ -357,52 +395,57 @@ def registry(compiler, cc, work):
              r"Finished doctor_gate: \d+ case", 900, allow_rc=(0, 1),
              witness=r"Finished doctor_gate: \d+ case",
              needs=("compiler",)),
-        Tool("routes_probe.py", "gate",
+        Tool("measure.py", "gate",
              "MSYS2 argument-rewrite normalization; Windows CI only breaks "
              "without it and nothing else notices",
-             lambda: _script("routes_probe.py"),
+             lambda: _script("measure.py", "routes"),
              r"Finished routes-probe: \d+/\d+", 60),
-        Tool("build_selfhost.py", "gate",
+        Tool("trust.py", "gate",
              "the canonical is stale check. Non-zero is correct whenever the tree "
              "holds a core edit that has not been promoted, so both 0 and 1 are "
              "allowed here. The marker is the per-iteration hash line rather than "
              "the closing verdict, because the verdict line differs between the "
              "two outcomes ('converged' vs 'canonical is stale') and a marker "
              "that only matches the happy path fails the tool for being right",
-             lambda: _script("build_selfhost.py", "--cc", cc, "--check-stale"),
+             lambda: _script("trust.py", "build", "--cc", cc, "--check-stale"),
              r"^Iteration \d+: [0-9a-f]{64}", 900, allow_rc=(0, 1),
              witness=r"Finished bootstrap: converged",
              cost="heavy"),
 
-        Tool("verify_seed.py", "gate",
+        Tool("trust.py", "gate",
              "hermetic seed -> canonical C fixed point. Same: non-zero here "
              "means the tree has an unpromoted core edit, which is the tool "
              "being right, not the tool being dead",
-             lambda: _script("verify_seed.py", "--cc", cc),
+             lambda: _script("trust.py", "verify", "--cc", cc),
              witness=r"Finished verify: \d+/\d+ pass",
              marker=r"fixed point", timeout=900, allow_rc=(0, 1), cost="heavy"),
-        Tool("kynx_gate.py", "gate",
+        Tool("admission_gate.py", "gate",
              "live route-limit gate; the live server is started by the live "
              "subcommand, which CI runs; this row asserts the route-limit "
              "phase fails cleanly with no server",
-             lambda: _script("kynx_gate.py", "route-limit", "--port", "9",
+             lambda: _script("admission_gate.py", "route-limit", "--port", "9",
                              "--burst-path", "/gate-burst"),
              r"Finished kynx gate: FAIL", 120, allow_rc=(1,), expect_fail=True),
 
         # ---- measurements: something consumes them --------------------------
-        Tool("unknown_census.py", "measurement",
-             "the unknown-type count. It is the reader inside "
-             "unknown_ratchet.py, so a rotted probe makes the ratchet exit 2 "
-             "rather than quietly pass -- and the marker here is the "
-             "measurement line, so a rotted probe is still caught on its own",
-             lambda: _script("unknown_census.py", "--compiler", compiler,
+        # The census and the ratchet are the `census` and `ratchet`
+        # subcommands of scripts/measure.py, and the amalgamation is the
+        # `amalgamate` subcommand of scripts/trust.py, since the merges of
+        # 2026-11-07. One row per tool is deliberate: each marker names that
+        # tool's own verdict line.
+        Tool("measure.py", "measurement",
+             "the unknown-type count. It is the reader inside the ratchet, so "
+             "a rotted probe makes the ratchet exit 2 rather than quietly "
+             "pass -- and the marker here is the measurement line, so a rotted "
+             "probe is still caught on its own",
+             lambda: _script("measure.py", "census", "--compiler", compiler,
                              "--cc", cc),
              r"^Corpus: \d+ files, \d+ functions, \d+ instructions$", 600,
              needs=("compiler",)),
-        Tool("unknown_ratchet.py", "measurement",
+        Tool("measure.py", "measurement",
              "the gate that holds the count one way (D7). Marker is the "
              "verdict line, so 'could not measure' cannot pass for 'held'",
-             lambda: _script("unknown_ratchet.py", "--compiler", compiler,
+             lambda: _script("measure.py", "ratchet", "--compiler", compiler,
                              "--cc", cc),
              r"^Finished unknown-count: \d+ \(baseline \d+, (ratchet holds|"
              r"ratchet broken)", 600, allow_rc=(0, 1), needs=("compiler",)),
@@ -418,11 +461,12 @@ def registry(compiler, cc, work):
         # The fuzzer itself is still here, still run, and its count is still
         # worth reading. What is gone is the promise that the number cannot get
         # worse -- the corpus is the evidence now, not a baseline.
-        Tool("amalgamate.py", "measurement",
+        Tool("trust.py", "measurement",
              "inlines 20 runtime/*.c into the seed. Runs with --out into a "
              "temp dir ON PURPOSE: with no arguments it writes 4.8 MB into the "
              "repo's dist/, so 'just run it to see if it works' is not free",
-             lambda: _script("amalgamate.py", "--out", _tmp(work, "amalg", "seed.c")),
+             lambda: _script("trust.py", "amalgamate",
+                             "--out", _tmp(work, "amalg", "seed.c")),
              r"Wrote .*seed\.c \(\d+\.\d+ MB\)", 300),
         # The static library is a build artifact, not a gate input, so this
         # row runs only its --self-test: a TU that does not compile and a
@@ -431,38 +475,39 @@ def registry(compiler, cc, work):
         # no new aliveness signal beyond what the self-test asserts.
         Tool("mklib_runtime.py", "measurement",
              "builds .orbit/lib/libruntime_net.a for separate compilation; "
-             "--self-test proves a broken TU and a missing runtime still fail",
+             "--self-test proves a broken TU and a missing runtime still fail, "
+             "and every DB-only module compiles on its own",
              lambda: _script("mklib_runtime.py", "--self-test"),
-             r"Finished mklib self-test: 2/2", 300),
-        Tool("shard_selfhost.py", "measurement",
+             r"Finished mklib self-test: \d+/\d+", 300),
+        Tool("trust.py", "measurement",
              "sharded build driver: R1-R7 split of the compiler-emitted TU "
              "+ parallel gcc -c + link + auto-emission SHA check; --self-test "
              "splits a synthetic TU, refuses a missing header, and proves a "
              "bad shard is rejected",
-             lambda: _script("shard_selfhost.py", "--self-test",
+             lambda: _script("trust.py", "shard", "--self-test",
                              "--cc", cc),
              r"Finished shard-selfhost self-test: \d+/\d+", 300),
         # The IR corpus is a pinned artifact for the same reason the runtime
         # archive is: R6 regenerates it from this commit and compares hashes,
         # so the emission itself is the consumer's run (it needs the branch
         # compiler and a corpus). What can fail here is the contract and the
-        # comparator, and both are what --self-test drives: 135+1 members in
+        # comparator, and both are what --self-test drives: 149+1 members in
         # pinned order, and a synthetic manifest against which a changed hash,
         # a changed size, a missing member, an extra member and a changed
         # whole-corpus hash must each still be reported. The marker is the full
         # ratio, so a self-test that quietly stopped asserting one of them
         # fails this row instead of passing it.
-        Tool("emit_ir_corpus.py", "measurement",
-             "emits the 135+1 IR corpus and its hash manifest; --self-test "
+        Tool("measure.py", "measurement",
+             "emits the 149+1 IR corpus and its hash manifest; --self-test "
              "proves the corpus contract and that the comparator catches a "
              "changed hash, size, member and whole-corpus hash",
-             lambda: _script("emit_ir_corpus.py", "--self-test"),
+             lambda: _script("measure.py", "emit-ir", "--self-test"),
              r"Finished emit-ir-corpus self-test: 31/31", 300),
-        Tool("ir_unknown_census.py", "measurement",
+        Tool("measure.py", "measurement",
              "unknown register types in the emitted IR, by defining opcode; "
              "--self-test proves the count on a synthetic document and that "
              "a destination-less instruction and a non-.ir file are ignored",
-             lambda: _script("ir_unknown_census.py", "--self-test"),
+             lambda: _script("measure.py", "ir-census", "--self-test"),
              r"Finished ir-unknown-census self-test: 6/6", 60, needs=()),
         Tool("tcc_setup.py", "measurement",
              "the pinned tcc 0.9.27 acquisition; --check proves the pin "
@@ -483,24 +528,25 @@ def registry(compiler, cc, work):
              "comparison without a toolchain",
              lambda: _script("triangle.py", "--self-test"),
              r"Finished triangle self-test: \d+/\d+", 120, allow_rc=(0, 1)),
-        Tool("cli_probe.py", "measurement",
+        Tool("doctor_gates.py", "measurement",
              "the style specimen (--specimen): static examples of the output "
              "grammar, so tone can be reviewed without running a bootstrap. "
-             "A second row for cli_probe.py on purpose -- the probe and the "
+             "A second row for the cli-probe subcommand on purpose -- the probe "
              "specimen are different code paths in one file, and one row only "
              "proves one of them runs",
-             lambda: _script("cli_probe.py", "--specimen"),
+             lambda: _script("doctor_gates.py", "cli-probe", "--specimen"),
              r"--- suite -+", 60),
 
         # ---- report-only: this check is their only coverage -----------------
-        Tool("fuzz_frontend.py", "report",
+        Tool("corpus_gates.py", "report",
              "crash-only fuzzer, in NO CI step at all. Three iterations is "
              "enough: this asserts the runner works, not that the compiler is "
-             "crash-free (scripts/diff_fuzz.py is the one hunting wrong values)",
-             lambda: _script("fuzz_frontend.py", "--compiler", compiler,
+             "crash-free (scripts/measure.py diff-fuzz is the one hunting "
+             "wrong values)",
+             lambda: _script("corpus_gates.py", "fuzz_frontend", "--compiler", compiler,
                              "--iterations", "3"),
              r"^Fuzzed 3 iterations: ", 600, needs=("compiler",)),
-        Tool("diff_fuzz.py", "report",
+        Tool("measure.py", "report",
              "the differential fuzzer, report-only in CI. Two categories at 8 "
              "iterations (~30 cases in 2 programs), not the gate's 400: this "
              "row asks whether the tool still works, and int-arith plus "
@@ -508,31 +554,31 @@ def registry(compiler, cc, work):
              "sentinel-framed bytes). The marker is the closing line "
              "INCLUDING the corpus sha, because a fuzzer that measured nothing "
              "still prints a line and non-empty output is not evidence (D8)",
-             lambda: _script("diff_fuzz.py", "--compiler", compiler,
+             lambda: _script("measure.py", "diff-fuzz", "--compiler", compiler,
                              "--cc", cc, "--only", "int-arith",
                              "--only", "string-escape", "--iterations", "8"),
              r"^Finished diff-fuzz: \d+/\d+ agree with the reference across \d+ "
              r"cases \(seed \d+, sha [0-9a-f]{16}\)$", 600,
              needs=("compiler",)),
-        Tool("measure_selfhost.py", "report",
+        Tool("measure.py", "report",
              "resource measurement across bootstrap phases, in NO CI step. One "
              "phase with a 1 ms interval is the aliveness question: did it "
              "build, sample and write a report",
-             lambda: _script("measure_selfhost.py", "--cc", cc,
+             lambda: _script("measure.py", "measure-selfhost", "--cc", cc,
                              "--phases", "1", "--interval-ms", "1"),
              r"^Finished measure: \d+ phase record\(s\) written$", 900,
              allow_rc=(0, 1, 2), cost="heavy"),
-        Tool("kynx_gate.py", "report",
+        Tool("admission_gate.py", "report",
              "HTTP load generator, in NO CI step, and it USED to exit 0 against "
              "a dead port having measured nothing. Now it must fail when zero "
              "requests completed, which is what the marker below is checking",
-             lambda: _script("kynx_gate.py", "load", "--port", "9", "--requests", "2",
+             lambda: _script("admission_gate.py", "load", "--port", "9", "--requests", "2",
                              "--duration", "1", "--warmup", "0", "--timeout", "1"),
              r"Failed night_load|Finished night-load: \d+ completed", 120,
              allow_rc=(0, 1)),
-        Tool("kynx_gate.py", "report",
+        Tool("admission_gate.py", "report",
              "429 admission-control probe, in NO CI step",
-             lambda: _script("kynx_gate.py", "burst", "--port", "9",
+             lambda: _script("admission_gate.py", "burst", "--port", "9",
                              "--requests", "2", "--threads", "1",
                              "--timeout", "1"),
              r"Finished burst probe: FAIL", 120, allow_rc=(1,), expect_fail=True),
@@ -556,20 +602,20 @@ def registry(compiler, cc, work):
              "name this file skipped rather than followed",
              lambda: _script("cc_cached.py", "--self-test"),
              r"^cc cache shim self-test: OK", 60),
-        Tool("phase_times.py", "measurement",
+        Tool("measure.py", "measurement",
              "phase boundaries read from the [mem] stamps the binary already "
              "prints, for one small program; the self-test is the part that "
              "matters, because a timer that never runs and a timer that "
              "measures nothing print the same table",
-             lambda: _script("phase_times.py", "--compiler", compiler,
+             lambda: _script("measure.py", "phase-times", "--compiler", compiler,
                              "--only", "hello", "--runs", "1"),
              r"^Finished phase-times: 1/1 pass \(\d+ program\(s\), 1 run\(s\),",
              300, allow_rc=(0,), needs=("compiler",)),
-        Tool("phase_times.py", "measurement",
+        Tool("measure.py", "measurement",
              "the two ways this harness must say no: an invalid --compiler "
              "path is refused with exit 2, and a program that cannot build is "
              "recorded as a non-zero run",
-             lambda: _script("phase_times.py", "--compiler", compiler,
+             lambda: _script("measure.py", "phase-times", "--compiler", compiler,
                              "--self-test"),
              r"^Finished phase-times: 2/2 pass \(self-test\)$",
              120, allow_rc=(0,), needs=("compiler",)),
@@ -580,7 +626,7 @@ def registry(compiler, cc, work):
              "away, every gate in the repo changes shape at once",
              None, needs=()),
         Tool("orbit_routes.py", "library",
-             "route normalization for Windows CI; routes_probe.py is the "
+             "route normalization for Windows CI; measure.py routes is the "
              "behavioural check, this is the surface it needs",
              None, needs=()),
     ]
@@ -617,6 +663,12 @@ def _check_unknown_baseline(path):
 
 
 STATIC_ROWS = [
+    ("schema_conformance.orb", "the schema probe program: reads the tree as "
+     "text and prints the line protocol static_gates.py parses. The gate builds "
+     "and runs it every time, so a probe that stopped compiling fails its gate",
+     None),
+    ("walk_coverage.orb", "the walk probe program: the same protocol for the "
+     "declaration every AST walk carries", None),
     ("unknown_census.orb", "the census probe program. THIS is the file that "
      "rotted silently in D8: the F-0004 fix stopped it building and the only "
      "symptom was a line on stderr", None),
@@ -637,7 +689,8 @@ STATIC_ROWS = [
 # it is a file somebody forgot, and D8's decision is that every script has a
 # gate or an aliveness check. A tool that drops off the registry by accident is
 # a tool nobody checks, which is the exact state D8 exists to end -- and
-# diff_fuzz.py WAS in that state until the D9 ratchet made it worth a row.
+# measure.py's diff-fuzz subcommand WAS in that state until the D9 ratchet made
+# it worth a row.
 COVERAGE_EXEMPT = {
     "alive_check.py": "the checker. A row that ran the checker from inside the "
                       "checker recurses forever. Its own coverage is "
@@ -650,7 +703,7 @@ SHELL_ROWS = [
     ("install.sh", "Linux/macOS installer. Runs code in the user's home "
      "directory, so it is never executed by a gate; parsed and its referenced "
      "repo paths are checked instead"),
-    ("build_seed.sh", "POSIX seed builder. Superseded by build_selfhost.py in "
+    ("build_seed.sh", "POSIX seed builder. Superseded by trust.py build in "
      "CI but still the documented manual path"),
     ("install.ps1", "Windows installer, same reasoning as install.sh"),
     ("build_seed.bat", "Windows seed builder, same reasoning as build_seed.sh"),
@@ -693,7 +746,7 @@ def shell_checks(name):
     # Only paths that start at a real top-level directory are checked: a
     # `$HOME/.orbit/bin` is supposed not to exist, and a shell variable glued
     # to the front of a path is not a repo path.
-    tops = ("scripts/", "compiler/", "runtime/", "std/", "lib/", "tests/",
+    tops = ("scripts/", "compiler/", "runtime/", "std/", "tests/",
             "editors/", "docs/")
     for ref in sorted(set(re.findall(r'[./\w-]+\.(?:py|orb|c|exe|json|md|cjs)', text))):
         ref = ref.lstrip("./")
@@ -856,7 +909,7 @@ def run_unknown_pair(census_tool, census_label, ratchet_tool, ratchet_label,
                      ctx, compiler, cc, work):
     """One census for both unknown rows; returns two result tuples.
 
-    Runs `unknown_census.py --json` once, writes its stdout to
+    Runs `measure.py census --json` once, writes its stdout to
     work/unknown_census.json, and judges that document with the ratchet via
     --from-json. Before this, the census row and the ratchet row each censused
     the corpus on their own: same probe build, same walk, twice the minutes.
@@ -867,7 +920,7 @@ def run_unknown_pair(census_tool, census_label, ratchet_tool, ratchet_label,
     import json as _json
 
     json_path = _tmp(work, CENSUS_JSON_NAME)
-    census_argv = _script("unknown_census.py", "--compiler", compiler,
+    census_argv = _script("measure.py", "census", "--compiler", compiler,
                           "--cc", cc, "--json")
     env = dict(os.environ)
     env["ORBIT_CC"] = ctx["cc"]
@@ -946,7 +999,7 @@ def run_unknown_pair(census_tool, census_label, ratchet_tool, ratchet_label,
                  ["could not write shared census json %s: %s"
                   % (json_path, exc)], 0.0)]
     synth = Tool(ratchet_tool.name, ratchet_tool.kind, ratchet_tool.why,
-                 lambda p=json_path: _script("unknown_ratchet.py",
+                 lambda p=json_path: _script("measure.py", "ratchet",
                                              "--from-json", p),
                  marker=ratchet_tool.marker, timeout=ratchet_tool.timeout,
                  allow_rc=ratchet_tool.allow_rc, cost=ratchet_tool.cost,
@@ -1030,7 +1083,7 @@ def self_test():
     # and must not be reported twice.
     proc = subprocess.run(
         [sys.executable, os.path.join(SCRIPTS, "alive_check.py"),
-         "--only", "schema_conformance.py"],
+         "--only", "static_gates.py"],
         cwd=ROOT, capture_output=True, text=True, errors="replace", timeout=600)
     blob = (proc.stdout or "") + (proc.stderr or "")
     if "all gated, rowed or exempted" in blob and "Failed coverage" not in blob:
@@ -1051,10 +1104,27 @@ def ctx_cache():
                           os.path.join(os.environ.get("TMPDIR", "/tmp"), "orbit_ccache"))
 
 
+def _fp_default():
+    """The fixed point a run uses when nobody named one: asked of `dev.py`, not
+    guessed. The literal this replaces pointed at `ROOT/orbit.exe`, and a
+    compiler sitting at the repository root is not merely untidy -- it satisfies
+    `doctor_gate`'s three `--fix` goldens and silently voids `cli_probe`'s
+    `cc-include-failure-is-not-a-missing-toolchain` probe, because that probe
+    asserts a C include failure a compiler able to see `runtime/` never
+    produces. That constraint is written down in `dev.fp_path()`; asking for it
+    is how a tool stops re-deriving it wrong.
+    """
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import dev
+    return str(dev.fp_path())
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Every tool in scripts/ has to prove it still works (D8)")
-    ap.add_argument("--compiler", default=os.path.join(ROOT, "orbit.exe"),
+    ap.add_argument(
+        "--compiler", default=_fp_default(),
                     help="an orbit compiler, for the tools that need one")
     ap.add_argument("--cc", default="gcc")
     ap.add_argument("--quick", action="store_true",
@@ -1156,17 +1226,21 @@ def main():
             continue
         runnable.append((tool, label))
 
-    # Single census for the two unknown rows: run `unknown_census --json`
+    # Single census for the two unknown rows: run `measure.py census --json`
     # once and judge it with the ratchet via --from-json, instead of each row
     # censusing the corpus on its own. Only when BOTH rows are runnable; with
-    # --only on a single one, each still runs standalone as before.
+    # --only on a single one, each still runs standalone as before. The two
+    # rows share the name measure.py since the 2026-11-07 merge, so they are
+    # found by the subcommand in their argv, not by the file name.
     pair_results = []
     pair_task = None
     _census_at = _ratchet_at = None
     for _i, (_t, _l) in enumerate(runnable):
-        if _t.name == "unknown_census.py" and _census_at is None:
+        if _t.name == "measure.py" and "census" in _t.argv() \
+                and _census_at is None:
             _census_at = _i
-        if _t.name == "unknown_ratchet.py" and _ratchet_at is None:
+        if _t.name == "measure.py" and "ratchet" in _t.argv() \
+                and _ratchet_at is None:
             _ratchet_at = _i
     if _census_at is not None and _ratchet_at is not None:
         _ct, _cl = runnable[_census_at]

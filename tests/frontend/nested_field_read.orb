@@ -1,0 +1,17 @@
+// A field whose type names another model this same file declares has a type the
+// file states: the name written beside the field. `declaredFieldType` answered
+// only a builtin, so in `o.i.n` the read of `i` stayed `unknown` and the read
+// under it could never be reached -- E2004 reported both, and the file's
+// canonical text was suppressed by a type the source spells.
+//
+// The answer is the written name, not the model it resolves to. The language
+// accepts `model Node { value: int  next: Node }` today
+// (tests/suite/model_local_named_mid.orb), so a resolution that chased a leaf
+// has no bound to stop at; the chain's depth comes from the AST, one table
+// lookup per hop.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Inner { n: int }  model Outer { i: Inner }  fn f(o: Outer) -> int { return o.i.n }"
+    print(compileFrontendSource("fixture", source))
+}

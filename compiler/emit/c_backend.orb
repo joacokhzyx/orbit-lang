@@ -15,17 +15,19 @@ model CBackend {
     fieldNames: list < string >
     fieldOwners: list < string >
     declVars: list < string >
-    usedRegs: list
+    usedRegs: list < int >
     refLabels: list < string >
     defIdxFunc: IRFunction
     defIdxNames: list < string >
     defIdxInsts: list < IRInstruction >
     defIdxRegInst: list < IRInstruction >
     defIdxRegVerdict: list < string >
+    // `orbit migrate`: emit a main that runs the database block and exits.
+    migrateOnly: bool
 }
 
 fn initCBackend(module: IRModule) -> CBackend {
-    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [], initIRFunction(""), [], [], [], [])
+    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [], initIRFunction(""), [], [], [], [], false)
 }
 
 // A tab-joined variant payload list split back into spellings. The parser
@@ -95,7 +97,7 @@ fn variantBlockText(backend: CBackend) -> string {
             var mvv = 0
             while mvv < mvType.variants.len() {
                 val mvName: string = mvType.variants.get(mvv)
-                val mvMacro = cUserName(mvName)
+                val mvMacro = cUserName(mvType.name + "_" + mvName)
                 var mrich = ""
                 if mvv < mvType.richVariants.len() {
                     val mr: string = mvType.richVariants.get(mvv)
@@ -213,13 +215,13 @@ fn generateC(backend: CBackend) -> string {
     var routeLimits = ""
     if hasRoutes {
         if routeHasAnyLimit(backend) {
-            routeLimits = routeLimits + "#if ORBIT_KYNX_ACTIVE\n"
-            routeLimits = routeLimits + "void orbit_kynx_register_limits(void) {\n"
+            routeLimits = routeLimits + "#if ORBIT_ADMISSION_ACTIVE\n"
+            routeLimits = routeLimits + "void orbit_admission_register_limits(void) {\n"
             var rli = 0
             while rli < backend.module.functions.len() {
                 val rf2: IRFunction = backend.module.functions.get(rli)
                 if rf2.routeMethod != "" && rf2.routeHasLimit && rf2.routeLimitRate > 0 {
-                    routeLimits = routeLimits + "    orbit_kynx_register_route_limit(\"" + rf2.routeMethod + "\", \"" + rf2.routePath + "\", " + orbit_int_to_string_selfhost(rf2.routeLimitRate) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitWindowMs) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitBurst) + ");\n"
+                    routeLimits = routeLimits + "    orbit_admission_register_route_limit(\"" + rf2.routeMethod + "\", \"" + rf2.routePath + "\", " + orbit_int_to_string_selfhost(rf2.routeLimitRate) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitWindowMs) + ", " + orbit_int_to_string_selfhost(rf2.routeLimitBurst) + ");\n"
                 }
                 rli = rli + 1
             }
@@ -287,7 +289,7 @@ fn generateC(backend: CBackend) -> string {
         i = i + 1
     }
     // The router block is the HTTP entry point (`orbit_handle_request`) and
-    // the logging/Kynx helpers it calls. Those are reached only from the
+    // the logging/admission helpers it calls. Those are reached only from the
     // worker loop that route programs emit, so a program with no routes has
     // no caller for any of it and links without it. Emitting it anyway cost
     // ~9 KB of C that no program could reach: measured on examples/hello.orb
@@ -300,6 +302,20 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, routeLimits)
     }
     if backend.module.runtimeModule {
+        return orbit_cbuf_build_selfhost(cbTop)
+    }
+    if backend.migrateOnly {
+        orbit_cbuf_append_selfhost(cbTop, "int main(void) {\n")
+        orbit_cbuf_append_selfhost(cbTop, "    orbit_crash_handler_install();\n")
+        if backend.module.migrations.len() > 0 || backend.module.migrationsDown.len() > 0 || moduleUsesDatabase(backend.module) {
+            orbit_cbuf_append_selfhost(cbTop, "    orbit_db_init(\".orbit/data/app.db\");\n")
+            orbit_cbuf_append_selfhost(cbTop, generateModelDDL(backend))
+            orbit_cbuf_append_selfhost(cbTop, "    return 0;\n")
+        } else {
+            orbit_cbuf_append_selfhost(cbTop, "    fprintf(stderr, \"orbit migrate: this program declares no migrations.\\n\");\n")
+            orbit_cbuf_append_selfhost(cbTop, "    return 1;\n")
+        }
+        orbit_cbuf_append_selfhost(cbTop, "}\n")
         return orbit_cbuf_build_selfhost(cbTop)
     }
     if moduleHasFunction(backend, "main") == false {
@@ -406,7 +422,7 @@ fn generateCHeader(backend: CBackend) -> string {
     orbit_cbuf_append_selfhost(cbH, "void __main(void);\n")
     orbit_cbuf_append_selfhost(cbH, "#endif\n")
     orbit_cbuf_append_selfhost(cbH, "#define ORBIT_LOGS_ACTIVE " + routerLogsActive() + "\n")
-    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_KYNX_ACTIVE " + routerKynxActive() + "\n")
+    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_ADMISSION_ACTIVE " + routerAdmissionActive() + "\n")
     var gi = 0
     while gi < backend.module.globals.len() {
         val g: IRGlobal = backend.module.globals.get(gi)
@@ -1153,6 +1169,17 @@ fn irVerifierUnionType(backend: CBackend, t: string) -> bool {
     return false
 }
 
+// The table that answers a builtin's call type and the destination the source
+// wrote agree when both say `list`; the element is what a read needs, and a
+// table entry that predates typed lists is not a disagreement with it. This is
+// the compatibility the checker already applies, and the verifier's exact
+// compare was rejecting the first program that wrote the element.
+fn verifierSameCallType(a: string, b: string) -> bool {
+    if a == b { return true }
+    if orbit_string_len(a) < 4 || orbit_string_len(b) < 4 { return false }
+    return orbit_string_slice(a, 0, 4) == "list" && orbit_string_slice(b, 0, 4) == "list"
+}
+
 fn irVerifierKnown(t: string) -> bool {
     if t == "" { return false }
     if t == "unknown" { return false }
@@ -1386,7 +1413,7 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, fnHeads: list < int >, fnN
                                 rt = f.returnType
                             }
                         }
-                        if irVerifierKnown(rt) && irVerifierKnown(dt) && rt != dt && rt != "void" && dt != "result" {
+                        if irVerifierKnown(rt) && irVerifierKnown(dt) && verifierSameCallType(rt, dt) == false && rt != "void" && dt != "result" {
                             errs.push("call '" + cn + "' returns '" + rt + "' but destination typed '" + dt + "' in fn '" + func.name + "'")
                         }
                     }
@@ -1750,7 +1777,9 @@ fn cCalleeName(backend: CBackend, name: string) -> string {
         if userFunctionIsExport(backend, name) { return sanitizeIdentifier(name) }
         return cUserName(name)
     }
-    if isModelCtorName(backend, name) || isUnionVariantName(backend, name) { return cUserName(name) }
+    if isModelCtorName(backend, name) { return cUserName(name) }
+    val variantCtor = variantCtorCName(backend, name)
+    if variantCtor != "" { return variantCtor }
     if isCKeyword(name) { return name + "_" }
     return name
 }
@@ -1821,23 +1850,59 @@ fn moduleHasRoute(backend: CBackend) -> bool {
     return false
 }
 
-fn isUnionVariantName(backend: CBackend, name: string) -> bool {
+// Whether one declared union carries this variant.
+fn unionDeclaresVariant(backend: CBackend, owner: string, variantName: string) -> bool {
     var ti = 0
     while ti < backend.module.types.len() {
         val tDecl: IRTypeDecl = backend.module.types.get(ti)
-        if tDecl.kind == "union_type" {
+        if tDecl.kind == "union_type" && tDecl.name == owner {
             var vi = 0
             while vi < tDecl.variants.len() {
-                val vName: string = tDecl.variants.get(vi)
-                if vName == name {
-                    return true
-                }
+                if tDecl.variants.get(vi) == variantName { return true }
                 vi = vi + 1
             }
         }
         ti = ti + 1
     }
     return false
+}
+
+// The constructor macro a call names, or "" when the call is not a variant
+// construction. The builder writes a qualified construction as `Owner.Variant`
+// and a bare one as `Variant`; the macro is keyed on both, because two unions
+// may declare a variant of the same name and a macro named after the variant
+// alone let the second `#define` replace the first. A bare name reaches here
+// only when one union declares it -- the checker refuses the ambiguous case --
+// so the declaring union is the owner.
+fn variantCtorCName(backend: CBackend, name: string) -> string {
+    val dot = orbit_string_indexOf(name, ".")
+    if dot > 0 {
+        val owner = orbit_string_slice(name, 0, dot)
+        val variant = orbit_string_slice(name, dot + 1, name.len())
+        if unionDeclaresVariant(backend, owner, variant) {
+            return cUserName(owner + "_" + variant)
+        }
+        return ""
+    }
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(ti)
+        if tDecl.kind == "union_type" {
+            var vi = 0
+            while vi < tDecl.variants.len() {
+                if tDecl.variants.get(vi) == name {
+                    return cUserName(tDecl.name + "_" + name)
+                }
+                vi = vi + 1
+            }
+        }
+        ti = ti + 1
+    }
+    return ""
+}
+
+fn isUnionVariantName(backend: CBackend, name: string) -> bool {
+    return variantCtorCName(backend, name) != ""
 }
 
 fn moduleConstructsVariants(backend: CBackend) -> bool {
@@ -1887,13 +1952,20 @@ fn isModelCtorName(backend: CBackend, name: string) -> bool {
 // to them always matches its signature. Only multi-payload variants use it:
 // singles keep the void* form they always had, byte for byte.
 fn variantCtorPayloadType(backend: CBackend, name: string, argIdx: int) -> string {
+    var wantOwner = ""
+    var wantName = name
+    val argDot = orbit_string_indexOf(name, ".")
+    if argDot > 0 {
+        wantOwner = orbit_string_slice(name, 0, argDot)
+        wantName = orbit_string_slice(name, argDot + 1, name.len())
+    }
     var i = 0
     while i < backend.module.types.len() {
         val tDecl: IRTypeDecl = backend.module.types.get(i)
-        if tDecl.kind == "union_type" {
+        if tDecl.kind == "union_type" && (wantOwner == "" || tDecl.name == wantOwner) {
             var vi = 0
             while vi < tDecl.variants.len() {
-                if tDecl.variants.get(vi) == name {
+                if tDecl.variants.get(vi) == wantName {
                     if vi < tDecl.richVariants.len() {
                         val r: string = tDecl.richVariants.get(vi)
                         val parts = splitPayloadDecl(r)
@@ -2178,7 +2250,7 @@ fn routeHasMultiParams(path: string) -> bool {
 fn generateRouteHandlerBody(func: IRFunction) -> string {
     var body = ""
     // Route limits are enforced once at the admission gate in
-    // orbit_handle_request (orbit_kynx_check_route with the live
+    // orbit_handle_request (orbit_admission_check_route with the live
     // req->method/req->path). Checking again here would spend a second
     // token per request on annotated routes.
     body = body + "            uint64_t _orbit_ls = orbit_rdtsc();\n"
@@ -2195,8 +2267,8 @@ fn generateRouteHandlerBody(func: IRFunction) -> string {
     body = body + "#if ORBIT_LOGS_ACTIVE\n"
     body = body + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 500), start);\n"
     body = body + "#endif\n"
-    body = body + "#if ORBIT_KYNX_ACTIVE\n"
-    body = body + "            if (lease) orbit_kynx_lease_destroy(lease);\n"
+    body = body + "#if ORBIT_ADMISSION_ACTIVE\n"
+    body = body + "            if (lease) orbit_admission_lease_destroy(lease);\n"
     body = body + "#endif\n"
     body = body + "            orbit_perf_end_request(start);\n"
     body = body + "            return keep_alive;\n"
@@ -2208,8 +2280,8 @@ fn routerLogsActive() -> string {
     return "1"
 }
 
-fn routerKynxActive() -> string {
-    if orbit_os_env_selfhost("ORBIT_KYNX") == "0" { return "0" }
+fn routerAdmissionActive() -> string {
+    if orbit_os_env_selfhost("ORBIT_ADMISSION") == "0" { return "0" }
     return "1"
 }
 
@@ -2228,8 +2300,8 @@ fn routeHasAnyLimit(backend: CBackend) -> bool {
 fn generateRouterBlock(backend: CBackend) -> string {
     var out = ""
     val logsActive = routerLogsActive()
-    val kynxActive = routerKynxActive()
-    out = out + routerPreText(logsActive, kynxActive)
+    val admissionActive = routerAdmissionActive()
+    out = out + routerPreText(logsActive, admissionActive)
     // One if/else-if chain for every route: static routes first so a static
     // path always wins over a param pattern covering it, then single-param
     // routes, then multi-capture routes, then the 404 else. No hash: the
@@ -2313,7 +2385,7 @@ fn generateModelDDL(backend: CBackend) -> string {
         }
         mi = mi + 1
     }
-    if backend.module.migrations.len() > 0 {
+    if backend.module.migrations.len() > 0 || backend.module.migrationsDown.len() > 0 {
         var entryList = ""
         var mti = 0
         while mti < backend.module.migrations.len() {
@@ -2322,7 +2394,19 @@ fn generateModelDDL(backend: CBackend) -> string {
             entryList = entryList + "\"" + escapeString(sql) + "\""
             mti = mti + 1
         }
-        ddl = ddl + "    { const char* _orbit_migs[] = {" + entryList + "}; if (!orbit_run_migrations(_orbit_migs, " + orbit_int_to_string_selfhost(backend.module.migrations.len()) + ")) { fprintf(stderr, \"orbit: migrations failed to apply\\n\"); exit(1); } }\n"
+        if entryList == "" { entryList = "\"\"" }
+        var downList = ""
+        var mdi = 0
+        while mdi < backend.module.migrationsDown.len() {
+            val dsql: string = backend.module.migrationsDown.get(mdi)
+            if mdi > 0 { downList = downList + ", " }
+            downList = downList + "\"" + escapeString(dsql) + "\""
+            mdi = mdi + 1
+        }
+        if downList == "" { downList = "\"\"" }
+        // ORBIT_MIGRATE_DOWN asks for a rollback and then stops: the forward
+        // set does not run, or it would re-apply what the operator undid.
+        ddl = ddl + "    { const char* _orbit_downs[] = {" + downList + "}; int _orbit_down = orbit_run_migrations_down(_orbit_downs, " + orbit_int_to_string_selfhost(backend.module.migrationsDown.len()) + "); if (_orbit_down < 0) { fprintf(stderr, \"orbit: down migrations failed to apply\\n\"); exit(1); } if (_orbit_down == 0) { const char* _orbit_migs[] = {" + entryList + "}; if (!orbit_run_migrations(_orbit_migs, " + orbit_int_to_string_selfhost(backend.module.migrations.len()) + ")) { fprintf(stderr, \"orbit: migrations failed to apply\\n\"); exit(1); } } }\n"
     }
     return ddl
 }
@@ -4547,12 +4631,12 @@ fn feBuildTimeCallType(name: string) -> string {
     if name == "orbit_object_create" { return "object" }
     if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" || name == "orbit_object_set_list" { return "void" }
     if name == "ok" || name == "err" { return "result" }
-    if name == "orbit_object_to_json" || name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_db_query_order" || name == "orbit_db_query_order_desc" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
-    if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_run_timeout_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_clock_ms" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "orbit_db_count_all" || name == "orbit_db_count_v" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return "int" }
-    if name == "orbit_os_mkdir_selfhost" || name == "orbit_os_isatty_selfhost" { return "bool" }
+    if name == "orbit_object_to_json" || name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_db_query_order" || name == "orbit_db_query_order_desc" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" || name == "orbit_stdin_read_line" || name == "orbit_stdin_read_bytes" { return "string" }
+    if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_run_timeout_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_clock_ms" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "orbit_db_count_all" || name == "orbit_db_count_v" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_http_requests_ok" || name == "system_http_requests_error" || name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return "int" }
+    if name == "orbit_os_mkdir_selfhost" || name == "orbit_os_isatty_selfhost" || name == "orbit_stdin_at_end" { return "bool" }
     if name == "orbit_string_hash_selfhost" { return "string" }
     if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_update" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
-    if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list" }
+    if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list<string>" }
     if name == "orbit_os_alloc" || name == "orbit_os_create_arena" { return "ptr" }
     if name == "orbit_response_json" { return "response" }
     // The frontend's own table, for the names this one did not copy over.
@@ -5089,6 +5173,7 @@ fn functionNeedsArena(name: string) -> bool {
     if name == "orbit_response_create" || name == "orbit_response_json" || name == "orbit_response_error" || name == "orbit_response_html" { return true }
     if name == "orbit_string_slice" || name == "orbit_string_split" || name == "orbit_string_replace" || name == "orbit_string_concat" { return true }
     if name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_argv" || name == "orbit_random_bytes" { return true }
+    if name == "orbit_stdin_read_line" || name == "orbit_stdin_read_bytes" { return true }
     if name == "orbit_json_parse" { return true }
     if name == "orbit_int_to_string" || name == "orbit_float_to_string" { return true }
     if name == "orbit_http_query_get" || name == "orbit_http_query_get_all" || name == "orbit_http_header_get" || name == "orbit_http_param_get" || name == "orbit_http_body_get" { return true }
@@ -5376,9 +5461,9 @@ fn moduleUsesAuth(module: IRModule) -> bool {
 // Which start-up pieces a module needs, from the callees in its IR. `what`:
 //   "args"    reads argv/argc (orbit_os_argc*, orbit_os_argv*);
 //   "console" writes to the console (print, orbit_os_write_std*);
-//   "net"     calls a function the network modules define (http.h, kynx.h,
+//   "net"     calls a function the network modules define (http.h, admission.h,
 //             pulse.h: orbit_http_*, orbit_response_*, orbit_route_*,
-//             orbit_send_*, orbit_kynx_*, orbit_pulse_*, orbit_ledger_*) or
+//             orbit_send_*, orbit_admission_*, orbit_pulse_*, orbit_ledger_*) or
 //             saves an upload. Routes themselves are moduleHasRoute.
 fn startupHasPrefix(name: string, prefix: string) -> bool {
     return name.len() >= prefix.len() && name.slice(0, prefix.len()) == prefix
@@ -5394,7 +5479,7 @@ fn startupCalleeMatches(name: string, what: string) -> bool {
     }
     if what == "net" {
         if name == "orbit_file_upload_save" { return true }
-        return startupHasPrefix(name, "orbit_http_") || startupHasPrefix(name, "orbit_response_") || startupHasPrefix(name, "orbit_route_") || startupHasPrefix(name, "orbit_send_") || startupHasPrefix(name, "orbit_kynx_") || startupHasPrefix(name, "orbit_pulse_") || startupHasPrefix(name, "orbit_ledger_")
+        return startupHasPrefix(name, "orbit_http_") || startupHasPrefix(name, "orbit_response_") || startupHasPrefix(name, "orbit_route_") || startupHasPrefix(name, "orbit_send_") || startupHasPrefix(name, "orbit_admission_") || startupHasPrefix(name, "orbit_pulse_") || startupHasPrefix(name, "orbit_ledger_")
     }
     return false
 }
@@ -5427,7 +5512,7 @@ fn moduleCallsStartup(module: IRModule, what: string) -> bool {
 
 // A program links the network runtime (and imports ws2_32) when it has routes
 // or calls the HTTP client; a database program does too, because the SQLite
-// progress handler lives in the Kynx module.
+// progress handler lives in the admission module.
 fn moduleUsesNetwork(backend: CBackend) -> bool {
     if moduleHasRoute(backend) { return true }
     if moduleUsesDatabase(backend.module) { return true }
@@ -5436,6 +5521,7 @@ fn moduleUsesNetwork(backend: CBackend) -> bool {
 
 fn moduleUsesDatabase(module: IRModule) -> bool {
     if module.migrations.len() > 0 { return true }
+    if module.migrationsDown.len() > 0 { return true }
     return moduleCallsBuiltin(module, "db")
 }
 

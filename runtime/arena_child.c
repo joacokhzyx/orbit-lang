@@ -18,7 +18,10 @@ OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity
     OrbitArena* child = orbit_arena_create(initial_capacity);
     if (child) {
         child->parent = parent;
+        /* The child inherits the cap and the source it came from, so its
+         * refusal line names the same one its parent would. */
         child->max_rule = parent->max_rule;
+        child->max_rule_from_env = parent->max_rule_from_env;
     }
     return child;
 }

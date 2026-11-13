@@ -1,6 +1,6 @@
 # Language Behavior Suite
 
-This directory holds small programs that verify what the fixed-point compiler does. Each file defines `fn main() -> int`; the exit code is the assertion read by `scripts/test_suite.py`. Keep each test focused on one behavior - small files catch regressions faster.
+This directory holds small programs that verify what the fixed-point compiler does. Each file defines `fn main() -> int`; the exit code is the assertion read by `scripts/corpus_gates.py suite`. Keep each test focused on one behavior - small files catch regressions faster.
 
 ## Current Coverage
 
@@ -47,8 +47,8 @@ This directory holds small programs that verify what the fixed-point compiler do
 Build a fixed-point compiler, then run the suite:
 
 ```sh
-python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp
-python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp
+python scripts/trust.py verify --cc "$CC" --emit-fixed-point /tmp/orbit_fp
+python scripts/corpus_gates.py suite --cc "$CC" --compiler /tmp/orbit_fp
 ```
 
 The runner reports the number of successful programs and fails when a program cannot compile, times out, or exits with an unexpected code.

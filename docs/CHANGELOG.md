@@ -5,13 +5,479 @@ one line per change, grouped by what it was for. Nothing here
 is reconstructed from memory. (`git log --oneline` tells the
 full story; this page tells the short one.)
 
-Versioning rules: [Versioning and Compatibility](VERSIONING.md).
-Current: `0.1.0` pre-release (`orbit --version` prints
-`orbit 0.1.0-rc.2`, and the startup banner says `Orbit 0.1.0`).
+Versioning rules: [Versioning and Compatibility](SUPPORTED.md#versions-and-compatibility).
+Current: `0.1.0` (`orbit --version` prints `orbit 0.1.0`, and the
+startup banner says `Orbit 0.1.0`).
 
-## Unreleased (toward 0.1.0)
+## 0.1.0-rc.5 (2026-11-08)
+
+Documentation cut, condensed from the tag message. The README is rewritten
+around what Orbit is for, and its links follow the pages that moved.
+`docs/IR_SPEC.md` V-03 stops counting the runtime opcodes and names the
+section instead: the table defines eleven, and both lines still said four.
+No compiler, runtime or std source changed.
+
+## 0.1.0-rc.4 (2026-11-08)
+
+Runtime-module cut, condensed from the tag message. `runtime/database.c`
+called `orbit_os_mkdir_p` without including `os.h`, which `--db` hits because
+it compiles `database` and `auth` alone. `mklib_runtime.py --self-test` now
+compiles every DB module on its own, so the recipe that asks for them proves
+they build. No compiler source changed.
+
+## 0.1.0-rc.3 (2026-11-08)
+
+First stability cut, condensed from the tag message. A match in value position
+joins its arms, a push in any branch types the list after it, a generic
+union's payload answers its instance, and a value keeps the block it comes
+from. IRv1 gains eleven runtime-module opcodes and ir-protocol 3.
+
+## 0.1.0 (2026-11-01)
+
+Language server:
+
+- **`orbit lsp` is a language server an editor can start.** The command speaks
+  JSON-RPC 2.0 over stdin/stdout with `Content-Length` framing, answers
+  `initialize` with `textDocumentSync: 1`, republishes diagnostics on
+  `didOpen` and `didChange`, and exits on `shutdown` then `exit`. Diagnostics
+  come from `orbit check` on a temporary file, so the editor cannot disagree
+  with the build about what a program means; the cost is one check process per
+  change. Two runtime facts had to be true first. The stream read must take an
+  exact byte count, which the previous entry added. The write must not be
+  translated twice: Windows text mode turned the `\r\n` of a header
+  terminator into `\r\r\n`, and no client parsed that, so `runtime/os.c` gained
+  `orbit_stdout_binary` and `orbit_stdout_write`, with `runtime/test_stdout.c`
+  comparing the bytes written to a text-mode file. `scripts/doctor_gates.py
+  cli-probe` drives a complete session. The positive case opens a document
+  with a type error and requires the published `E1006`; the negative case
+  opens a program that checks and requires an empty diagnostics array. 94/94
+  pass.
+
+Repository tooling:
+
+- **`cli-probe` feeds a program its stdin.** The runtime learned to read the
+  process's own stream in this release, and nothing exercised that through the
+  command line: the C test hands the runtime a file directly. The probe's case
+  table gained an eighth field, the text to write into the child's stdin, and
+  one case runs a program that calls `orbit_stdin_read_line` and prints the line
+  it read; the needle is the line the probe wrote. `orbit run` inherits stdio,
+  so this is the same path an editor's language server will use. 92/92 pass.
+
+- **The doctor's typecheck cache cannot outlive its compiler.** The key is a file's source and import closure, which cannot see the compiler that answered, so an entry written by an older build answered "ok" for a fixture the current compiler rejects: D008 disappeared from the doctor gate, and `alive_check` failed on Windows while passing on Linux. The cache is opt-in now (`ORBIT_DOCTOR_CACHE`), `dev.py` points it at `.orbit/doctor-cache` and clears that directory whenever it rebuilds the fixed point, and the doctor gate enables it for the one case that tests invalidation. Measured on `doctor compiler`: 6.63 s cold, 4.99 s warm, 6.99 s without a cache.
+
+- **Seventeen gate scripts became three, and one table owns the sequence.** `scripts/gate_registry.py` declares the 33 labels, their tiers and their command lines. `scripts/dev.py` reads that table; the order used to live in a tier dict, a `Makefile` copy and the prose of `ENGINEERING.md` §8. The five text gates are subcommands of `scripts/static_gates.py`, the eight corpus gates of `scripts/corpus_gates.py`, the four screens of `scripts/doctor_gates.py`. Labels are stable identifiers and did not move, so `--filter werror` selects the work it selected before. A filter that names no label exits 1 now; it printed `nothing to run` and exited 0, which is how a renamed gate stops being checked in silence. Measured on this tree: `dev.py all` runs 27 gates and skips 3 for want of `ORBIT_R6`, and `dev.py static` runs 6 in 19 s, against 13 s before the two probes. Files fell from 43 to 22 and the line count rose from 19,844 to 22,721: 19 Python tools plus three Orbit probes, and every merged subcommand carries a `--self-test` its old file did not have. Two of the five tier-0 checks, `schema` and `walk`, moved their analysis into Orbit probes (`scripts/schema_conformance.orb`, `scripts/walk_coverage.orb`); the driver compiles each with the fixed point, so those two need a compiler where the other three do not.
+
+Native backend:
+
+- **The native backend builds on either host.** `--backend=native` refused
+  every host that was not Windows before it looked at an `r6`, although R6
+  writes ELF64 as well as COFF. The refusal is gone. The command line is
+  quoted for the shell that runs it -- `set "K=V" &&` on cmd.exe, `K='v'` and
+  a single-quoted path on a POSIX shell -- `r6` is looked for as `r6.exe` and
+  as `r6` beside the compiler and under `bin/`, and temporary files are
+  removed with each host's delete. The default backend no longer reads the
+  host: it is `native` when an r6 is found and `c` otherwise. Measured with
+  `ORBIT_CC` set to a path that does not exist, so only R6 can produce the
+  binary: a 15,804-byte PE in 66 ms on Windows and a 16,760-byte ELF in 33 ms
+  on Linux, both printing `hello, orbit`. The doctor gate's two native
+  refusals run on both hosts now, each against a stand-in r6 that never
+  answers `--version` or answers `ir-protocol 99`.
+
+Runtime and services:
+
+- **A service checks its port argument, and `0` names the port it got.**
+  `./app 8080` always worked, but the argument went through `atoi`, so
+  `./app --port 8080` answered 0: the server bound a port the caller was never
+  told about and the banner printed `Local: http://localhost:0`. The argument
+  is read with `strtol` now and refused, one diagnostic and exit 2, when it is
+  not a number in 0..65535. `0` asks the system for a free port, and the banner
+  prints the one the socket got, from `getsockname`.
+  `scripts/admission_gate.py live` carries both halves: a word where the port
+  goes exits 2, and a server started with `0` names a port that answers
+  `/health`. Found by running [Getting Started](GETTING_STARTED.md) as written.
+
+- **The runtime reads its own standard input.** A language server needs the
+  protocol stream, and the runtime had no read of stdin: the editor story
+  stopped at `orbit check` on save. `orbit_stdin_read_line` returns one line
+  without its terminator and drops a CR, `orbit_stdin_read_bytes(n)` keeps
+  asking until it has n bytes or the stream ends, and `orbit_stdin_at_end`
+  separates an empty line from EOF. `runtime/test_stdin.c` drives the three
+  through a file handed to `stdin`, and the same four assertions run on both
+  hosts. A program reaches them through `extern fn`; the backend injects the
+  arena by name. Measured: an Orbit program that reads `Content-Length: 8`, the
+  blank line and the body prints `{"a": 1}` and the end flag.
+
+- **The admission layer is named after what it does.** `Kynx` was the codename
+  of the lease and admission code: every server printed `- Secured by Kynx.`,
+  a blocked request answered `429 Too Many Requests - Kynx admission control`,
+  the C names were `orbit_kynx_*` and the build macro `ORBIT_KYNX_ACTIVE`.
+  The name is gone. The file is `runtime/admission.c`, the functions are
+  `orbit_admission_*`, the macro is `ORBIT_ADMISSION_ACTIVE`, the opt-out is
+  `ORBIT_ADMISSION=0`, the banner says `Admission control on`, and the 429
+  body says `429 Too Many Requests - admission control`. The gradient printer
+  the banner used is deleted with the word it coloured. A program that
+  declared `extern fn kynx_*` has to name the new functions. The gate label
+  `kynx_live` and `scripts/kynx_gate.py` keep their names until the gate
+  becomes an `orbit` subcommand. 468 lines in the runtime and 59 in the
+  compiler carried the old name; docs, tests and the parity goldens moved
+  with them.
+
+Language front end:
+
+- **A value keeps the block it comes from.** Two readers asked their question before the block existed. A `try` handler was lowered with no loop targets, so `val h: int = try r catch { continue }` inside a `for` had its `continue` refused, the handler became a give-up, and the value read back unbound; the handler keeps the loop its `try` sits in now. The reader of an `if` in value position asked each branch's last expression with the bindings the branch started with, so `{ val doubled = n * 2 doubled + 1 }` was a question about a name just declared; the block's own `val`s are bound first, in source order. Over the corpus the census reads 3 unknown over 149,684 instructions, down from 6 over 149,578: E2002 fell 2 to 0 and E2001 1 to 0, `tests/suite/result_in_loop.orb` and `tests/suite/if_expression_return.orb` came to 0, and the corpus grew by 106 instructions. The rate holds at 0 per mille and the silent count stays 0. `tests/frontend/if_value_block_local.orb` pins the join both branches bind; the frontend gate is 65/65.
+
+- **A generic union's payload answers its instance.** `union Box[T] { Has(T) Empty }` declares the payload `T`, and a match arm on `Box<int>` read the data word as `T` -- a spelling the C backend cannot resolve, because the build monomorphises each instance. The type table records a union's parameters now, the tag lookup reads the declaration's base name so an instance finds its table, and each packed payload part substitutes on its own: `Box.Has(n)` binds `int`, and `Pair.Both(n, t)` under `Pair<int, string>` binds `int` and `string`. A binding annotation that names a declared instance types the value beside it, so `val p: Pair<int, string> = Pair.Both(3, "three")` carries the arguments the construction leaves bare. Over the corpus the census reads 6 unknown over 149,578 instructions, down from 10 over 149,371: E2002 fell 5 to 2, E2001 2 to 1 and E3001 9 to 4, two matches that could not find their variant table lower now, and `tests/std/test_option.orb` came to 0. The rate holds at 0 per mille and the silent count stays 0. `tests/frontend/generic_union_payload.orb` pins `data int` for an arm on `Box<int>`; the frontend gate is 64/64.
+
+- **A `push` inside a branch types the list after it.** `val xs = []` writes no element, so a read through `xs` had nothing to answer until a push refined it. That worked inside a `while` body and nowhere else: an `if` branch and a `match` arm lower with their own copy of the bindings too, and the copy died with the body. All three carry the refinement out through one helper, and the first push in source order wins -- the rule `recordListKind` (`compiler/ir/builder.orb:1857`) applies, because a name that already has a kind keeps it. A push the callee performs does not reach the caller: the element there is the parameter's declared type, and `tests/frontend/list_refinement_callee.orb` keeps that boundary visible. Over the corpus the census reads 10 unknown over 149,371 instructions, down from 15 over 149,336: E2005 calls fell 7 to 2, the three `.get` reads in `doctorRun` and the one in `compiler/ir/builder.orb` answered, and `tests/suite/list_push.orb` came to 0. The rate holds at 0 per mille and the silent count stays 0. `tests/frontend/list_refinement_branch.orb` pins the `load list<int>` and the `call int get`; the frontend gate is 63/63.
+
+- **A `match` in value position carries its arm's value out.** `val v = match n { 0 => 10 _ => 30 }` reached the expression reader, which had no arm for `Match`, so every such site gave up. The statement form takes a join name now: every arm binds it with `bind unit join0 <value>` and jumps to the merge block, the merge block reads it with `load int join0`, and the wildcard binds it in the block the last test fell through to. The type is the one every arm answers, read the way the `if` join reads its two branches, and arms that disagree are refused by E3001 rather than printed. The join name is the function's next value id, so it cannot collide with a register an arm wrote. Over the corpus the census reads 15 unknown over 149,336 instructions, down from 18 over 149,050: `tests/suite/match.orb` fell 2 to 0 and `tests/suite/union_match_exhaustive.orb` 1 to 0, and the corpus grew by 286 instructions where the arm bodies now lower. The rate holds at 0 per mille and the silent count stays 0. `tests/frontend/match_value_join.orb` pins the text and `tests/frontend/match_value_branch_types.orb` is the refusal control. The frontend gate is 61/61.
+
+- **A written `list` names its element.** `fn take(xs: list)` compiled, and
+  every read through `xs` answered `unknown`: `.get` reported E2005 and the C
+  backend stored a `void*`. The parser refuses a bare `list` (or `List`) in a
+  parameter, a return type, a model field or an annotation now, with E1012 and
+  the two ways out. The one bare list left is the value an empty literal builds,
+  whose element the first push decides. The compiler, `std/`, the suite, the
+  doctor fixtures and the three probe programs write the element: 8 sites in
+  `compiler/`, 8 in `std/` and 52 in `tests/`. Over the corpus the census reads
+  277 unknown over 146,974 instructions, down from 307 over 146,923: E2001 fell
+  126 to 111 and E2005 115 to 100, because 15 loads and 15 calls that read
+  through a written list now carry its element, and the silent count stays 0.
+  `tests/negative/n127_list_type_needs_element.orb` pins the refusal and
+  `n128_list_of_lists_is_not_a_list_of_strings.orb` pins that a list of lists is
+  not a list of strings. The verifier that compares a call's return type with
+  its destination accepts a bare `list` against `list<T>` first, in its own
+  commit, because the seed compiler has to accept the sources this writes.
+
+- **A `match` arm binds its payload in the typed frontend.** `orbit frontend` refused every arm that named a variant payload (`E3001`, "a match that binds a payload needs the data read this pass does not print") while `orbit build` compiled them, so the unknown-type census measured a path the command line does not build with. The pass reads the data word with `data <payload> <scrutinee>`, binds it, and for a multi-payload variant reads each field of the packed struct. The census grew from 111,537 instructions to 147,001 as the files that printed no TIR now print theirs, and the unknown rate fell from 2.46 to 2.09 per mille; 307 instructions remain unknown, none silent. The frontend gate is 59/59, with `variant_match_payload.tir` as the new golden and `variant_match_bindless.orb` as the refusal control.
+
+- **A `match` becomes a test chain, and the metric falls to 2 per mille.** `match s { … }` reached the expression reader and gave up: 310 sites, the largest class in the corpus, and the reason the give-up named was that the pass models no merge value. The merge value landed first (`8382183`), and this is the chain. The discriminator is read once with `tag int v0`; each arm's test is `const int <declared position>` against it, `== bool`, `branch` into the arm or into the next test; an arm that returns writes no jump, an arm that falls through jumps to the merge block, and a wildcard takes the block the last test fell through to instead of printing an empty one. The position is the number `compiler/emit/c_backend.orb:2082` defines as `<Type>_TAG_<Variant>`, so the frontend was not free to invent one. An arm that binds a payload is refused by name -- 258 sites -- because the data word has no instruction yet. Over the corpus: 275 unknown over 111,537 instructions, 0 silent, E3001 270 with `Match` down to 3, and the ratchet metric 3 to 2 per mille for the first time in the campaign. `compiler/emit/ir_emit.orb` came to 0 untyped instructions and `compiler/front/sema.orb` fell 12 to 7; two `tests/suite` programs gained a total of 3 where a reached arm asks what is not printed. `tests/frontend/variant_match_chain.orb` and its golden were written before the promote and matched on the first run; `tests/frontend/variant_match_payload.orb` pins the refusal. The frontend gate is 58/58.
+
+- **An `if` with a value joins its arms on one name.** `val a = if c then 1 else 2` was a give-up that said the pass models no merge value, and the reader could not tell whether that was a limit of the format or of this implementation. It was the format's: nothing said where a value written in a branch would be read after it. Both arms now `bind` one join name and the block after the branches `load`s it, with the type taken from the then branch the way `branchTypeName` (`compiler/ir/builder.orb:2134`) takes it, and only when the else branch answers the same type. `docs/architecture/TYPED_IR.md` states the convention. Over the corpus the census reads 278 unknown over 105,708 instructions -- 0.3%, 2,63 per mille so the ratchet metric holds at 3, silent 0. E2001 loads fall 134 to 113 and E2002 operands 48 to 46; the `If` give-up row goes 30 to 1 and `Match` rises 308 to 310 because a reached body now reports the match inside it. Five `tests/suite` programs came to zero untyped instructions. `tests/frontend/if_value_join.orb` pins the text and `tests/frontend/if_value_branch_types.orb` pins the refusal. The frontend gate is 56/56.
+
+- **The query-helper rule gets its two controls, and four citations move.** A read-only review of the day's nine commits asked whether `dc59297` shipped a positive golden with a negative control, and it had not. `tests/frontend/model_helper_name_is_a_field.orb` pins that a model declaring a field called `all` still reads it as `member int` -- the golden was written before the run and matched -- and `tests/frontend/undeclared_model_helper.orb` requires silence when the receiver names no model, which is what stops the rule being copied from the build's uppercase-name test. The review also moved three numbers that were wrong: the `orbit_db_query_where` assignment sits at `compiler/ir/builder.orb:4721`, not `:4713`; `find` and `first` map at `:4724` and `:4726`; and the literal-instance member-read class is 14 reads, not 12, because `.first` and `.second` in `tests/suite/generic_multi.orb` belong to it. The frontend gate is 54/54 with 47 goldens, and `ENGINEERING.md` §6 and §8 moved with it. No behaviour changed, so the census stays at 301 of 105,091 and the canonical is the one `dc59297` promoted.
+
+- **A model name in receiver position answers the query helpers the build calls.** `Item.all()` and `Item.where(cond, arg)` reached the generic path, which lowered the qualified name as a member read of a model that has no field called `all` -- E2004 for the read, E2005 for the call after it. `compiler/ir/builder.orb:4711` sets `orbit_db_query_all` and the lines that follow set `orbit_db_query_where`, `orbit_db_query_get` and `orbit_db_query_first`: a call with the table as its argument, reading no field, and `orbit build --emit-ir` types all four results `string`. The pass now carries the qualified name on the call -- `call string Item.all` -- and emits no member read. Over the corpus: 301 unknown over 105,091 instructions (0.3%, 2,86 per mille, so the ratchet metric holds at 3), E2001 loads 142 to 134, E2004 member reads 19 to 15, E2005 calls 108 to 104, 0 silent, E3001 346. `tests/suite/arena_sink_scope.orb` and `tests/suite/peephole_no_fold_side_effects.orb` went from 8 untyped instructions each to 0. `tests/frontend/model_query_helper.orb` and its golden were written before the rule and matched on the first run. The frontend gate is 52/52.
+
+- **A model's declared parameters reach the type table.** `b.v` under `fn takeInt(b: Box<int>)` answered `unknown`, because the row the table kept for `Box` stored the field's text `T` and nothing else -- the parameter list the source writes was parsed and then dropped where the row is built. `TirType` carries `params` now, an instance matches by the base of its type text, and a field whose text is one of the parameters answers that argument: `Bag<int>.items` is `list<int>` and `Bag<int>.items.get(0)` is `call int`. Only a type this pass already states is taken -- a builtin, `object`, `list`, a `list` of one of those, or a model this file declares. Over the corpus the census reads 317 unknown over 105,069 instructions -- 0.3%, ratchet 3 per mille, silent 0 -- E2004 member reads fall 23 to 19, and one give-up enters E3001 (345 to 346) where a body this pass could not reach before asks a question it still does not answer. `tests/frontend/generic_instance_field_read.orb` and its golden were written before the rule and matched on the first run, both functions and the register numbering. The frontend gate is 50/50. The census repeats exactly on this tree -- 214 files, 105,069 instructions, 317 `unknown`, 0 silent on a second run -- and a first draft of this entry claimed the denominator moved between runs. It did not: the driver prints `instructions with a real type` (104,752) beside the unknown count (317), and their sum is the total. Reading the wrong line was the defect, not the instrument.
+
+- **A list literal says what is inside.** `[1, 2]` emitted `list` and the reader answered `list`, so a name bound to one carried no element kind, and `xs.get(0)`, `xs[i]` and `for x in xs` over that name each asked for a type the source had written and this pass had thrown away. The instruction carries `list<int>` now, and the lowerer takes the string from the reader of types, so the two cannot disagree. The decision rule is the build's: every element that names a type must name the same one, and a literal with nothing decided answers nothing (`listLiteralKindName`, `compiler/ir/builder.orb:1725`). Over the corpus the census reads 321 unknown over 104,610 instructions -- 0.3%, ratchet 3 per mille where it held at 4, silent 0, and the five per-code counts still sum to the total. E2001 loads fall 175 to 142, E2005 calls 143 to 108 (`.get` 126 to 93) and E2002 binary operands 52 to 48, because an operand that read a literal element stopped being untyped. E3001 falls 363 to 345: the index-read row prints nothing and the `for` row reads 1. The denominator grew by 425 instructions with those bodies, which now lower. `tests/frontend/list_literal.orb` pins `list<int>`, `list<bool>` and the bare `list` an empty literal keeps. The frontend gate is 49/49.
+- **A `try` binding annotation is checked against the payload.** The checker answered `unknown` for a `try` expression, and the compatibility rules accept `unknown` for anything, so `val n: int = try decode("x") catch { ... }` over a `-> result<string>` built and ran with an int register holding a string pointer. The arm now answers the payload the callee's signature writes -- `compatTypeResultPayload` (`compiler/front/sema.orb:1845`) already read it for the compatibility rule -- so the annotation is compared with what the read yields. A bare `-> result` writes no payload and still answers `unknown`, which is the half this limitation keeps. `tests/negative/n123_try_annotation_payload.orb` pins the refusal, so the corpus is 116 cases. The suite is 127/127, `tests/std` 24/24 and the parity probes 33/33 with their goldens: no program in the tree had been relying on the unchecked annotation. The census is untouched, which measures the frontend pass and not the checker: 393 unknown over 104,185 instructions.
+
+- **A labelled `break` finds its loop.** `for outer: k in 0..n { break outer }` refused the whole loop because the two targets the pass carried were the innermost loop's. The function now keeps the stack the build keeps -- a name and the two blocks a labelled `break` and `continue` jump to (`compiler/ir/builder.orb:20`, searched innermost-first at `compiler/ir/builder.orb:3467`) -- so the label resolves to its own loop's exit and an unknown label says that instead of refusing the loop. Over the corpus the row that printed 4 prints nothing, and 3 of those loops moved to the element-kind question, which is the answer their receivers still do not write. E3001 falls 364 to 363 and the census reads 393 unknown over 104,185 instructions -- 0.4%, ratchet 4 per mille, silent 0, and the five per-code counts still sum to the total. `tests/frontend/labelled_break.orb` and its golden were written before the rule and matched on the first run, all 29 instructions. The frontend gate is 49/49.
+
+- **A named `catch` reads its message.** `try pick(c) catch e { return 9 }` was a give-up that said `a catch with a name needs the error type`, while the build opens that handler with a read of the message: `result_unwrap_err` into a register typed `string` (`compiler/ir/builder.orb:5920`), which is what `compiler/emit/c_backend.orb:870` says the read is. The pass emits the same two instructions before the handler body, and one helper opens the handler for both `try` shapes, so the value case and the statement case cannot drift. Over the corpus the census reads 393 unknown over 104,120 instructions -- 0.4%, ratchet 4 per mille, silent 0. E2001 loads fall 180 to 175 and E2002 binary operands 53 to 52, and E3001 falls 370 to 364: the named-catch row printed 6 and prints nothing, leaving 6 fall-through handlers as the only `try` question this pass does not answer. `tests/frontend/try_named_catch.orb` and its golden were written before the rule; the first version did not even parse, because `use` is a keyword, and after the rename the text matched on the first run. The frontend gate is 48/48.
+
+- **A `try` binding annotation answers the read.** `val n: int = try digit(c) catch { return 9 }` over a function declared `-> result` asked for a value type the signature does not write. The build retypes that read to the annotation -- `compiler/ir/builder.orb:3140` lists exactly `int`, `bool`, `string`, `float` and a `list` base -- and the checker has already compared the annotation with the value, so the pass reads the same promise. The signature still wins when it writes a payload. Over the corpus the census reads 399 unknown over 103,986 instructions -- 0.4%, ratchet 4 per mille, silent 0. E2001 loads fall 205 to 180 and E3001 give-ups 392 to 370: the value-type class prints no row now, while 6 fall-through handlers and 6 handlers that name their error remain, both answered by
+questions behind the annotation. `tests/frontend/try_binding_annotation.orb` and its golden were written before the rule and matched on the first run, register numbering included. The frontend gate is 47/47.
+
+- **A `for` over a list that says what is inside iterates.** The loop was a give-up for every receiver. `buildForList` (`compiler/ir/builder.orb:3530`) had already decided its blocks: the hidden `<item>_idx` counter, one length read before the loop, and the item through `list_get`. The pass emits that, and the item's type is `listElementKind` of the receiver's type text -- the same source `get`, `at`, `pop` and the index form answer from. A bare `list` still writes nothing about its inside and stays a give-up. Over the corpus 12 of the 20 list loops lowered and E3001 fell 404 to 392. The unknown count is one higher, 425 over 103,614 instructions: a loop body that was never read now contributes 321 instructions, and one `+` in them has an operand no table answers. Per mille the ratchet metric holds at 4 and the silent count is 0. `tests/frontend/list_iteration_typed.orb` and its golden were written before the rule and matched on the first run, numbering included. The frontend gate is 46/46.
+
+- **The payload table reads `object`.** `val o: object = try parse(t) catch { ... }` asked for the value type the signature already wrote, because `declaredPayloadType` (`compiler/tir/lower.orb:249`) answered four builtin words and nothing else. `object` is the fifth, the same string this pass prints for an object literal and for a field read of one. Over the corpus the census reads 424 unknown of 103,336 instructions -- 0.4%, ratchet 4 per mille, silent 0. E2001 loads fall 230 to 205: the values those `try` bind load back typed. Six more `try` give-ups left and the class reads 34, every one of them a callee declared `-> result` with nothing inside -- a signature that writes no payload is not a type this pass invents. `tests/frontend/try_object_payload.orb` and its golden were written before the rule and matched on the first run. The frontend gate is 45/45.
+
+- **A `try` used as a statement lowers.** `try decode("x") catch { refused = true }` reached the expression reader, which asks what type the value has and then what merges when the handler falls through. In statement position nothing reads the value, so neither question belongs. The pass emits `result_is_ok` and the `branch`, and both arms jump to the block the statements after the `try` are lowered into -- the two-arm block the `if` statement already emits. Over the corpus `E3001` falls 448 to 410: the handler class prints no row (its 20 were all statement uses) and 19 more of the value-type class left with them. The `unknown` count did not move, 449 of 103,281 instructions -- 0.4%, ratchet 4 per mille, silent 0 -- because a give-up types no instruction, while 178 instructions entered the corpus where the give-ups used to stop the lowering. `tests/frontend/try_statement_handler.orb` and its golden were written before the rule and matched on the first run, numbering included. A `try` in expression position still asks both questions: 40 want the payload written, 1 wants a named `catch` typed.
+
+- **A `result` that names a numeric payload accepts `ok` with that number.** `-> result < int >` parsed, and the checker answered `ok response body must be a string or an object, got int`. The guard compared the declared return with the word `result` exactly, so a signature that wrote its payload fell into the HTTP-response rule. It compares the base type now, the way the compatibility check beside it does. `compiler/emit/c_backend.orb:4341` already stores a number through `(void*)(uintptr_t)` and `:4383` reads an `int` destination back, so nothing downstream changed. `std/string/string.orb:196` and `:233` write `result < int >` and `result < float >`, and `std/json/json.orb:49` writes `result < object >`. Over the corpus the census reads 449 unknown over 103,103 instructions -- 0.4%, and the ratchet metric holds at 4 per mille. The `try` give-ups fell 85 to 79: 15 stopped asking for a value type and 9 of them became the handler class behind them. 17 stay, and they are `result < object >` -- `declaredPayloadType` (`compiler/tir/lower.orb:249`) answers the four builtin payloads and nothing else. `tests/suite/result_payload_int.orb` is the program; it failed with the refusal above before the change and exits 0 now.
+
+- **An index read is the call the build already emits.** `xs[i]` was a give-up where `xs.get(i)` was an instruction, although `compiler/ir/builder.orb:5820` lowers both spellings to `IROpcode.list_get`. The index form now travels as `call <kind> get <container> <index>`, with the element kind read from the receiver's type text. The count did not move: the 8 index reads in the corpus sit under a `list` whose type text names no element kind, so they changed message, not type. The census reads 454 unknown over 102,961 instructions -- 0.4%, and the ratchet metric holds at 4 per mille. `IndexAccess` left the node-class rows of the give-up table; its 8 now read `index read needs the element type this pass does not keep`. `tests/frontend/list_index_read.orb` and its golden were written before the rule and matched on the first run. The frontend gate is 43/43.
+
+- **A field read of an `object` answers `object`.** `{ count: 3 }.count`, and `o.n` under a receiver the program calls `object`, answered `unknown`. `compiler/ir/builder.orb:4804` allocates the register for that same read as `object`, so the pass refused an answer it already gives elsewhere. The read answers `object` now. Which key the run time finds is a different question, and the pass claims nothing about it. Over the corpus the census reads 454 unknown over 102,961 instructions -- **0.4%**, and the ratchet metric moved 5 to 4 per mille. E2004 member reads fall 44 to 23, E2001 loads 244 to 235 and E2002 binary operands 54 to 53: the value bound to a typed read feeds both. The five per-code counts still sum to the total and the silent count is 0. `tests/frontend/object_field_member_read.orb` pins the text; it was written before the rule, its register numbering was wrong, and the text matched once the numbering was corrected. The frontend gate is 42/42.
+
+- **`pop` yields an element, like `get`.** `compiler/ir/builder.orb:1999` answers `pop` from the receiver's element type beside `get` and `at`, and `compiler/front/sema.orb:4636` groups the three together; this pass knew the first two and not the third. Over the corpus `.pop` was 26 untyped calls and is 4: 22 of them had a `list<T>` in front of the dot. The census reads 485 unknown over 102,961 instructions -- 0.5%, and the ratchet metric holds at 5 per mille, because 26 instructions off a 102,961-instruction denominator does not cross to the next integer. E2005 calls fall 165 to 143 and E2001 loads 248 to 244. The five per-code counts still sum to the total and the silent count is 0. `tests/frontend/list_pop_call.orb` and its golden were written before the rule and matched on the first run.
+
+Language front end:
+
+- **A `+` with a string on either side is a concatenation.** The pass knew the comparisons, the bitwise operators and the case where both operands carry the same type; it did not know the one the build path spells out at `compiler/ir/builder.orb:5420` -- the emitter lowers it to `orbit_string_concat` whatever the other operand is. So `"count=" + n` answered `unknown`, and with it 84 `+` instructions of the corpus. Over the corpus the census reads 511 unknown over 102,961 instructions -- **0.5%**, 5 per mille, down from 6. E2002 binary operands fall 107 to 54 and E2001 loads 252 to 248. The five per-code counts still sum to the total and the silent count is 0. `tests/frontend/string_concat.orb` and its golden were written before the rule and matched on the first run. What is left of the class is `+` between an operand the pass cannot read and something else: no rule answers it, and inventing one would be the lie the count exists to show.
+
+Language front end:
+
+- **A library function writes its result payload.** `base64Decode` and `hexDecode` answered a bare `result`, so nothing could say what a later `try` yields: 19 of the corpus's `try` give-ups were that. They now answer `result < string >`, which `df40323` made possible to write. Eight of the 19 stopped being give-ups and 11 became the class behind them, `a handler that falls through needs a merge value`. Over the corpus the census reads 568 unknown over 102,944 instructions -- 0.6%, and the ratchet metric stays 6 per mille because the corpus grew with the spelling. The silent count is 0 and the five per-code counts still sum to the total. `parseIntChecked` and `parseFloatChecked` were spelled too and went back: `ok` admits only a string or an object, so `result < int >` cannot be written -- measured, not assumed. Two counts in `internals/LIMITATIONS_LOG.md` moved with this: 42 signatures and no payload, read with a pattern that could not see the formatter's `result < string >`, are 40 and 3 read correctly.
+
+Language front end:
+
+- **A payload written on a `result` reaches the C backend.** `-> result<string>` parsed, and nothing else worked. `ok("x")` answers a bare `result`, so the checker refused the signature, and the backend compares the type text with `"result"` exactly, so the local holding the value came out `void*` and the unwrap read `.value` off it. The builder now spells a result's IR type `result` whether or not the annotation names a payload -- one struct either way, the same rule `annotationBaseType` already applies to a list -- and the checker accepts a bare `result` value against a signature that names a payload, and the other way round. The annotation stays where it can be read: the frontend pass sees the source text, so `result<string>` is now something a `try` can be typed from. `tests/suite/result_payload_written.orb` is the program, written before the change and failing: it did not build, and it runs with exit 0 now.
+
+Language front end:
+
+- **The give-up tally now names the file.** "What the front end gives up on" printed one count per class, so 93 `try` give-ups looked like one rule failing everywhere. The census prints the largest single (file, class) pairs beside the tally. Measured 2026-11-04: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48, `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29 -- four files that pattern-match on AST nodes, which is the class, not a defect in those files -- and the 93 `try` give-ups are 19 + 17 + 15 in three `tests/std` files whose `try` reads a result this pass does not answer. E3001 stays 462 and the unknown count is unchanged at 576 of 102,668 instructions, 0.6%; this changes what is measured, not what is typed. The class list's `Match` figure moved 306 to 307 because `compiler/tir/lower.orb` is in the corpus it measures and grew a rule the same day.
+
+- **`system` is a receiver the checker names.** `system.uptime()` loaded `system` as a value, reported E2001 for the load and E2005 for the call, because no corpus file declares that name. `compiler/front/sema.orb` resolves the identifier to type `system` and answers `int` for each of its ten methods, so this pass reads that answer and a local of the same name still wins, the way the checker reads it. `tests/frontend/system_method_call.orb` and its golden were written before the rule and matched on the first run. Over the corpus the census reads 576 unknown over 102,668 instructions -- **0.6%**. E2001 loads fall 287 to 260 and E2005 calls 176 to 165. The five per-code counts still sum to the total and the silent count is 0. The ratchet metric stayed at 6 per mille: the count fell 38 and the corpus grew 72 instructions, because the pass that measures is inside what it measures. What is left of the calls is 160 methods on a list written with no element kind inside, where `unknown` is the answer and not a gap.
+
+- **`ok` and `err` are known by name.** `return err("nope", 1)` lowered its callee as a `load` of `err`, a name no corpus file declares, and reported E2001 for the load and E2005 for the call after it. The checker accepts both names without a declaration, and two modules already answer what they return: `compiler/ir/builder.orb:389` and `compiler/emit/c_backend.orb:4622` both answer `result`. This pass reads that answer, and the name travels on the call: `call result err v0 v1`. `tests/frontend/err_call.orb` and its golden were written before the rule and matched on the first run. Over the corpus the census reads 614 unknown over 102,596 instructions -- **0.6%**, 6 per mille. E2001 loads fall 362 to 287 and E2005 calls 226 to 176. The five per-code counts still sum to the total and the silent count is 0. What is left of the calls is 171 methods on a list the source wrote without an element kind, where `unknown` is the answer and not a gap. The ratchet baseline moved down to 6.
+
+- **A list write returns nothing.** `xs.push(7)` typed as a call answered nothing, because the method table knew `len`, `indexOf`, `get`, `at` and `slice` and no write. The build emits a list write as a statement block that calls `orbit_list_push` and gives no register a value. The answer was therefore already written, and only this pass had not read it: `push` and `set` answer `void` on `list` and on `list<T>` alike. `tests/frontend/list_push_call.orb` and its golden were written before the rule and matched on the first run. Over the corpus the census reads 739 unknown over 102,646 instructions -- **0.7%**, 7 per mille. E2005 calls fall 621 to 226 and E3001 give-ups go 461 to 462. The five per-code counts still sum to the total and the silent count is 0. `.push` was 375 of the 621: it was the largest single callee the new `CALL` line named the same day, so the instrument found the answer before this commit used it. The ratchet baseline moved down to 7.
+
+- **E2005 names what it called.** The diagnostic said only "cannot type the result of this call", so the largest class of untyped instructions was the one class the census could not sort: 621 calls on 2026-11-04 and no way to say how many were a missing declaration and how many a method on an untyped receiver. The message ends with the callee as the source writes it -- a name, or `.field` -- and the probe prints one `CALL` line per distinct callee. The driver sorts them by what would have to answer, the same way it already sorts the E2001 loads and the E2004 fields, and the sorted total is checked against the E2005 count. Measured: 566 of the 621 are `.push` 375, `.get` 126, `.pop` 26 and `.set` 21 -- a method read off a receiver with no type, which no declaration fixes -- and 55 name nothing the corpus declares, led by `err` 37 and `ok` 13. The unknown count does not move with the message: 1,134 over 102,646 instructions, 1.1%, and the silent count stays 0.
+
+- **A model name in call position is the model.** `Token(tag, text, line)` lowered its callee as a `load` of `Token`, a name no function declares and no binding holds, so it reported E2001 for the load and E2005 for the call that followed it. The model's own name is what the construction returns, and the program declares that name in the file it imports or in the file it is written in. The name travels on the call now: `call Token Token v0 v1 v2`. A model name read without calling it stays a value nobody binds and keeps E2001. `tests/frontend/model_ctor_call.orb` and its golden were written before the run, and the golden matched on the first one. Over the corpus the census reads 1,134 unknown over 102,644 instructions -- **1.1%**, 11 per mille. E2001 loads fall 689 to 362, E2005 calls 852 to 621, E2004 member reads 99 to 44 and E3001 give-ups 488 to 461. The five per-code counts still sum to the total and the silent count is 0. The loads that read a name only an imported file declares are gone: `Token` 54 and `LiteralNode` 21 were that bucket. The write that needed a typed receiver follows the same answer, so the give-up table prints no `MemberAccess` row today. The ratchet baseline moved down to 11.
+
+- **A qualified construction names the type it builds.** `ASTNode.Literal(node)` lowered its callee as a read: a `load` of `ASTNode`, a name no function binds, and then a `member` of `Literal` on top of the call. The name before the dot is a declared type, and the name after it is one of that type's payload-carrying variants. The pass records those qualified names in a construction table now, so the call carries the name the source wrote: `call ASTNode ASTNode.Literal v0`. A read of the same name without calling it stays unanswered, because a payload-carrying variant is a construction that needs its argument and a constant would invent one. `tests/frontend/union_variant_construct.orb` pins the text. Over the corpus the census reads 1,757 unknown over 102,785 instructions -- **1.7%**, 17 per mille. E2001 loads fall 832 to 689, E2005 calls 980 to 852 and E2004 member reads 227 to 99. E3001 give-ups go 487 to 488, because one file that used to lose a function to a give-up now lowers it. The five per-code counts still sum to the total and the silent count is 0. What remains in the import bucket is a model name called without a dot -- `Token(...)` 54 and `LiteralNode(...)` 21 -- which is the same read, one hop away. The ratchet baseline moved down to 17.
+
+- **A field declared `list<T>` carries its element kind to the read.** `declaredFieldType` answered the bare `list` for `items: list<string>`, because a list literal answers the bare `list` and the two were read as one claim. A literal writes its elements and no type; a field writes the type, so the two answers are not the same claim and the field's own text is now the answer. `bag.items.get(1)` reads `member list<string>` and then `call string`, and `tests/frontend/list_field_element_read.orb` pins that text with its golden written first. The unknown count falls 4,050 to 2,156 over 103,008 instructions -- **2.1%**, 21 per mille: E2001 loads 1,619 to 832, E2005 calls 1,353 to 980, E2004 member reads 812 to 227 and E2002 binary operands 266 to 117. The five per-code counts still sum to the total and the silent count is 0. A typed read is a bound value, so the loads and the operands of a list field fall with it rather than only the read. The ratchet baseline moved down to 21.
+
+- **An element of a list carries the kind its type text writes.** `xs.get(0)` on a `list<int>` answered nothing, and `xs.at(0)` answered `string` whatever the receiver was. The rule was read from string sites and never asked what the list held. A type text that writes `list<int>` names its element, so `get` and `at` answer `int` and `slice` answers `list<int>`. A receiver typed the bare `list` still answers nothing; the source wrote no inside, and an invented element type is the lie the `unknown` count exists to make visible. `tests/frontend/list_element_read.orb` pins the text, predicted before the rule. 33/33 fixtures match. Over the corpus the census reads 4,050 unknown over 102,971 instructions -- **3.9%**, 39 per mille. E2005 falls 1,586 to 1,353, E2001 1,930 to 1,619, E2002 394 to 266 and E2004 920 to 812. The instruction total rises because this pass is itself in the corpus and `compiler/tir/lower.orb` grew. The five per-code counts still sum to the total and the silent count is 0. The ratchet baseline moved down to 39.
+
+- **A method call carries its method, not a read of one.** `xs.indexOf(2)` lowered its callee as a `member` read of `indexOf` on the list and then called the result. No table types that read, so one source expression entered the census twice -- an unknown `member` instruction (E2004) and the unknown `call` after it (E2005). The member name now travels on the call, the way `print` already did (`call void print v0`), with the receiver as its first operand. `tests/frontend/method_call.orb` pins the shape, predicted before the rule; 32/32 fixtures match. Over the corpus 1,445 of those phantom reads disappear: E2004 falls 2,446 to 920, the unknown count 6,356 to 4,830 over 102,931 instructions -- **4.7%**, 47 per mille, with the five per-code counts still summing to the total and the silent count at 0. `get` and `at` still answer `unknown`, which is the element-kind table this pass does not keep. The ratchet baseline moved down to 47.
+
+- **`NULL` is a value the front end names.** `compiler/front/sema.orb` resolves the identifier and `compiler/emit/c_backend.orb` gives it `void*`, so `if items == NULL` has always built. The lowering pass had no answer, so the name raised E2001 as an unknown identifier and the file printed no canonical TIR: 82 of those loads over the corpus. It answers `NULL` now, the string the build IR uses for the same value, which is how `object` and `result` are already reported, and `typeOfExpression` answers the same so a binding to one loads back what it is. `tests/frontend/null_literal.orb` pins the text. E2001 falls 2,012 to 1,930 and the census reads 6,356 unknown over 105,469 instructions -- **6.0%**, 60 per mille, with the five per-code counts still summing to the total and the silent count at 0. The ratchet baseline moved down to 60.
+
+- **The string primitives the runtime provides are declared once.** `orbit_string_len`, `orbit_string_slice` and `orbit_string_indexOf` were declared wherever someone needed them first -- two in `std/sys/crypto/jwt.orb`, one in `std/string/string.orb` -- and a compiler module that called one without importing that file built fine, because the C backend emits the prototype anyway. `orbit frontend` had no such mercy: the name had no declaration in the program it was reading, so it reported E2001 and the file printed no TIR. They are declared in `compiler/host/extern.orb` now, beside the 37 others, and the five compiler modules that use them and imported nothing (`front/literal.orb`, `front/resolver.orb`, `host/pipeline.orb`, `tir/format.orb`, `tools/doctor.orb`) import that module. `literal.orb` stays a leaf in the graph the F-0004 fix depends on: `extern.orb` carries declarations and imports nothing. Over the corpus the census reads 6,438 unknown over 105,469 instructions -- **6.1%**, 61 per mille. E2001 falls 2,907 to 2,012, E2005 call results 2,037 to 1,586 and E2002 binary operands 533 to 394; the loads whose name lives in a file the importer does not import fall from 473 to 9, which is the measurement of this change by itself. The five per-code counts still sum to the total and the silent count is 0. The fixed point converged to the committed canonical, so no promote was needed: the generated C already carried these prototypes.
+
+- **A union variant without a payload is a constant too.** `Shape.Square` names a value whose type is the union's own name; only its sibling `Shape.Circle(int)` needs an argument. The type table now records the payload-less variants of `enum` and `union` alike, and the qualified read emits `const Shape Shape.Square`. A variant that carries a payload stays unanswered: `ASTNode` 79, `Token` 54 and `LiteralNode` 21 unknown loads are exactly that class. Over the corpus the census reads 7,923 unknown over 105,469 instructions -- **7.5%**, 75 per mille. E2001 falls 3,055 to 2,907 and E2004 member reads 2,650 to 2,446; the five per-code counts still sum to the total and the silent count is 0. `tests/frontend/union_variant_read.orb` pins the shape, predicted before the rule.
+
+- **A broken import names the imported file.** Reading imports to type cross-file calls put a new failure inside the frontend: a file that does not parse contributes no declarations, and the pass swallowed its parse diagnostics. The importer then carried the blame -- `orbit frontend attrbroken/use.orb` answered `E2001 at 0:0: unknown identifier helper` for a name the broken file never got to declare. The import walk now records the reason, and the refusal says `E1000 at 0:0: imported file .../inner.orb:3: unexpected token 'CloseBrace'`. A build still refuses a broken import outright (`compiler/host/pipeline.orb`); this only fixes who the message names. `scripts/doctor_gates.py cli-probe` carries the case (91 cases): the refusal must name the imported file and must not name the importer's call. Over the corpus the census reads **7.8%** (8,274 unknown over 105,585 instructions) and the ratchet stays at 78 per mille; the five per-code counts still sum to the total and the silent count is 0.
+
+- **A variant of a declared enum is a constant, not a read.** `TokType.EOF` lowered as a load of `TokType` and then a member read, and the load had no binding to answer: E2001, and with it the file's whole canonical text. An enum now enters the type table with its variants as fields, and the qualified name emits `const TokType TokType.EOF` -- the type and the variant spelled as the source spells them. A union is not collected: a union variant is a construction with a payload, and claiming a constant for it would invent a value this pass cannot build. Over the corpus the unknown count falls from 9,620 to 8,261 over 105,512 instructions: **7.8%**, 78 per mille. E2001 falls 3,745 to 3,053 and E2004 member reads 3,313 to 2,644; the five per-code counts still sum to the total and the silent count is 0. `tests/frontend/enum_variant_read.orb` pins the text, predicted before the rule. `scripts/baselines/unknown_count.json` moved down to 78 with `--write-baseline`.
+
+- **A call into an imported file is typed.** `orbit frontend` filled the signature and model tables from the one text it was handed. A call into an imported function was therefore an unknown identifier: E2001 on the load of its name. `tirCanonical` prints nothing while an error-severity diagnostic exists, so the whole file's text was suppressed for a name one `import` away. The entry point now reads the file's `import` lines at any depth and registers their signatures and models before lowering any body. Imported bodies stay unlowered: the printed text belongs to the file named on the command line. `tests/frontend/imported_signature.orb` pins that boundary, eight lines and no block for the imported function. A name behind an import that cannot be read keeps the answer it had, so a file that printed TIR still prints it. Measured on the same tree: with the imports lowered away the census reads 17,410 unknown over 105,754 instructions (**16.5%**), and with them it reads 9,620 over 106,122 (**9.1%**). The largest load still without an answer is `TokType` with 582: an enum is a `TypeDeclNode`, which the signature collector declares that it does not arm.
+
+- **An anonymous model literal is a construction too.** `{ x: n, y: 2 }` had no rule, so its 12 uses over the corpus gave up with `expression cannot be lowered to TIR: ObjectLiteral` and the name bound to one loaded back `unknown`. It emits `construct object 2 x v0 y v1` now, through the same helper the named form uses, and the reader of types answers `object` -- the type the build IR already gives it. The model it builds is not claimed: the builder infers that from the position, and this pass reads no inference. Over the corpus E3001 falls 680 to 669 and unknown 17,410 to 17,388 of 105,644 instructions, still **16.5%** and 165 per mille. E2004 rose 4,556 to 4,560 and `Match` 300 to 301, because lowering a literal exposes what sits inside it. `tests/frontend/object_literal.orb` pins the text, predicted before the rule existed and matched line for line. The gate reads 27/27.
+
+- **A field's declared type is read from the file, not only from a builtin.** `declaredFieldType` answered `int`, `string`, `bool` or `float` and returned nothing for every other spelling. In `o.i.n` the read of `i` entered the census as `unknown` (E2004), and the read under it was never reached. `bag.items` on a `list<string>` field answered `unknown` while a list literal answered `list`: two readers, two answers for one value. It answers `list` now, with or without the element type written, and the name of any model this file declares. `collectModels` fills that table before any body lowers, so a `model` written underneath the function that reads its field is in it. Over the corpus: unknown 17,702 to 17,410 of 105,554 instructions -- **16.5% from 16.8%** -- E2004 4,859 to 4,556 and E3001 682 to 680; the ratchet baseline moved to 165 per mille. `tests/frontend/nested_field_read.orb` and `tests/frontend/list_field_read.orb` pin the two new answers. `tests/frontend/crossfile_field.orb` pins the boundary: a model declared in an imported file is not a name this file declares, so its read keeps E2004 and its file keeps no canonical text. The gate reads 26/26.
+
+- **A binding's annotation is read before its value.** `checkVarDecl` resolved the written type after checking the value. `val o: Option<int> = Option.None` -- the form E1006's own help text names -- was refused: the member read had no position to ask, and the variant carries no payload to decide it. The annotation resolves first now. Measured with `orbit check`: `val none: Option<int> = Option.None` and `val empty: Option<int> = Option.None()` gave 2 E1006 blocks before and no errors after. `val x: Option<int> = Option.Some()` answered E1006 before. It now answers `Variant 'Some' declares 1 payloads, but the construction passes 0.` (E1003), because the construction is finally read against `Option_int`. `tests/std/test_option.orb` and `tests/suite/generic_union_option.orb` each gained the annotation-only case, `tests/negative/n126_generic_union_annotated_empty_construction_reaches_arity.orb` pins the arity refusal, and the corpus is 115 programs (gate reads 115/115). The lists in `docs/LANGUAGE_REFERENCE.md` and `docs/LANGUAGE_REFERENCE.md` already named a binding's annotation as one of the positions that write a type; the checker now agrees with them.
+
+- **One refusal prints once.** `take(Option.None())` against an `int` parameter printed `E1006` four times in two sentences: the `Call` arm read the callee's member as a value before deciding the construction, and `checkCallArgTypes` ran `checkNode` over every argument a second time. The call arm now asks `calleeIsTemplateConstruction` and reads only the object, and `checkCallArgTypes` takes the types the call site already computed. Measured with `orbit check` on the pinned program: 4 `error[E1006]` lines before, 1 after, exit 1 both times. `tests/negative/n125_generic_union_empty_construction_in_an_argument_prints_one_refusal.orb` pins it with a new header directive, `one-diagnostic:`, because a substring match passes on a refusal printed four times. The gate read 113/114 with the old checker and 114/114 with the new one; the corpus is 114 programs.
+
+- **A call is typed from every declaration in the file, not only the ones already read.** The frontend registered a function's return type when `lowerFunction` reached it, so `later(n)` in a file that declares `later` underneath `useIt` had no answer: the load reported E2001 `unknown identifier`, an `if` around such a call reported E2100, and `tirCanonical` prints nothing while an error-severity diagnostic exists -- so the file's whole text was suppressed by the order of two declarations. `collectSignatures` reads the declaration list before any body now, and the answer is the text the source wrote. Over the corpus: unknown 19,302 to 17,702 of 105,423 instructions -- **16.8% from 18.3%** -- E2001 8,610 to 7,680, E2004 4,858 to 4,859, E2100 160 to 88, E2003 0 reported (was 2), E3001 681 to 682. `tests/frontend/forward_call.orb` pins the two-instruction lowering and `tests/frontend/undeclared_callee.orb` still pins that an undeclared name keeps its E2001. The baseline moved to 168 per mille.
+
+- **One join makes every instance name.** Five loops still built `Box` plus `int` into `Box_int` -- two in `compiler/front/sema.orb` (`resolvedGenericTypeName`, the generic-literal name) and three in `compiler/ir/builder.orb` (`modelInstanceName`, the model registration loop, `fnInstanceName`) -- after `c85b128` had already collapsed the union pair into `literal.orb`. They are one function now, `instanceName`, beside `mangleTypeArg`, and a caller that holds binding rows takes the tail before calling: the row format belongs to the caller, the join does not. `mangleTypeArg` has no caller outside `literal.orb`.
+
+- **`try` names the type it is missing.** `try f() catch { ... }` in expression position had no rule and reported `expression cannot be lowered to TIR: Try` -- 93 over the corpus. It lowers when the callee writes the payload inside its `result` (`-> result<string>`): `result_is_ok` tests the value, `branch` splits the block the source wrote, `result_unwrap` reads the payload in the ok path, and the handler is lowered in its own block. The 93 of this corpus all write a bare `-> result`, so the count is still 93 and the message now says `try needs the value type written inside the result, which this pass does not keep`. `tests/frontend/try_expression.orb` pins the lowering with both blocks; the gate reads 22/22.
+
+- **n124 pins the second refusal a payload-less variant can print.** `compiler/front/sema.orb` answers `E1006` for that case from two sites with two sentences, and the construction site looked unreachable from a probe of `val x = Option.None()` -- which was an incomplete probe: that program prints BOTH sentences. `val x = Option.Some()` fires the construction text alone, because the member-read guard answers false for a variant that declares a payload. `tests/negative/n124_generic_union_empty_construction_needs_a_written_type.orb` pins it; the corpus is 113 programs and the gate reads 113/113. The double refusal of `Option.None()` is not pinned, and the section says so.
+
+- **A field read is typed from the model the file declares.** `d.x` answered `unknown` unless the field was called `len`, so every member read entered the census as an `unknown` instruction and E2004 reported it: 5,389 over the corpus, the second-largest source, and enough on its own to suppress the canonical text of any file that used one. `lowerProgramToTir` now collects the program's own `model` declarations while it lowers (`TirType`/`TirField` in `compiler/tir/format.orb`, unread by the printer), and `declaredFieldType` answers the written type when it is `int`, `string`, `bool` or `float`. A field whose type names another model, a list or a union still answers `unknown`: that needs the same table one level deeper, and guessing from the field's name is the failure the census was built to keep visible. Unknown instructions 20,350 to 19,300 -- 18.3% of 105,403, from 19.3% -- with 1,050 reads typed, 286 dependent loads among them, 204 binary operands and 31 unary operands no longer unknown, and `E3001` at 681. `scripts/baselines/unknown_count.json` is rewritten at 183 per mille. `tests/frontend/field_read.orb` pins the printed text, predicted before the rule existed and matched line for line; the gate reads 21/21.
+
+- **`return ok` is a wrapper the frontend lowers.** `return ok 200 "ready"` reached the expression reader as `ReturnOk` -- the statement reader knew `return <expr>` and not the `ok` form -- 8 times over the corpus, and the give-up suppressed its file's canonical text. It emits `result_ok result 200 v0` and then `return unit v1`: the name the build IR already gives the wrapper, the status code the source wrote, and `void` as the operand when the `ok` carries no payload, because the parse keeps the empty expression instead of dropping it. `E3001` falls 688 to 680, the instruction total rises to 105,285 and the unknown count is 20,350 -- 193 per mille, the same rate, because the two new `unknown` instructions arrive with 25 new typed ones. `tests/frontend/return_ok.orb` pins the text; the gate reads 20/20.
+
+- **A model literal is a construction the frontend lowers.** `Point { x: 0, y: 0 }` had no rule, so 50 model literals gave up with `expression cannot be lowered to TIR: TypedLiteral` and the name bound to one loaded back `unknown` at every later use of it. It emits `construct Point 2 x v0 y v1` now: the type the source wrote, the field count, then each field and its value. The reader of types answers the same string, and that agreement is the half that removes the loads -- 73 of them stop being `unknown`, and four writes through a place lower as a side effect because their receiver was one of these literals (`MemberAccess` writes 216 to 212). A generic literal keeps the bare name the program wrote, not the `Box_int` the build mints: this text reports the source, and the checker owns the instance. Over the corpus `E3001` falls 742 to 688, the instruction total rises to 105,260 and the unknown count falls to 20,348 -- 193 per mille, and `scripts/baselines/unknown_count.json` was rewritten at that number with `--write-baseline`. `tests/frontend/model_literal.orb` pins the text; the gate reads 19/19.
+
+- **An element write lowers: `xs[i] = v` emits `store_index`.** The assignment reader had a rule for a field place and none for an index, so 22 writes to an element gave up with `cannot lower this assignment to TIR: IndexAccess`. It lowers when the container's own type is one the pass can read, the same condition the field write carries: the alternative is to emit a load this pass cannot type, because it keeps no element table. 5 of the 22 stay give-ups under a receiver the pass cannot read, and the *read* `xs[i]` (8 cases) stays one for the same reason -- a load would have to say what it loaded. `E3001` falls 759 to 742 and the unknown rate holds at 194 per mille (20,421 over 105,091 instructions, from 20,419 over 105,036): the 55 instructions the new writes emit are typed. `tests/frontend/index_write.orb` pins the text; the gate reads 18/18.
+
+- **One function mints an instance name.** `compiler/front/sema.orb` and `compiler/ir/builder.orb` each carried the seven lines that join `Option` and `int` into `Option_int`, and each of the two comments said the spelling was shared with the other side. It was not: the checker resolved a pattern through its own copy and the builder declared the tag set through its own, and a program whose two copies disagreed would pass `orbit check` and dispatch on a tag of a type it never wrote. The rule is `unionInstanceName` in `compiler/front/literal.orb` now, beside `mangleTypeArg`, which is the leaf both sides already import -- the same reason that module exists. `make promote-diff` reads 44,366 lines raw against **152** after flattening generated names, in 7 hunks across `o_mangleTypeArg`, `o_registerType` and `o_substituteTypeParams`: three bodies leave the canonical and one arrives. Five more copies of the loop stay in the model and generic-function paths (in `compiler/front/sema.orb` and `compiler/ir/builder.orb`), untouched here.
+
+- **A generic union instantiates, and `Option` leaves quarantine.** `union Option[T] { Some(T) None }` was refused at the declaration: nothing substituted `T`, so a payload declared `T` reached the C backend as the parameter's own name. The argument now comes from a position that writes a type -- a parameter's declared type, a binding's annotation, a `return` in a declared function, a call argument against its parameter -- or from the payload a construction hands over, and each argument list declares one instance with its own tag set. `tests/suite/generic_union_option.orb` builds `Option<int>`, `Option<string>` and `Pair<int, string>` in one program and exits 0; `tests/negative/n118_generic_union_needs_a_written_type_for_none.orb` pins the refusal of a payload-less `None` that no position writes. The module ships as `std/option/option.orb` with `tests/std/test_option.orb` over the four written positions, importing the union from another file -- the position a std module needs. `tests/std/test_imports.orb` merges it with the rest and gains `std/sys/arena.orb`, the one module it had never imported, so all 21 of 21 now compile into one program. `std/quarantine/` is empty. The counts move with it: `std/` 20 to 21 modules, `tests/std/` 23 to 24 files (24/24 green), `orbit fmt` 210 to 212 sources. The emitted C moved at the feature commit: 69,344 lines raw against **3,334** after flattening generated names, 122 hunks across 23 functions, with parity 33/33 and no golden touched.
+
+- **A file-scope directive has no code to emit, and now says so.** `migrations "CREATE TABLE ..."` and a `port 8080` config line had no arm in `lowerProgramToTir`, so each reached `E3000: top-level declaration cannot be lowered to TIR: MigrationDecl` -- 3 over the corpus, the whole of `E3000`. `E3000` carries severity error and `tirCanonical` prints nothing when any error exists, so a program with a migration had no canonical TIR at all for a declaration that holds no code. They lower to nothing now, the way a file-scope `const` already does; `E3000` reads 0 on the corpus and the unknown rate is unchanged (20,005 over 103,333 instructions, 194 per mille) because a give-up was never an instruction. A `schedule` is not on the list: its handler is a body. `tests/frontend/directive_decls.orb` pins the text, the golden of a file that used to print nothing; the gate reads 17/17.
+
+- **An interpolated string is parts the frontend lowers.** `"count=${n}!"` had no rule, so the whole literal was one give-up -- 12 over the corpus, `expression cannot be lowered to TIR: Interp` -- and the error suppressed its file's canonical TIR. It emits `interp string <count> <raw|unescaped> <values>` now: the text between the holes is a `string` const, each hole is the value of its own expression, and the flag says whether the chunks are read verbatim or unescaped. That reading belongs to the build, and this pass does not copy the unescape rule -- a second answer to one question is the defect class `internals/LIMITATIONS_LOG.md` records four times. `E3001` falls 762 to 750; the unknown rate holds at 194 per mille (20,005 over 103,333 instructions, from 20,003 over 102,736). `tests/frontend/interp_parts.orb` pins the text; the gate reads 16/16, and the fixture writes its hole as `$` because the lexer reading the fixture's own literal would interpolate a real `${`.
+
+- **`for x in 0..n` is a loop the frontend lowers.** The statement lowering had no arm for a `for`, so all 46 in the corpus fell to the expression reader as `... TIR: For` and suppressed their file's canonical TIR. A range counts an int between its bounds, so it lowers to the `while` form -- condition, body, exit -- plus an increment block, which is where a `continue` lands: jumping to the condition with the counter unchanged repeats one item forever. The item and the `for x, i` index bind to `int`, and the bounds are read once before the loop. Over a list the item's type is the element kind and this pass keeps no element table, so that path stays a give-up and says which it is (20 cases), as does a labelled loop (4). `E3001` falls 779 to 762 and 22 more loops are typed; lowering a body exposes what is inside it, so `Try` 92 to 93 and `TypedLiteral` 49 to 50. The unknown rate holds at 194 per mille -- 20,003 over 103,267 instructions, from 19,977 over 102,736. `tests/frontend/range_loop.orb` pins the text and `list_iteration.orb` the suppression; the gate reads 15/15.
+
+- **`break` and `continue` jump where the loop put the blocks.** Neither had an arm in the statement lowering, so both fell to the expression reader and reported `... TIR: Break` (91) and `... TIR: Continue` (26), suppressing the file's canonical TIR. The enclosing `while`'s exit and condition blocks now ride down the statement lowering; outside a loop there is no block to name, and the give-up says so. `E3001` falls from 896 to 779 with those two classes gone, and the unknown share holds at 19.5% -- the jumps answer `unit`. `tests/frontend/loop_exit.orb` pins it; the gate reads 13/13.
+
+- **A bare `return` is not an unlowerable expression.** `fn shout() { return }` sent the return's empty value to the expression reader, which reported `expression cannot be lowered to TIR: Empty` -- 279 over the corpus -- and the error suppressed the file's canonical TIR. It emits `return unit void` now. `E3001` falls from 1,175 to 896 with the `Empty` class gone, and the unknown share holds at 19.5%: the new instruction answers `unit`, so nothing entered the count either way. `tests/frontend/bare_return.orb` pins both cases; the gate reads 12/12.
+
+- **`[1, 2]` is a value the frontend lowers.** A list literal had no rule: the elements were never lowered and the name bound to one loaded back `unknown`, because the reader of types and the lowerer disagreed about what the value was -- 412 give-ups and 780 unknown identifier reports, and the canonical text suppressed in every file that used one. It emits `list`, and both readers answer `list`; the element kind is not claimed, because the pass keeps no table for it. Over the corpus `E3001` falls 1,586 to 1,175, `E2001` 9,573 to 8,793, unknown 20,747 to 19,977 and the share 20.3% to 19.5% (baseline 194). `tests/frontend/list_literal.orb` pins both halves; the frontend gate reads 11/11.
+
+- **A write through a field lowers: `d.x = 2` emits `store_field`.** The statement reader had no write rule for a place, so the assignment was a give-up and the diagnostic suppressed the file's canonical TIR. It lowers when the place's own value is typed; a chained place under a receiver this pass cannot type stays a give-up, because emitting it would swap a declared give-up for an `unknown` instruction. `E3001` falls from 1,784 to 1,586 -- 198 simple place writes lower, 216 chained remain -- the instruction total rises to 102,035 and the unknown share falls to 20.3% (baseline 203). `tests/frontend/field_write.orb` pins the text; the frontend gate reads 10/10.
+
+- **A declared function's name is not an unknown identifier.** The load of a callee read only the
+local bindings, so `take(x)` raised `E2001 unknown identifier take`, and because `tirCanonical`
+prints nothing while a diagnostic of severity error exists, a file that called its own functions
+printed no canonical TIR at all. The name is now read from the program's declaration. Over the
+corpus: 20,747 unknown instructions against 23,529, the share 20.4% against 23.2%, E2001 from
+12,343 to 9,573, baseline 204. An empty answer is never assigned over `unknown`, so an undeclared
+name still errors: `tests/frontend/undeclared_callee.orb` pins the suppression, and
+`tests/frontend/assign_statement.orb` pins the TIR the callee rule made reachable. The frontend
+gate reads 9/9.
+
+- **`x = 5` is lowered as a statement.** The statement walker handed every node it did not recognise to the expression reader, which has no assignment rule, so an assignment became `E3001: expression cannot be lowered to TIR: Assignment` and nothing else was emitted for its value. It now emits the same `bind` a `val` uses and re-reads the name's type from the binding. 2,723 of the 3,137 assignment give-ups are gone; the 414 left write through a place (`a.b = e`) and say `cannot lower this assignment to TIR: MemberAccess`. Over the corpus the instruction total rose to 101,639 from 88,110 because those values are lowered now, and the unknown rate fell to 23.2% (231 per mille, from 241) -- the ratchet reads the rate, and the baseline moved down with it.
+
+- **The frontend says which expression it gives up on.** `E3001` and `E3000` printed one sentence for every unsupported node, so the census reported 9,233 give-ups with no way to scope them. `astNodeKind` names the node class in the message and `unknown_census.py` tallies by class over the corpus. Naming it found the largest class was not a gap: 5,045 `Empty` hits came from `lowerStatement` handing every statement it did not recognise to the expression reader, and an empty statement has no instruction to emit. It lowers to nothing now, and `E3001` reads 4,468 with `Assignment` (3,137) the real gap left.
+
+- **A call's type comes from the program's own declaration.** The frontend reader answered a call only for names written into `compiler/tir/lower.orb` -- `tirIntText`, `isVisited`, `hasErrors` each had their own line -- and every other call came back `unknown`, and so did every `val` bound to one. `declaredReturnType` reads the function the file declares instead: the census over 209 files and 88,108 instructions went from 25,489 `unknown` instructions (29.1%) to 21,227 (24.1%) -- `call` 6,756 to 4,259, `load` 12,670 to 11,284 -- and the ratchet baseline moved down with it. A call into another file is still `unknown`: the lowering sees one module's declarations.
+
+- **A `match` binding keeps its payload type.** Every arm binding was declared `unknown`, because the checker read the payload from a registry keyed on the variant name alone and had no owner to ask. The arm now declares each name with the payload its resolved owner declares, so `shout(n)` with `n` an int is `E1005` and `n.name` says `int` has no member `name`. `tests/suite/match_binding_payload_type.orb` reads an int, a string and a model through one union; `tests/negative/n122` pins the refusal. The compiler's own 241 match arms still typecheck: the fixed point converges.
+
+- **Two unions may declare the same variant name.** `Signal.Body("s")` was
+  refused with `E1005` while `Body(3)` with both unions in scope was accepted:
+  the registry is keyed on the variant's own name, so the first row answered the
+  payload of either, and the constructor macro was named after the variant alone
+  so a second `#define Body` replaced the first. Payload and arity now come from
+  the owner the program wrote, a bare `match` pattern resolves through the
+  scrutinee's type, and the constructor macro carries both names -- `cUserName(owner + "_" + variant)` where it read `cUserName(variant)`.
+  A bare construction whose name belongs to two unions is refused with the new
+  `E1011`, naming both owners. `tests/suite/union_shared_variant_name.orb` and
+  `tests/negative/n121` pin the two directions. The emitted C moves, so the
+  canonical moves with it: 2,039 lines after flattening register and label
+  numbering, in 457 hunks across 58 functions. Parity reads 33/33 unchanged --
+  no probe constructs a variant.
+
+- **`union Name[T]` parses, and `E1006` names what is still missing.** The
+  declaration arm of `parseTypeDecl` calls the same parameter-list parser the
+  model, fn and trait arms always used, so `union Option[T] { Some(T) None }`
+  reaches the checker instead of stopping at the `<`. Nothing substitutes an
+  argument at a construction yet, so the checker refuses the declaration at the
+  name's own line and column, which a type declaration could not do before
+  `TypeDeclNode` carried a position. `enum` and `alias` parameter lists and a
+  constrained union parameter are refused by the parser. Pinned by
+  `tests/negative/n118`, `n119`, `n120`. `Option` stays quarantined until the
+  substitution lands.
+
+Commands and gates:
+
+- **The census now measures the program the command line compiles.** `scripts/unknown_census.orb` lowered each file through `lowerProgramToTir`, which reads only the text it is handed, so it never saw an import while `orbit frontend` did. The probe calls the same entry point the CLI calls now. The numbers moved with it: E2001 7,663 to 3,745 loads, E2004 4,560 to 3,313 member reads, E2005 4,202 to 2,030 call results, and the chained `MemberAccess` give-up 211 to 37. `scripts/baselines/unknown_count.json` moved down to 91 per mille with `--write-baseline`, which is the direction the ratchet exists to allow. The entry above this one claimed the rate "holds at 16.5%": that was the old instrument measuring the old path, and the correction is here.
+
+- **A skipped native gate now says why it cannot run here.** On Linux the three native gates told the reader to set `ORBIT_R6`; setting it turned three skips into three failures, because `orbit build --backend=native` refuses any host that is not Windows x86-64 (`hostIsWindows` in `compiler/host/pipeline.orb`). The gates skip on that rule now and name it, and the closing line of `dev.py` says the lane cannot run here instead of pointing at a variable. Measured on the 3904 MB host with `ORBIT_R6` set: 3 skipped, `all 0 gate(s) passed` and no `FAIL`; on Windows the same filter still runs `runtime_module_native` to 6/6.
+
+- **The native lane runs against this branch, and what it still cannot do is declared.** With `ORBIT_R6` set, `dev.py all` runs 30 gates and all 30 pass: `suite_native` 125/125 with 2 declared ratchets, `suite_std_native` 24/24, `runtime_module_native` 6/6. It had been 106/125 and 22/24, because the union instances this cycle minted are named `Option_int.Some` and `Shape.Unit`, and orbit-r6 resolved a constructor by its bare name only (its D-M1-136). `system_http_requests_ok` and `system_http_requests_error` were missing from the
+three lists that register a builtin: the IR extern declaration, the compile-time
+predicate and the C return-type inference. The IR therefore called an undeclared
+target and the native backend refused the program, while the C backend linked it
+by name. The two programs orbit-r6 still cannot build are declared with their
+causes: the DB subset rule it keeps, and a runtime symbol older than its pin.
+
+- **A gate reads every `path:line` in the documents.** `static_gates.py counts` re-computes a counted claim from the tree. Nothing read a location, and 125 of the 184 citations in the audited documents pointed somewhere else. Three of them: `runtime/arena.c:406`, in a file that is 174 lines since the arena split; `compiler/selfhost/pipeline.orb`, a path that has not existed for weeks; and `c_backend.orb` anchors that lagged its doubling. `scripts/static_gates.py cites` answers MISSING, RANGE, BLANK and SYMBOL, skips fenced examples, and never checks a name the sentence did not write. 189 citations in 15 documents now match the tree; the self-test holds six properties, one of them the wrapped-line case the first version missed. T0, `alive_check` and the `static` CI job carry it, and `dev.py all` runs 27 gates where it ran 26.
+- **`.r6-build/`, `fuzz_crashes/` and `.qoder/` are ignored.** `scripts/dev.py list` had been reading them as changed source, so a docs edit selected T2; `orbit doctor .` walked the fuzz cases, which is the tool state the scan exists to skip. Measured: 451 findings (143 errors) in 505 files with them, 448 (140) in 502 without.
+
+- **`orbit doctor` stops paying 64 KB per quoted line.** `doctorCodePart` built each quoted run through a chunk buffer, and a buffer's first block is `ORBIT_CBUF_INIT_CAP` -- 65536 (`runtime/collections.h:189`) -- which the arena holds until the process ends. One scan, one line, one quote, 64 KB whether the run was 12 bytes or 60. Joining the runs with `+` asks for the bytes the text has. Measured on the lowest `ORBIT_ARENA_MAX_MB` that completes `orbit doctor compiler` over this repository: 3888 MB to 432 MB on an 8192 MB Windows host. `416` aborts there and `432` answers 141 findings in 28 files. On the 3904 MB Linux instance the scan aborted at exit 134 with 3070562304 of 3070620672 bytes committed against the 2928 MB default. It now answers those 141 findings at the default with `ORBIT_ARENA_MAX_MB` unset. `--scope-only` no longer splits the directory on either host, and the whole-tree scan reports 451 findings in 505 files on both. `internals/LIMITATIONS_LOG.md`'s first section was the requirement; it now records what fits, and the scoped arena the source can select stays the open item.
+
+- **`orbit frontend` prints the document instead of dropping one in the directory.** With no `-o` the command wrote `orbit.tir` into the current working directory, so a read-only question left a file behind. It writes the canonical TIR to stdout now (measured: exit 0, 143 bytes on stdout, no `orbit.tir` created, from a scratch directory), `-o <path>` writes the file as before, and `-o` with no value is refused with one diagnostic and exit 2 instead of silently taking the default. Nothing in the tree depended on the old default: `corpus_gates.py frontend`, `doctor_gates.py cli-probe` and `ENGINEERING.md` section 8 all pass `-o`.
+- **No `unknown` instruction is silent; the census said 11,491 were.**
+  `scripts/unknown_census.py` computed `unknown without diagnostic` as
+  `unknown - (E2001 + E2002 + E2003)`, which left `member` and `call` out of
+  the subtraction while the E2004 and E2005 branches of `compiler/tir/lower.orb` fire on
+  each instruction it makes `unknown`. Counting all five codes,
+  the 2026-11-01 run over 207 files and 87,591 instructions reports 25,489
+  unknown and 0 with no diagnostic: 12,670 + 1,196 + 46 + 4,821 + 6,756. The
+  census script did not change what the compiler does, so the compiler never
+  had a silent class; the gate's `silent_per_mille` moved from 136 to 0 and
+  `internals/LIMITATIONS_LOG.md` now names what the number guards.
+
+- **Latency percentiles keep their meaning above 100 ms.** The histogram was
+  1000 buckets of 100 µs and one overflow slot, so a 300 ms p99 and a 40 s p99
+  answered the same value -- and that value was the single longest request, which
+  is not a percentile boundary at all. Above 100 ms the buckets now double:
+  100-200 ms, 200-400 ms, and so on to a final clamp near 14.6 h, which is the
+  only slot still answered from the maximum. A 300 ms p99 reports 400 ms and a
+  160 s one reports 204.8 s. Pinned by `runtime/test_latency_percentiles.c`.
+
+- **A Windows stop drains instead of killing.** The graceful ask had no channel:
+  `orbit_os_kill(pid, 1)` ran `TerminateProcess` on Windows like mode 0 did, and
+  a detached child has no console to receive a Ctrl event. The server now opens
+  `Local\orbit-stop-<pid>` at start, its worker loop polls that name after every
+  `select`, and mode 1 sets it -- falling back to the old terminate only when no
+  channel carries the pid, which is a child that never reached the server start.
+  POSIX keeps SIGTERM and answers 0 from all three calls. Measured through the
+  CLI: `orbit stop` returned in 193 ms with the service terminated, and 1108 ms
+  now with the service printing `Server stopped.` after its workers join. Pinned
+  by `runtime/test_stop_channel.c`.
+
+- **`orbit stop` and `cluster down` wait now.** Both ask for a graceful stop and
+  escalate to a kill three seconds later, but the wait was `clusterSleepSec`,
+  which slept by spawning `timeout /T 1 /NOBREAK` -- and `timeout` refuses to run
+  when its input is redirected, so each "second" returned at once. The documented
+  three-second grace measured 193 ms for `orbit stop` and 306 ms for
+  `cluster down`, across 11 call sites of that helper. The wait blocks this
+  thread on `orbit_sleep_ms` now, and `orbit stop` measures 1074 ms. The service
+  is still terminated on Windows afterwards: a detached child has no channel to
+  ask, which is the remaining entry in Known Limitations. Pinned by
+  `runtime/test_sleep.c` (lower bound only: an upper bound is a race with the
+  rest of the machine).
+
+- **`orbit migrate <file.orb>` runs migrations without serving.** It builds a
+  migrate-only binary into `.orbit/`, runs the database block (forward, or a
+  rollback when `ORBIT_MIGRATE_DOWN=<version>` is set) and exits with the
+  result. Pinned by four cases in `cli_probe`.
+
+- **`orbit doctor` skips what `.gitignore` names.** A `.gitignore` line that is
+  just `name/` keeps that directory out of the scan, the way dot-directories
+  already were. `orbit doctor .` over this repository scans 476 files instead
+  of walking `scratch/` and `dist/`. Pinned by `doctor-skips-gitignored` and
+  its un-ignored control in `cli_probe`.
+
+- **`orbit frontend` lowers `print`.** The TIR path had no binding for it, so
+  the first example exited 1 with `unknown identifier print`. The call now
+  emits `call void print`, and every program under `examples/` produces TIR.
+  Pinned by `tests/frontend/print_pipeline.orb` and its golden.
+
+- **The existing commands finish without an r6.exe.** On Windows the native
+  backend is the default only when `ORBIT_R6` names a path or `r6.exe` sits
+  beside the compiler; otherwise the build uses the C backend and prints one
+  line saying so. `orbit build`, `orbit run` and `orbit dev` all inherit it.
+- **`orbit run dir/file.orb` starts the program on Windows.** cmd.exe read the
+  quoted forward-slash path as a command named after its first segment; the
+  child path now carries backslashes.
+- **A compiler outside the checkout finds its trees.** `ORBIT_RUNTIME_DIR` and
+  `ORBIT_STD_DIR` name the runtime and std directories before the compiler's
+  own directory and the working directory. Missing runtime headers are
+  reported before the C compiler runs, instead of as a missing C include.
+- **`orbit frontend` names what it refused.** The command prints the error the
+  frontend reported, or the first `unknown` type with its function and value
+  id; it used to say diagnostics contained errors while printing none.
+- **`orbit doctor` scopes route conflicts to one program.** A route belongs to
+  the programs whose import closure reaches its file, so `orbit doctor
+  examples` no longer reads five services' `GET /health` as one program's
+  duplicates. The walk skips dot-directories, and module fingerprints are a
+  fixed size.
+- **`orbit build` reports `.text` on Linux too.** The footer read only PE
+  images; it now reads ELF64 section headers, so the same program prints the
+  same footer on both hosts.
+- **The runtime archive names the host it was built for.** An archive built on
+  Windows is stale on Linux instead of handing MinGW objects to the linker.
+- **A POSIX checkout keeps LF.** `.gitattributes` pins `*.sh` to LF, so a
+  Windows checkout no longer produces shell scripts that fail to parse on
+  Linux.
+- **`orbit cluster up` no longer holds the caller's stdout open.** On Windows
+  the nodes inherited the compiler's stdout, so `orbit cluster up | tail`
+  waited until every node exited. They start with their log file and nothing
+  else from the caller.
+- **A route binds as many path captures as its pattern names.** The request
+  owns its capture table and grows it, instead of a 32-slot array that dropped
+  the rest. `runtime/test_params_decode.c` asks for 40 and reads the last.
+- **`orbit --version` prints `orbit 0.1.0`.**
 
 Runtime:
+
+- **A rewind refuses a checkpoint from another segment.** `orbit_alloc_try` moves `base` to a fresh reservation on the overflow path and leaves `generation` where it was, so an offset taken before one is a distance from a different base. `orbit_arena_rewind` compared only the epoch and the cursor, accepted such an offset, and put the bump pointer inside bytes the live segment had already handed out -- the next allocation returned them a second time. The arena counts the segment its cursor lives in, a checkpoint records it, and a mismatch is refused. Removing the rule in a scratch copy of `runtime/arena_checkpoint.c` makes the new test fail at `assert(!orbit_arena_rewind(arena, cp_first))` (`runtime/test_arena.c:272`), so the test is not vacuous. `runtime_c` reads 25/25 on Windows and 26/26 on Linux; `size` on the members moved `arena` 1 144 to 1 176 and `arena_checkpoint` 224 to 256, and [Program start-up](ARCHITECTURE.md#program-start-up-and-the-runtime-archive) records both and names the commit each `hello` row was measured at.
+
+- **The ceiling line names where its number came from.** The refusal always ended with `MB from ORBIT_ARENA_MAX_MB`, so a process that never set the variable was told to unset a variable nobody had set; the number was three quarters of physical memory. The arena records which source produced its cap, `orbit_oom_put_ceiling` prints that wording, and a child inherits it with the cap. `runtime/test_arena.c` asserts both texts byte for byte, and forcing that wording back to the variable name fails the assertion at `runtime/test_arena.c:345`. `docs/ARENA.md` names both sources; the two `internals/LIMITATIONS_LOG.md` transcripts that print the old wording are dated 2026-11-02 runs and stay. `arena_alloc` grew from 3 016 to 3 172 `.text` bytes.
+
+- **The arena test program counts its own runs.** It closed with `All 24 mandatory Orbit Arena runtime tests PASSED` while `RUN_TEST` listed 25, and nothing recomputed either number. The count now comes from the macro, and the line reads `All 25 ...` on the tree that made it (`grep -c 'RUN_TEST(test_' runtime/test_arena.c` prints 25).
+
+- **The per-route ledger percentiles estimate inside their bucket too.** `/_ledger` keeps a second histogram, one bucket per power of two of handler cycles, and it answered the top edge of the bucket holding the rank: a 10 ms outlier reported 13421 us, the boundary above it. Each bucket now sums the cycles it received, and the estimate anchors on that mean and spreads by rank, clamped to the bucket -- the whole-server rule applied to the route table. The static state doubles, from 32 KB to 64 KB across the 64 route slots, and the table's own label now says `log2-bucket estimates`. `runtime/test_ledger_percentiles.c` pins the one-request case, a 100-request spread inside one bucket, both clamps and the JSON keys.
+
+- **A latency percentile is estimated inside its bucket.** The histogram answered the upper edge of the bucket holding the rank, so a 300 ms p99 reported 400 ms -- the top of a 200-400 ms bucket, not the request. Each bucket now sums the microseconds it received, and the estimate anchors on that mean and spreads by rank, clamped to the bucket: one request in a bucket answers that request, a spread answers within one rank step. `runtime/test_latency_percentiles.c` pins the one-sample case, a 100-sample spread across the 200-400 ms bucket and both clamps. The per-route `/_ledger` percentiles still answer edges -- a second table, the same estimator still to apply. `internals/LIMITATIONS_LOG.md`, `docs/LANGUAGE_REFERENCE.md`, `docs/GETTING_STARTED.md` and `docs/FAQ.md` followed.
+
+- **A second server on an occupied port fails on Linux too.** The emitted
+  listener called `orbit_enable_reuseport()`, which set `SO_REUSEPORT` on Linux
+  only, so a second process bound the port and the kernel distributed
+  connections between the two. Windows already refused it with
+  `SO_EXCLUSIVEADDRUSE`. Nothing needed the sharing: cluster nodes take their
+  own port (`--port-base`), and `orbit dev` waits for the child to die before it
+  respawns. The call and the helper are gone, `SO_REUSEADDR` stays for the
+  TIME_WAIT case, and `scripts/kynx_gate.py live` now starts a second server
+  against the occupied port while the first is listening and fails unless it
+  refuses. Measured before on WSL Ubuntu: the second process printed its own
+  banner and was still serving (exit 124). Measured after: exit 1 with
+  `Port 47812 is not available. Another program may be using it.` and one
+  listener. Against the pre-fix emitter the new check reports `did not refuse
+  it (exit -1, still-serving True)` and the gate exits 1.
+
+- **Migrations roll back.** A `migrations down "<SQL>"` line undoes the
+  forward migration at the same position. `ORBIT_MIGRATE_DOWN=<version>` at
+  startup rolls back every applied version above it, newest first, removes
+  their rows, and stops before the forward set runs. `-1` rolls back
+  everything. Pinned by `runtime/test_migrations.c` and
+  `tests/suite/migrations_down.orb`.
+
+- **`std/json` parses and traverses, and has a test.** `parseJson` refuses
+  malformed input as a whole and the `json*` getters read typed fields and
+  indexed arrays. `tests/std/test_json.orb` pins the wrapper; the runtime half
+  was already in `runtime/json.c`.
+
+- **Requests are counted by class.** `system.http_requests_ok()` counts
+  responses below 400 and `system.http_requests_error()` counts 400 and above,
+  both recorded where the response is sent so the default router and the
+  emitted one feed the same pair. `runtime/test_response.c` checks both.
+
+- **A program refuses to start against a newer schema.** If
+  `_orbit_migrations` holds a version the program does not declare, startup
+  prints the version and exits non-zero instead of running old code against
+  columns it cannot describe. Pinned by
+  `runtime/test_migrations.c:test_newer_schema_is_refused`.
 
 - **The runtime archive has one member per module, and a program starts only
   what it uses.** `hello.orb` built with the C backend has 13 072 bytes of
@@ -22,7 +488,7 @@ Runtime:
   `argv`, the console mode and the crash handler only when needed. The native
   backend refuses an `r6.exe` that does not answer `--version` with a known IR
   protocol within 5 s, and stops an `r6.exe` build after 300 s
-  (`ORBIT_R6_TIMEOUT_MS`). See [Program start-up](STARTUP.md).
+  (`ORBIT_R6_TIMEOUT_MS`). See [Program start-up](ARCHITECTURE.md#program-start-up-and-the-runtime-archive).
 
 Native backend:
 
@@ -86,7 +552,7 @@ Language:
   byte-identical C. Pinned by `tests/suite/object_literal_cross_function.orb`
   and `object_literal_missing_key.orb`; the residuals (an undeclared
   cross-function read, a chained `o.deep.x`) are recorded in
-  [Known Limitations](KNOWN_LIMITATIONS.md).
+  [Known Limitations](internals/LIMITATIONS_LOG.md).
 - **A `port` declaration names the port the server binds.** The checker now
   validates the value - an integer literal 1..65535, anything else is the
   new E1008 - and the emitted server binds it; `argv[1]` still overrides at
@@ -190,7 +656,7 @@ Language:
   converted with the runtime helper for that type, the same one an interpolated
   value uses. A body it has settled on as a string, a pointer, or still unknown
   is passed untouched, so nothing that already worked changed. Pinned by the
-  `response_body_unknown_type` probe in `scripts/werror_gate.py`, which the
+  `response_body_unknown_type` probe in `scripts/corpus_gates.py werror`, which the
   pre-fix output fails on `-Werror=int-conversion`.
 - A missing C toolchain is no longer confused with a C compiler that rejected
   our output. The test for "the compiler is not installed" was a substring
@@ -201,7 +667,7 @@ Language:
   now matched together with the compiler's own name on the same line, which is
   what a shell prints and no compiler diagnostic does. The genuine case is
   unaffected, wrappers and all. Pinned by `cc-include-failure-is-not-a-missing-
-  toolchain` and `cc-absent-names-the-toolchain` in `scripts/cli_probe.py`.
+  toolchain` and `cc-absent-names-the-toolchain` in `scripts/doctor_gates.py cli-probe`.
 
 Runtime and generated code:
 
@@ -301,10 +767,14 @@ Content and docs track; no compiler changes:
   FNV-1a hash lookups over `OrbitStringNode` buckets; `runtime/string_pool.c`
   has neither - it is a flat array scanned with `memcmp` ("Lookups are O(n)
   over the pool") - and the FNV-1a plus open addressing in this runtime belongs
-  to `Map<K,V>` (`runtime/collections.c:461`). The same edit records what the
-  Arena Oracle is today: its O(1) TLS fast path is live in `runtime/arena.c:327`,
+  to `Map<K,V>` (`runtime/collections.c`). The same edit records what the
+  Arena Oracle was at that date: its O(1) TLS fast path was in `runtime/arena.c`,
   but nothing in the generated server opens or closes a session and no C test
   exercises it.
+
+Known limitations:
+
+- **A `try` binding annotation is not checked, and the probe says so.** `compiler/front/sema.orb:4799` answers `unknown` for a `try`, and `:1146` and `:2012` accept `unknown` against anything, so `val n: int = try decode("x") catch { return 7 }` checks clean when `decode` carries a `string`. `internals/LIMITATIONS_LOG.md` records the probe, the three lines, and the count of bare `-> result` declarations -- 51 in 31 files -- which is the same spelling the frontend's 51 `try` give-ups are reading for. Closing it is a checker decision, not a rule this pass can take alone.
 
 ## 0.1.0-rc.2 cycle (September 2026)
 
@@ -328,7 +798,7 @@ Developer commands and runtime hardening:
 
 - Behavior suite grown to 13+ programs; suite gate blocking
   in CI again.
-- Kynx 0.1: real identity admission, honest Bloom filter
+- admission 0.1: real identity admission, honest Bloom filter
   (negative cache, never authority).
 - Runtime fixes: slowloris timeouts, exec opt-in, seed
   credential removed, chunked-encoding 501, strict
@@ -358,7 +828,8 @@ Developer commands and runtime hardening:
 
 ## Tags
 
-- `v0.1.0-rc.2`, `v0.1.0-rc.1`, `v0.1-rc.2` - release
-  candidates.
-- `legacy-seed` - the retired alternate seed lineage,
+- `v0.1.0-rc.5`, `v0.1.0-rc.4`, `v0.1.0-rc.3` (2026-11-08) - release
+  candidates, listed above.
+- `v0.1.0-rc.2`, `v0.1.0-rc.1` - earlier release candidates.
+- `legacy-zig-seed` - the retired alternate seed lineage,
   historical only.

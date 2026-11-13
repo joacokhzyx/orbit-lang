@@ -29,3 +29,7 @@ tests/doctor/golden/crlf_preserved/input.orb -text
 
 # Generated from runtime/orb by scripts/runtime_gen.py; the gate compares bytes.
 runtime/gen/*.c text eol=lf
+
+# POSIX shell scripts run on Linux and macOS: a CRLF checkout does not parse
+# there (bash reports an unclosed `if`). Windows batch files keep CRLF.
+*.sh text eol=lf

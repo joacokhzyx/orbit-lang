@@ -1,0 +1,30 @@
+orbit-tir 1
+module fixture
+function 0 code int
+param 0 0 c Color
+block 0 0
+instr 0 0 0 load Color c
+instr 0 0 1 tag int v0
+instr 0 0 2 const int 0
+instr 0 0 3 == bool v1 v2
+instr 0 0 4 branch unit v3 b2 b3
+block 0 2
+instr 0 2 5 const int 1
+instr 0 2 6 call void print v5
+instr 0 2 7 jump unit b1
+block 0 3
+instr 0 3 8 const int 1
+instr 0 3 9 == bool v1 v8
+instr 0 3 10 branch unit v9 b4 b5
+block 0 4
+instr 0 4 11 const int 2
+instr 0 4 12 call void print v11
+instr 0 4 13 jump unit b1
+block 0 5
+instr 0 5 14 const int 3
+instr 0 5 15 call void print v14
+instr 0 5 16 jump unit b1
+block 0 1
+instr 0 1 17 const int 0
+instr 0 1 18 return unit v17
+end-function 0

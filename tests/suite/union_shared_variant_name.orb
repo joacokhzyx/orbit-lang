@@ -1,0 +1,65 @@
+// Two unions may declare a variant with the same name. The registry is keyed by
+// the variant's own name, so `B.X("s")` was checked against `A`'s payload and
+// the program was refused with E1005 -- a legal program that did not compile --
+// and the constructor macro the emitter writes is named after the variant alone,
+// so the second `#define X` replaced the first and a qualified construction
+// could reach the wrong tag.
+//
+// A written owner resolves through the owner. A bare pattern resolves through the
+// scrutinee's type, which is what the existing bare arms already do, and a bare
+// construction with two owners is refused (tests/negative/n121).
+//
+// The exit code is the assertion: a construction that binds the wrong payload, or
+// a match that dispatches to the wrong arm, comes out non-zero below.
+union Packet {
+    Body(int)
+    Empty
+}
+
+union Signal {
+    Body(string)
+    Closed
+}
+
+union Solo {
+    Only(int)
+}
+
+fn takeBody(p: Packet) -> int {
+    match p {
+        Packet.Body(n) => { return n * 2 }
+        Packet.Empty => { return -1 }
+    }
+    return -2
+}
+
+fn takeSignal(s: Signal) -> string {
+    match s {
+        Signal.Body(t) => { return t + "!" }
+        Signal.Closed => { return "closed" }
+    }
+    return "?"
+}
+
+fn barePatternStillWorks(p: Packet) -> int {
+    match p {
+        Body(n) => { return n + 1 }
+        Empty => { return 0 }
+    }
+    return -3
+}
+
+fn main() -> int {
+    val p = Packet.Body(21)
+    val s = Signal.Body("hit")
+    if takeBody(p) != 42 { return 90 }
+    if takeSignal(s) != "hit!" { return 91 }
+    if barePatternStillWorks(p) != 22 { return 92 }
+    if takeBody(Packet.Empty) != -1 { return 93 }
+    if takeSignal(Signal.Closed) != "closed" { return 94 }
+    val u = Solo.Only(5)
+    match u {
+        Solo.Only(n) => { if n != 5 { return 95 } }
+    }
+    return 0
+}

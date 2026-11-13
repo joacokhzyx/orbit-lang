@@ -14,6 +14,7 @@
 #include "file.h"
 #include "crt_compat.h"
 #include "collections.h"
+#include "builtins.h"
 #include <stdlib.h>
 
 // Create wrapper functions with original names (no arena parameter)
@@ -50,6 +51,15 @@ orbit_int orbit_os_spawn_bg_selfhost(orbit_string command, orbit_string logfile)
 
 orbit_int orbit_os_kill_selfhost(orbit_int pid, orbit_int mode) {
     return (orbit_os_kill)(pid, mode);
+}
+
+/* Block this thread. The compiler's stop paths used to sleep by spawning
+ * `timeout /T 1`, which exits at once when its stdin is not a console -- so a
+ * `orbit stop` escalation ran its whole "3 second" wait in under 200 ms and
+ * terminated the service instead of letting it drain. A real sleep cannot be
+ * bypassed by the state of a handle. */
+void orbit_sleep_ms_selfhost(orbit_int ms) {
+    (orbit_sleep_ms)(ms);
 }
 
 orbit_string orbit_os_env_selfhost(orbit_string var_name) {

@@ -1,0 +1,7 @@
+fn tag() -> string {
+    return "c"
+}
+
+route GET "/dup" {
+    return ok 200 tag()
+}

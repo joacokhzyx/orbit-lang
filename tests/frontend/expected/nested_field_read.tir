@@ -1,0 +1,10 @@
+orbit-tir 1
+module fixture
+function 0 f int
+param 0 0 o Outer
+block 0 0
+instr 0 0 0 load Outer o
+instr 0 0 1 member Inner v0 i
+instr 0 0 2 member int v1 n
+instr 0 0 3 return unit v2
+end-function 0

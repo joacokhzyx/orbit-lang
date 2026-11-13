@@ -1,6 +1,6 @@
 # Changelog (VS Code extension)
 
-## [Unreleased]
+## [0.1.0]
 
 - Highlight: bitwise and shift operators (`& | ^ << >> ~`), now that the lexer
   produces them as real operators.

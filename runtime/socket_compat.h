@@ -57,16 +57,4 @@
   }
 #endif
 
-/* SO_REUSEPORT — Linux only. */
-#ifdef __linux__
-/** @brief Enable SO_REUSEPORT on @p s so multiple threads can accept on the same port. */
-static inline void orbit_enable_reuseport(orbit_socket_t s) {
-    int val = 1;
-    setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
-}
-#else
-/** @brief No-op stub for platforms that do not support SO_REUSEPORT. */
-static inline void orbit_enable_reuseport(orbit_socket_t s) { (void)s; }
-#endif
-
 #endif // ORBIT_SOCKET_COMPAT_H

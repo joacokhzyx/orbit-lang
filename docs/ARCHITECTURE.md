@@ -4,7 +4,7 @@
 > architecture that exists today: the self-hosted pipeline in `compiler/`, the C
 > runtime in `runtime/`, the gates in `scripts/`, and the test corpora in
 > `tests/`. For the bootstrap trust model see
-> [architecture/SOVEREIGNTY.md](architecture/SOVEREIGNTY.md).
+> [internals/SOVEREIGNTY.md](internals/SOVEREIGNTY.md).
 
 ---
 
@@ -54,7 +54,7 @@ flowchart TD
         ARN["arena.c\nEpoch virtual-memory allocator"]
         HTTP["http.c\nHTTP parser + router"]
         DB["database.c\nSQLite integration"]
-        KYN["kynx.c\nComputational leases"]
+        KYN["admission.c\nComputational leases"]
         PLS["pulse.c\nPerformance counters"]
         COL["collections.c\nDynamic arrays, hash maps"]
         TYP["types.h\nOrbit type system"]
@@ -115,8 +115,11 @@ the one with a runtime effect. Sema requires an integer literal in 1..65535
 (`checkConfigDecl` in `compiler/front/sema.orb`, with diagnostic E1008 otherwise). The
 builder reads it into `IRModule.configPort` (`compiler/ir/builder.orb`), and the
 generated `main` (`compiler/emit/route_runtime.orb`) initializes `int port` from
-it — with `argv[1]` still the override. A program that declares no port emits
-exactly the old `port = 3000`, byte for byte.
+it — with `argv[1]` still the override. The argument is read strictly: a word,
+a flag such as `--port`, or a number outside 0..65535 is refused with one
+diagnostic and exit 2. `0` asks the system for a free port, and the banner
+prints the one the socket got, from `getsockname`. A program that declares no
+port starts at 3000.
 
 `cors`, `db`, and `env` parse and typecheck with no runtime effect. The emitted
 server always initializes the database at `.orbit/data/app.db` when models are
@@ -142,7 +145,7 @@ recompiles the whole runtime with the program. The driver adds
 `-DORBIT_WITH_NET` and, on Windows, `-lws2_32` only when the IR uses the
 network (routes, the HTTP client, a database), and adds `-DORBIT_WITH_DB` plus
 the vendor SQLite flags only when the IR uses the database. See
-[Program start-up](STARTUP.md). On the DB path it links `runtime/vendor/win-x64/sqlite3.lib` instead
+[Program start-up](#program-start-up-and-the-runtime-archive). On the DB path it links `runtime/vendor/win-x64/sqlite3.lib` instead
 of `-lsqlite3`.
 
 A program that needs no database links the prebuilt `libruntime_net.a` instead
@@ -165,7 +168,7 @@ unity build above (`--verbose` names a stale or unstamped archive).
 | `ORBIT_LINK_RUNTIME=0` | Always unity. `scripts/dev.py` defaults it to `0`; `make all` sets `1` for the `suite` and `suite_std` gates only. |
 | `ORBIT_RUNTIME_LIB=<path>` | Use this archive instead of the lookup, with no freshness check. |
 
-`scripts/werror_gate.py` puts `-Werror` on generated C, and that is the strict
+`scripts/corpus_gates.py werror` puts `-Werror` on generated C, and that is the strict
 contract. The driver itself only passes `-Wall`.
 `ORBIT_CCFLAGS_EXTRA` is the escape hatch the bootstrap uses for its own
 low-memory profile.
@@ -177,7 +180,7 @@ directory. Run the compiler from the repository root, or from a directory where
 you have arranged one, or the C step fails with
 `fatal error: socket_compat.h: No such file or directory`. This is the same
 family of assumption as the `std/` lookup described in
-[Libraries](LIBRARIES.md). The tree layout is part of the contract, and nothing
+[imports and visibility](LANGUAGE_REFERENCE.md#imports-and-visibility). The tree layout is part of the contract, and nothing
 checks it at install time.
 
 ### The value model: one machine word, no tag
@@ -194,7 +197,7 @@ r_2 = (orbit_int)(uintptr_t)(takesStr((orbit_string)(r_1)));
 Three things follow, and all three are user-visible.
 
 **The C cast comes from the static type alone.** `mapTypeToC`
-(`compiler/emit/c_backend.orb:264`) turns an Orbit type name into a C type, and the
+(`compiler/emit/c_backend.orb:500`) turns an Orbit type name into a C type, and the
 callee's declared parameter type is what decides the cast at a call site. The
 runtime is never asked whether the word it was handed is of that type, because
 there is nothing to ask. A function parameter declared `s: string` produces
@@ -203,7 +206,7 @@ there is nothing to ask. A function parameter declared `s: string` produces
 **An unannotated binding is assumed to be a string.** Sema does not track the
 type of a local bound to a literal, so `val v = f()` reads back as `unknown`.
 Such a binding is allowed through on purpose (`isInterpolatable`,
-`compiler/front/sema.orb:732`, which returns true for `unknown` and says why in the
+`compiler/front/sema.orb:3989`, which returns true for `unknown` and says why in the
 comment above it). Where the backend then has to guess, it guesses
 string. Passing such a binding to a `string` parameter compiles cleanly and
 dereferences an integer as a pointer:
@@ -228,7 +231,7 @@ argument types is the whole workaround.
 
 For a user, the summary is: **annotate your bindings, and treat a value that
 crosses a `string` boundary as the one place the compiler will not help you.**
-`docs/KNOWN_LIMITATIONS.md` records what this costs. `docs/LIBRARIES.md`
+`internals/LIMITATIONS_LOG.md` records what this costs. `docs/LANGUAGE_REFERENCE.md#imports-and-visibility`
 covers the other place the same missing types bite, at import boundaries.
 
 ---
@@ -250,7 +253,7 @@ compiler/selfhost/stage3.exe.c   (committed canonical C)
    seed2 ──▶ chain2 ──▶ chain3
 ```
 
-`scripts/verify_seed.py` runs that chain and reports four checks: the seed
+`scripts/trust.py verify` runs that chain and reports four checks: the seed
 builds; the C the seed emits for `compiler/host/main.orb` equals the canonical; the C
 emitted by chain2 equals the canonical; the C emitted by chain3 equals the
 canonical. The last two exist because a chain can fix a point at stage one and
@@ -258,46 +261,199 @@ drift afterwards.
 
 Terms in this section (canonical, seed, seed2, chain2, chain3, promote,
 `PUBLISHED_C`, amalgamate) are defined once in the
-[Sovereignty glossary](architecture/SOVEREIGNTY.md#glossary---canonical-bootstrap-terms)
+[Sovereignty glossary](internals/SOVEREIGNTY.md#glossary---canonical-bootstrap-terms)
 and not redefined here. Promotion is the only operation that replaces the
 canonical. It is explicit and reviewable. For what is trusted vs verified
 and where amalgamation fits, see the
-[trust-boundary diagram](architecture/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified).
+[trust-boundary diagram](internals/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified).
 
 ---
 
 ## Subsystem Reference
 
+### Program start-up and the runtime archive
+
+A program initializes and links only what it uses. This page states what "uses"
+means for each piece, how the runtime archive is split, and what a second code
+generator (R6) must do at program entry to stay equal to the C backend.
+
+## Runtime modules
+
+`runtime/` holds one module per concern. Each module is a header (`<m>.h`,
+the interface) and a source (`<m>.c`, the implementation).
+
+| Group | Modules |
+|---|---|
+| Core | `perf`, `types`, `console`, `crash`, `arena`, `arena_alloc`, `arena_oom`, `arena_reset`, `arena_checkpoint`, `arena_child`, `arena_stats`, `arena_global`, `arena_pool`, `collections`, `json`, `file`, `os`, `builtins`, `crypto`, `selfhost`, `energy`, `ledger` |
+| Network | `http`, `admission`, `pulse` |
+| Database | `database`, `auth` |
+
+Two builds use the same sources:
+
+- **Unity.** `runtime.h` includes every `<m>.c` into the program's translation
+  unit. `ORBIT_LINK_RUNTIME=0` and the bootstrap use it. Helpers shared between
+  modules stay `static` (`ORBIT_XLINK` expands to `static`).
+- **Separate.** `scripts/mklib_runtime.py` compiles each `<m>.c` on its own with
+  `-DORBIT_RUNTIME_MODULE` (`ORBIT_XLINK` expands to nothing) and writes one
+  archive member per module. `ld` takes a member only when a symbol it defines
+  is referenced, so a program that never names admission does not link the admission
+  tables, and a program with no network does not import `ws2_32`.
+
+A module header includes the headers of the modules it names, never a `.c`.
+Module state lives in the module that owns it: `perf.c` owns the performance
+counters and the admission lease pointer, `os.c` owns `_orbit_argv`, `ledger.c` owns
+the route table, `admission.c` owns the shard table.
+
+`runtime/orbit_api.h` stays the declaration set a program sees when it is
+compiled with `-DORBIT_SEPARATE_COMPILATION`. It is a copy of the interface
+and is kept in step by hand.
+
+## Entry rules (C backend)
+
+The generated `main` for a program without routes
+(`compiler/emit/c_backend.orb`) is, in order:
+
+1. `_orbit_argv = argv; _orbit_argc = argc;` when the IR calls `orbit_os_argc*`
+   or `orbit_os_argv*`. Otherwise `(void)argc; (void)argv;`.
+2. `orbit_crash_handler_install();` always.
+3. `orbit_console_init();` when the IR calls `print` or `orbit_os_write_std*`.
+4. `orbit_db_init(".orbit/data/app.db")` and the model DDL when the module has
+   migrations or calls a database builtin.
+5. `OrbitArena* arena = orbit_arena_create(131072);`
+6. `int code = orbit_main(arena);`
+7. `orbit_arena_destroy(arena);` and `return code;`
+
+Removed from this `main`:
+
+- `orbit_ledger_enable_file_dump()`. The ledger records routes, and a program
+  without routes has none. The server `main` still calls it.
+- `orbit_string_pool_init(2048)` and `orbit_string_pool_cleanup()`. Both are
+  empty functions; per-arena pools are created on first use.
+
+The server `main` (`compiler/emit/route_runtime.orb`) calls
+`orbit_crash_handler_install()` first and `orbit_console_init()` in place of the
+inline console block.
+
+`print` of a string argument is emitted as `orbit_print_string(s)` (the string,
+a newline, a flush). Printing an int or a float still uses `printf`.
+
+## Network flags
+
+`compiler/host/pipeline.orb` passes `-DORBIT_WITH_NET` and `-lws2_32` only when
+`moduleUsesNetwork` holds: the module has a route, calls the HTTP client or a
+request accessor (`orbit_http_client_fetch`, `orbit_http_param_get`,
+`orbit_http_body_get`, `orbit_http_query_get`, `orbit_http_query_get_all`,
+`orbit_http_header_get`, `orbit_file_upload_save`), or uses the database. A
+database program links the network modules because the SQLite progress handler
+lives in `admission.c`.
+
+## What R6 must mirror
+
+R6's `emit_entry_wrapper` currently emits `orbit_arena_create(131072)`,
+`orbit_main` and `orbit_arena_destroy`, and references `_orbit_argv` and
+`_orbit_argc`. To equal the C backend and link the same members:
+
+1. Reference `_orbit_argv` and `_orbit_argc` only when the module calls
+   `orbit_os_argc*` or `orbit_os_argv*`. An unconditional reference links
+   `os.o` and, through it, `collections.o` and `advapi32`.
+2. Call `orbit_crash_handler_install()` first. Before this change the crash
+   diagnostic came from a constructor inside the one-object archive; the
+   constructor is gone.
+3. Call `orbit_console_init()` when the module calls `print` or
+   `orbit_os_write_std*`.
+4. Lower `print` of a string to `orbit_print_string(s)`. A `printf` call links
+   `__mingw_pformat` (about 30 KB of `.text`).
+5. Link `ws2_32` only for a module that uses the network, by the rule above.
+6. The DB archive (`libruntime_net_db.a`) must be built with the per-module
+   recipe: compile `database.c` and `auth.c` with `-DORBIT_RUNTIME_MODULE
+   -DORBIT_WITH_DB -DORBIT_WITH_NET` and add them to the members of
+   `mklib_runtime.py`. R6's `scripts/build-runtime-db.py` builds the archive
+   from a single translation unit and must change to this.
+
+## Crash handler
+
+The crash diagnostic printed `[ORBIT RUNTIME CRASH] ExceptionCode ... at
+address ...` from a constructor placed in every translation unit that included
+`runtime.h`. A constructor links its object into every program, so it forced
+the whole one-object archive. The diagnostic is kept (it names the exception on
+a console that would otherwise show nothing) as module `crash`, installed by an
+explicit call from `main`. The unity build keeps the constructor for hand-written
+C and the runtime tests, which have no generated `main`.
+
+## Measured
+
+`hello.orb` (`print("hello")`), C backend linked against the archive, no version
+resource, `gcc 16.2.0 -O1 -s`, section sizes from `objdump -h`:
+
+| | `.text` | `.rdata` | `.bss` | DLLs besides the CRT |
+|---|---|---|---|---|
+| One-object archive (`bf38b38`) | 116 352 | 21 592 | 4 892 672 | ADVAPI32, WS2_32 |
+| Per-module archive (`cc6b167`) | 13 072 | 3 064 | 8 736 | none |
+| Arena split in members (`2e3c18e`) | 7 904 | 2 776 | 8 704 | none |
+| `int main(void){return 0;}` | 6 400 | 2 488 | 384 | none |
+
+The members linked for `hello` are `arena`, `perf`, `console` and `crash`.
+`hello` is 1 504 bytes of `.text` above the 6 400 of the MinGW start-up code.
+At `cc6b167` `arena.o` alone was 6 016 bytes of it.
+
+## Arena members
+
+`arena.c` was one member, so a program that created and destroyed one arena
+linked checkpoints, child arenas, telemetry, the out-of-memory handler and the
+overflow path. `size` on the `.o` files, `.text` bytes:
+
+| Member | `.text` | Defines |
+|---|---|---|
+| `arena` | 1 176 | `orbit_arena_create`, `orbit_arena_destroy` |
+| `arena_alloc` | 3 172 | `orbit_alloc`, `orbit_alloc_try`, `orbit_arena_strdup`, the aborting default |
+| `arena_oom` | 856 | `orbit_set_oom_handler`, `orbit_get_oom_handler`, `orbit_request_oom_*` |
+| `arena_reset` | 588 | `orbit_arena_reset` |
+| `arena_checkpoint` | 256 | `orbit_arena_checkpoint`, `orbit_arena_rewind` |
+| `arena_child` | 232 | `orbit_arena_create_child`, `orbit_arena_promote` |
+| `arena_stats` | 288 | `orbit_arena_used` and the other telemetry accessors |
+| `arena_pool` | 748 | `orbit_arena_pool_init`, `orbit_arena_pool_release`, `orbit_arena_pool_cleanup` |
+| `arena_global` | 180 | `orbit_arena_get_global` |
+
+`arena_internal.h` and `arena_vm.h` are not members. The aborting default
+reports through one `WriteFile` (`write` outside Windows) instead of
+`fputs`/`fflush(stderr)`, and ends the line in CR LF on Windows as the text-mode
+stream did. The per-arena string pool is torn down by inline functions in
+`string_pool.h`, so `string_pool.o` is no longer linked. `string_pool.c` is built only in the
+unity build, where the tests call `orbit_string_intern`. The object held only
+those two functions and the two empty `orbit_string_pool_init`/`_cleanup` stubs, which no
+generated program calls and are removed.
+
 ### Orbit Arena (virtual-memory epoch allocator)
-File: `runtime/arena.c`
+Files: `runtime/arena.c` and its members (the start-up section above lists them)
 
 The arena reserves a large virtual address window at startup and commits pages on
 demand. Allocation is a monotonically growing bump pointer. There is no
 per-object free.
 
 **Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
-generated connection loop calls `orbit_arena_reset(thread_arena)` before every
-`orbit_handle_request` (`compiler/emit/route_runtime.orb:485`), so each request
-starts from a reset arena. `orbit_arena_reset` is not O(1) and not a rewind: it
-releases the chained overflow segments and decommits every page past the hot
-retention watermark (at `runtime/arena.c:515`, where the watermark itself is
-`ORBIT_ARENA_HOT_RETENTION_LIMIT`, 256 KB, at `:52`).
+generated connection loop calls `orbit_arena_reset(thread_arena)` at
+`compiler/emit/route_runtime.orb:538`, and handles the request at `:568`, so each
+request starts from a reset arena. `orbit_arena_reset` is not O(1) and not a
+rewind: it releases the chained overflow segments and decommits every page past
+the hot retention watermark `ORBIT_ARENA_HOT_RETENTION_LIMIT`
+(`runtime/arena_reset.c:48`), where the
+watermark itself is `ORBIT_ARENA_HOT_RETENTION_LIMIT`, 256 KB, in `runtime/arena.h`.
 
-`orbit_arena_checkpoint` and `orbit_arena_rewind` exist
-(`runtime/arena.c:565,575`), and a rewind is an O(1) bump-pointer restore.
-Nothing in the generated server path calls them. Outside `runtime/arena.c` and
-`runtime/test_arena.c`, the only references are the counter fields in
-`runtime/performance.h`. So `arena_checkpoint_count` and `arena_rewind_count`
-remain zero in a running server. The checkpoint API is available to hand-written
-C. The HTTP path uses whole-arena reset.
+`orbit_arena_checkpoint` and `orbit_arena_rewind` are the two functions in
+`runtime/arena_checkpoint.c`, and a rewind is an O(1) bump-pointer restore.
+Nothing in the generated server path calls them. Outside
+`runtime/arena_checkpoint.c` and `runtime/test_arena.c`, the only references are
+the counter fields in `runtime/performance.h`. So `arena_checkpoint_count` and
+`arena_rewind_count` remain zero in a running server. The checkpoint API is
+available to hand-written C. The HTTP path uses whole-arena reset.
 
 The request path does not use the pool. Each worker creates one 128 KB arena
-when its thread starts (at `compiler/emit/route_runtime.orb:368-369`, where the
+when its thread starts (at `compiler/emit/route_runtime.orb:406-407`, where the
 emitted comment is "Each thread owns its private arena - zero pool contention").
-It resets the arena before every request (`:485`) and destroys it when the loop
-ends (`:521`).
+It resets the arena before every request (`:558`) and destroys it when the loop
+ends (`:615`).
 `runtime/arena_pool.c` is initialized for process-startup scratch work only
-(`:566`, `:585-587`) and has no caller on the request path.
+(`:661`, `:679-681`) and has no caller on the request path.
 
 `runtime/oracle.c` used to implement the *Orbit Arena Oracle*, a per-route
 prediction of how many bytes a route needs. It used EMA with a cold-start sample
@@ -306,27 +462,27 @@ allocations from an O(1) TLS bump path. Nothing in the generated server ever
 opened a session: `tls_oracle_session.active` stayed 0 and the prediction
 tables stayed cold. The last code that read those tables was the ledger's
 `arena_overflow` / `arena_max_bytes`. Those are now measured from the arena that
-served the request (see [PERF.md](PERF.md), "Arena telemetry is a fold"). With
+served the request (see [PERF.md](internals/PERF.md), "Arena telemetry is a fold"). With
 no consumer left, the predictor is gone, and with it the TLS branch the
 allocator carried on every allocation. The predictive pre-reservation design is
 in the history rather than the tree: `git log -- runtime/oracle.c`.
-See [ARENA.md](ARENA.md).
+See [internals/ARENA.md](internals/ARENA.md).
 
 ---
 
-### Orbit Kynx (computational leases)
-File: `runtime/kynx.c`
+### Admission control (computational leases)
+File: `runtime/admission.c`
 
 Each route handler gets a **lease**: a budget of CPU time, arena memory,
 DB queries, and response size.
-If the handler exceeds its budget, Kynx rejects the request with HTTP 429 before writing the response.
+If the handler exceeds its budget, admission rejects the request with HTTP 429 before writing the response.
 Under pressure the admission state machine (STABLE / SHAPED / GUARDED / SIEGE)
 tightens budgets. In **SIEGE** only critical routes (`/health`, `/auth`, `/`)
-keep an emergency budget, and the rest are rejected. See [KYNX.md](KYNX.md).
+keep an emergency budget, and the rest are rejected. See [ADMISSION.md](ADMISSION.md).
 
-The lease and admission API lives in `runtime/kynx.c`. The unit tests are
-`runtime/test_kynx.c`, built with `-DORBIT_KYNX_TEST`. A live route-limit gate
-runs against a real server: `scripts/kynx_gate.py route-limit`.
+The lease and admission API lives in `runtime/admission.c`. The unit tests are
+`runtime/test_admission.c`, built with `-DORBIT_ADMISSION_TEST`. A live route-limit gate
+runs against a real server: `scripts/admission_gate.py route-limit`.
 
 ---
 
@@ -339,7 +495,7 @@ and a max. There is no histogram, so there is no P50 / P95 / P99 to compute,
 and `system.*` exposes no latency distribution either. The hardware energy
 accounting sits alongside it rather than on top of it:
 `runtime/energy.c` samples the platform energy sensor on its own thread and
-`runtime/ledger.c` records the accounting entries. See [ENERGY.md](ENERGY.md).
+`runtime/ledger.c` records the accounting entries. See [ENERGY.md](internals/ENERGY.md).
 
 ---
 
@@ -373,13 +529,13 @@ lists files that need formatting. `orbit doctor` is a read-only project scan
 reporting findings `D001` through `D008` (toolchain, route conflicts, unused
 `private fn`, unused `model`, unknown `system` member, trailing whitespace,
 missing final newline, and files that do not compile). See
-[DOCTOR.md](DOCTOR.md).
+[orbit doctor checks](COMMANDS.md#orbit-doctor-checks).
 
 ### There Is No Build Cache and No Config Loader
 
 There is no compiled-binary cache keyed on a source hash: every build runs the
 pipeline. There is no project config file: the output name,
-port, and the arena/Kynx/logging knobs are not read from any config
+port, and the arena/admission/logging knobs are not read from any config
 file. `scripts/orbit_ccache.py` caches C compilations for the **gates** -- the
 self-host chain and the runtime C tests. It does not cache user builds, and it
 is not part of the compiler.
@@ -414,8 +570,8 @@ accept (acceptor thread, server socket)
   -> lock-free accept queue, one per worker (orbit_accept_q)
   -> worker resets its own per-thread arena (orbit_arena_reset before each orbit_handle_request)
   -> no pool acquire/release on the request path (the pool serves startup only)
-  -> Kynx admission check + per-route lease
-     (orbit_kynx_check_route, orbit_kynx_lease_create_for_route;
+  -> admission check + per-route lease
+     (orbit_admission_check_route, orbit_admission_lease_create_for_route;
       over-budget -> HTTP 429; SIEGE admits only /health, /auth, /)
   -> router dispatches to the generated handler (orbit_handle_request)
   -> handler runs (SQLite via runtime/database.c when models are present;
@@ -427,7 +583,7 @@ The connection loop that brackets each request with `orbit_arena_reset`
 followed by `orbit_handle_request` is emitted by
 `compiler/emit/route_runtime.orb`. The arena pool lives in `runtime/arena_pool.c`
 (startup scratch work, not the request path). Leases and admission live in
-`runtime/kynx.c`, and persistence in `runtime/database.c`.
+`runtime/admission.c`, and persistence in `runtime/database.c`.
 
 ---
 
@@ -455,6 +611,7 @@ followed by `orbit_handle_request` is emitted by
 | `compiler/host/cluster.orb` | `orbit cluster` subcommands |
 | `compiler/tools/doctor.orb` | `orbit doctor` checks and rendering |
 | `compiler/tools/fmt.orb` | `orbit fmt` |
+| `compiler/tools/lsp.orb` | `orbit lsp`: JSON-RPC framing, `initialize`, diagnostics from `orbit check` |
 | `compiler/host/extern.orb` | `orbit_*_selfhost` extern declarations (typed) |
 | `compiler/tir/entry.orb` | `orbit frontend` driver |
 | `compiler/tir/lower.orb` | AST to typed IR lowering |
@@ -484,26 +641,27 @@ followed by `orbit_handle_request` is emitted by
 | `runtime/database.c` | SQLite bindings and model persistence |
 | `runtime/auth.c` | JWT and session auth |
 | `runtime/http.c` | HTTP server, request parser, router |
-| `runtime/kynx.c` | Computational leases and admission control |
+| `runtime/admission.c` | Computational leases and admission control |
 | `runtime/pulse.c` | Performance counters |
 | `runtime/thread_pool.c` | Worker thread pool |
 | `runtime/inline.h`, `performance.h`, `socket_compat.h` | Shared headers |
 | `runtime/vendor/` | SQLite: `sqlite3.h` and the `win-x64` import library and DLL |
 | `runtime/test_arena.c` | Arena unit tests, including cross-request isolation |
 | `runtime/test_http_parse.c` | HTTP parser unit tests |
-| `runtime/test_kynx.c` | Kynx unit tests (needs `-DORBIT_KYNX_TEST`) |
+| `runtime/test_admission.c` | admission unit tests (needs `-DORBIT_ADMISSION_TEST`) |
 
 ### Standard library and wrappers
 
 | Path | Role |
 |---|---|
-| `std/` | Orbit standard library. 20 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `convert/codec.orb`, `string/string.orb`, `string/regex.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `sys/bytes/bitwise.orb`, `sys/http/client.orb`, `sys/random/random.orb`, `json/json.orb` |
-| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` alone (no generic unions); `bitwise` left on 2026-10-18 as `std/sys/bytes/bitwise.orb`, and the import-all imports it |
+| `std/` | Orbit standard library. 21 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `convert/codec.orb`, `string/string.orb`, `string/regex.orb`, `collections/lists.orb`, `option/option.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `sys/bytes/bitwise.orb`, `sys/http/client.orb`, `sys/random/random.orb`, `sys/arena.orb`, `json/json.orb` |
+| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Empty since 2026-11-02: `option` became `std/option/option.orb` when the generic union landed, and `bitwise` had already left on 2026-10-18 as `std/sys/bytes/bitwise.orb`. The rules, and where each lifted module went, are in `std/quarantine/README.md` |
 | `lib/` | One module: `arena.orb`, a counted region and a bound, not an allocator. There is no socket API in the language or the runtime |
 
-`std/` holds **20 modules, 20 of 20** compiling and merging into one program,
-pinned by `tests/std/test_imports.orb`, which imports all nineteen into one
-program. `convert/convert.orb` owns the number-to-text bindings and
+`std/` holds **21 modules, 21 of 21** compiling and merging into one program,
+pinned by `tests/std/test_imports.orb`, which imports every one of them and
+calls into each except `sys/http/client.orb`, which needs a network.
+`convert/convert.orb` owns the number-to-text bindings and
 `json/json.orb` provides the quoting helper for hand-built bodies. The
 invariant is one definition per program: when two modules need the same C
 symbol, the dependent module imports the owning module.
@@ -512,21 +670,19 @@ symbol, the dependent module imports the owning module.
 
 | Path | Role |
 |---|---|
-| `scripts/build_selfhost.py` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
-| `scripts/verify_seed.py` | Hermetic fixed-point chain; `--release` pins the published hash |
-| `scripts/parity_selfhost.py` | every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
-| `scripts/test_suite.py` | Language and std behaviour suites, driven by process exit code |
-| `scripts/werror_gate.py` | `-Werror` over generated C |
-| `scripts/fuzz_frontend.py` | Frontend fuzzing |
-| `scripts/cli_probe.py` | CLI subcommand, help, and exit-code contract |
-| `scripts/routes_probe.py` | Route argument normalisation |
-| `scripts/kynx_gate.py` | Live Kynx gate (live/route-limit/burst) + stdlib load generator (load) |
-| `scripts/amalgamate.py` | Inline the project includes into `dist/orbit_bootstrap.c` |
+| `scripts/trust.py build` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
+| `scripts/trust.py verify` | Hermetic fixed-point chain; `--release` pins the published hash |
+| `scripts/corpus_gates.py` | The eight corpus checks, one entry: `suite`, `negative`, `frontend`, `werror`, `runtime_gen`, `runtime_module`, `parity`, `fuzz_frontend`. `parity` covers every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
+| `scripts/static_gates.py` | The five T0 text gates, one entry: `schema`, `walk`, `counts`, `flags`, `cites` |
+| `scripts/doctor_gates.py` | The doctor goldens (`doctor`, and `--scope-only` for the clean-directory check), the CLI subcommand, help and exit-code contract (`cli-probe`), the rich and colour screens (`snapshots`), the checker's dispatch arms (`dispatch`) |
+| `scripts/measure.py routes` | Route argument normalisation |
+| `scripts/admission_gate.py` | Live admission gate (live/route-limit/burst) + stdlib load generator (load) |
+| `scripts/trust.py amalgamate` | Inline the project includes into `dist/orbit_bootstrap.c` |
 | `scripts/orbit_ccache.py` | Content-addressed C compile cache for the bootstrap gates |
 | `scripts/orbit_routes.py` | Path normalisation shared by gates and the server |
 | `scripts/orbit_output.py` | Shared gate output helpers |
-| `scripts/measure_selfhost.py` | Bootstrap-side measurement |
-| `scripts/kynx_gate.py load` | Load generator for live-service measurement |
+| `scripts/measure.py measure-selfhost` | Bootstrap-side measurement |
+| `scripts/admission_gate.py load` | Load generator for live-service measurement |
 | `scripts/build_seed.sh`, `.bat` | Detect a C compiler and build the seed |
 | `scripts/install.sh`, `install.ps1` | Install the fixed-point compiler on `PATH` |
 
@@ -536,11 +692,11 @@ symbol, the dependent module imports the owning module.
 
 | Corpus | Location | How it runs | Assertion |
 |---|---|---|---|
-| Language behaviour | `tests/suite/` | `scripts/test_suite.py` | The test program compiles, runs, and its **exit code** matches `// expect-exit <N>`. |
-| Standard library | `tests/std/` | `scripts/test_suite.py --dir tests/std` | Same convention. |
-| Parity | `tests/parity/probes/` + `tests/parity/golden/` | `scripts/parity_selfhost.py` | For an exit-0 probe, the SHA-256 of the generated C matches the golden. For a non-zero probe, the normalised diagnostics match. |
+| Language behaviour | `tests/suite/` | `scripts/corpus_gates.py suite` | The test program compiles, runs, and its **exit code** matches `// expect-exit <N>`. |
+| Standard library | `tests/std/` | `scripts/corpus_gates.py suite --dir tests/std` | Same convention. |
+| Parity | `tests/parity/probes/` + `tests/parity/golden/` | `scripts/corpus_gates.py parity` | For an exit-0 probe, the SHA-256 of the generated C matches the golden. For a non-zero probe, the normalised diagnostics match. |
 | Frontend TIR | `tests/frontend/` + `expected/` | `orbit frontend` | The emitted canonical TIR matches the expected file. |
-| Runtime C | `runtime/test_arena.c`, `test_file.c`, `test_oom.c`, `test_http_parse.c`, `test_kynx.c` | compiled and run directly | The C harness's own assertions. |
+| Runtime C | `runtime/test_arena.c`, `test_file.c`, `test_oom.c`, `test_http_parse.c`, `test_admission.c` | compiled and run directly | The C harness's own assertions. |
 | Auth | `tests/auth/auth_harness.c` | compiled and run directly | Bearer token, role, and `has_role` behaviour against the real runtime. |
 | Doctor | `tests/doctor/` | `orbit doctor tests/doctor` (manual) | Exactly one `D002`, no finding for two methods sharing a path, exit code 1. |
 
@@ -561,8 +717,8 @@ run-to-run flakiness. The full gate sequence, in order, is in
 compiler. `compiler/host/pipeline.orb` runs the same front end, writes the IR
 document that `--emit-ir` writes into the temp directory, and runs R6 on it.
 R6 is a separate project (`github.com/joacokhzyx/orbit-r6`, MIT): it encodes
-x86-64 itself, writes AMD64 COFF and links with GNU `ld`. It targets Windows
-only.
+x86-64 itself, writes AMD64 COFF or ELF64 and links with GNU `ld`. It targets
+the host: Win64 on Windows, System V on Linux.
 
 There is no fallback. A program R6 refuses is a compile error that carries
 R6's own diagnostic, and `--backend=c` builds it. The pipeline passes the

@@ -1,0 +1,14 @@
+// A `match` over a declared type becomes a test chain, and the text shows every
+// part of it. The discriminator is read ONCE (`tag int v0`) because the build
+// compares one register against every arm (`buildMatchExpr`), each test names the
+// variant's declared position as the number the C backend will define as
+// `Color_TAG_Red` (`compiler/emit/c_backend.orb:2082`), and `branch` splits the arm
+// from the next test. An arm that returns writes no jump; a block arm jumps to the
+// merge block, which is also where the wildcard lives -- the last test's false side
+// IS the wildcard's block, so no empty block is printed for it.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "enum Color { Red Green }  fn code(c: Color) -> int { match c { Color.Red => { print(1) } Color.Green => { print(2) } _ => { print(3) } } return 0 }"
+    print(compileFrontendSource("fixture", source))
+}

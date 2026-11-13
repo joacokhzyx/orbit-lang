@@ -6,10 +6,8 @@
 # The root of trust and the bootstrap. Any change here needs a fixed-point
 # verification and a reviewed canonical C diff.
 /compiler/selfhost/            @joacokhzyx
-/scripts/build_selfhost.py     @joacokhzyx
-/scripts/verify_seed.py        @joacokhzyx
+/scripts/trust.py              @joacokhzyx
 /scripts/orbit_ccache.py       @joacokhzyx
-/scripts/amalgamate.py         @joacokhzyx
 
 # The compiler front end and code generator. Changes here change the emitted C,
 # which invalidates the canonical and the parity goldens.

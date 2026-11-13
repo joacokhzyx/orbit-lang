@@ -1,0 +1,15 @@
+orbit-tir 1
+module fixture
+function 0 everything string
+block 0 0
+instr 0 0 0 call string Item.all
+instr 0 0 1 return unit v0
+end-function 0
+function 1 filtered string
+param 1 0 p string
+block 1 0
+instr 1 0 0 load string p
+instr 1 0 1 load string p
+instr 1 0 2 call string Item.where v0 v1
+instr 1 0 3 return unit v2
+end-function 1

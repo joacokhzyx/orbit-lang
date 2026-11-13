@@ -1,0 +1,16 @@
+// `return ok 200 "ready"` is a return of a wrapped value. The statement reader had a rule
+// for `return <expr>` and none for the `ok` form, so the node reached the
+// expression reader, gave up there, and the diagnostic suppressed its file's
+// canonical text -- 8 over the corpus.
+//
+// Two instructions carry what one line of source says: `result_ok` builds the
+// wrapper, exactly as the build IR's `result_ok` does, and `return` returns it.
+// The status code is the one the source wrote, and a payload-less `return ok`
+// answers `void` rather than dropping the operand: the parse keeps the empty
+// expression, and a line with one fewer field is a different shape of record.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn make() -> result<string> { return ok 200 \"ready\" }"
+    print(compileFrontendSource("fixture", source))
+}

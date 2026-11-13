@@ -3,7 +3,7 @@
  * @brief Top-level aggregation header for the Orbit C runtime.
  *
  * Pulls in platform compatibility shims, the arena allocator, HTTP layer,
- * database bindings, collections, auth, Kynx leases, and Pulse counters.
+ * database bindings, collections, auth, admission leases, and Pulse counters.
  * Generated Orbit programs include only this single header.
  */
 #ifndef ORBIT_RUNTIME_H
@@ -17,7 +17,7 @@
  * Orbit Runtime — Unified header. Phase 2: Type Resonance.
  *
  * Include order matters: types → inline → arena → arena_pool →
- * string_pool → collections → performance → file → database → http → kynx
+ * string_pool → collections → performance → file → database → http → admission
  *
  * Each subsystem is self-contained: init → use → cleanup.
  * All operations return OrbitResult where failure is possible.
@@ -111,7 +111,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
 /* ── Network ────────────────────────────────────────────────────────── */
 #ifdef ORBIT_WITH_NET
 #include "http.c"
-#include "kynx.c"
+#include "admission.c"
 #include "pulse.c"
 #endif
 
