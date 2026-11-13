@@ -61,7 +61,7 @@ You need a C compiler, Python 3.10 or newer, and git.
 ```sh
 git clone https://github.com/joacokhzyx/orbit-lang.git
 cd orbit-lang
-python scripts/build_selfhost.py --out orbit
+python scripts/trust.py build --out orbit
 ./orbit build examples/health_service.orb -o health_service
 ./health_service 8080
 curl http://127.0.0.1:8080/health
