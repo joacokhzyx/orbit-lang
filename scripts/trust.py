@@ -2368,7 +2368,15 @@ CANONICAL = "compiler/selfhost/stage3.exe.c"
 
 # The two generated-name families, and nothing else. See the module docstring.
 GENERATED = re.compile(r"\b(r|label)_[0-9]+\b")
-DEFINITION = re.compile(r"^[A-Za-z_][\w \*]*?\b([A-Za-z_]\w*)\s*\(")
+# A definition at column 0, with the emitter's `__attribute__((hot))` prefix
+# allowed in front of it. The attribute was already emitted when this pattern
+# was written and the pattern did not allow it, so `enclosing` walked past all
+# 1,178 prefixed lines to the previous plain definition and named a function
+# the hunk was not in: the A3 promote reported `o_runtimeModuleBuiltinParam`
+# for a change in `o_resolveCalleeName`. Measured on the canonical of
+# 2026-11-13: 1,178 lines carry the prefix and 589 of them are definitions.
+DEFINITION = re.compile(
+    r"^(?:__attribute__\s*\(\(.*?\)\)\s*)?[A-Za-z_][\w \*]*?\b([A-Za-z_]\w*)\s*\(")
 
 
 def normalize(text: str) -> str:
@@ -2481,6 +2489,30 @@ def self_test_promote_diff() -> int:
               "would hide a use moving from one hoisted constant to another")
         return 1
 
+    # A definition the emitter prefixes with `__attribute__((hot))` is still a
+    # definition, and `enclosing` must name it. The pattern did not allow the
+    # prefix, so it walked up to the previous plain definition: the A3 promote
+    # named `o_runtimeModuleBuiltinParam` for a change in
+    # `o_resolveCalleeName`, which sits 24,000 lines further down. The plain
+    # row is here too, because widening a pattern is how the ordinary case
+    # stops matching.
+    anchor = [
+        "orbit_int o_plain(OrbitArena* arena) {",
+        "  return 1;",
+        "}",
+        "__attribute__((hot)) orbit_string o_hot(OrbitArena* arena) {",
+        "  return r_1;",
+        "}",
+    ]
+    if enclosing(anchor, 1) != "o_plain":
+        print("self-test FAILED: a plain definition was attributed to %r, "
+              "not to o_plain" % enclosing(anchor, 1))
+        return 1
+    if enclosing(anchor, 4) != "o_hot":
+        print("self-test FAILED: an __attribute__-prefixed definition was "
+              "attributed to %r, not to o_hot" % enclosing(anchor, 4))
+        return 1
+
     # And a genuinely identical pair must report nothing.
     rep = diff_report(normalize(a), normalize(a))
     if rep["added"] or rep["removed"]:
@@ -2488,7 +2520,8 @@ def self_test_promote_diff() -> int:
         return 1
 
     print("Finished promote-diff self-test: register and label renumbering "
-          "flattens, slot numbering and real changes survive, identical input "
+          "flattens, slot numbering and real changes survive, a definition "
+          "behind an __attribute__ prefix is its own function, identical input "
           "is empty.")
     return 0
 
