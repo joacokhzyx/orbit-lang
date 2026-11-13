@@ -13,6 +13,7 @@ whole map: if a page is not there, it does not exist for the reader.
 | Which commands exist? | [`COMMANDS.md`](COMMANDS.md) | Every command, backends, terminal output, doctor checks, errors |
 | How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime modules, start-up, threads, request path, file index |
 | What does the IR look like? | [`IR_SPEC.md`](IR_SPEC.md) | The IRv1 document the compiler emits and R6 consumes |
+| What does the frontend's canonical TIR look like? | [`architecture/TYPED_IR.md`](architecture/TYPED_IR.md) | The binding, join and branch-type conventions the frontend emits |
 | How do the HTTP protections work? | [`ADMISSION.md`](ADMISSION.md) | Admission, leases, route limits, request boundaries |
 | How does `orbit cluster` work? | [`CLUSTER.md`](CLUSTER.md) | Single-host process orchestration |
 | Which platforms, versions and limits apply? | [`SUPPORTED.md`](SUPPORTED.md) | Platforms, toolchain, compatibility, what is not supported yet, FAQ |

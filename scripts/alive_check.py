@@ -285,7 +285,7 @@ def registry(compiler, cc, work):
         # two CI steps red and the second one tells nobody anything new -- which
         # is the "a tool that cannot fail is not a tool" argument run backwards
         # into "a check that cannot go green is not a check".
-        # The corpus family: eight checkers, one entry point since the 2026-11-06
+        # The corpus family: nine checkers, one entry point since the 2026-11-06
         # merge. One row per checker is deliberate -- each marker names that gate's
         # own verdict line, and a row that only proved the interpreter started would
         # not prove the 128-program suite ran.
@@ -352,6 +352,11 @@ def registry(compiler, cc, work):
              lambda: _script("corpus_gates.py", "werror", *comp()),
              witness=r"Finished werror: \d+/\d+ pass",
              marker=r"Finished werror: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
+        Tool("corpus_gates.py", "gate",
+             "tests/check_build programs must check clean and then build",
+             lambda: _script("corpus_gates.py", "check_build", *comp()),
+             witness=r"Finished check-build: \d+/\d+ pass",
+             marker=r"Finished check-build: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("doctor_gates.py", "gate",
              "the orbit CLI contract, 50 cases",
              lambda: _script("doctor_gates.py", "cli-probe", "--compiler", compiler,

@@ -97,7 +97,7 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 121/121 pass (0 known defects still accepted)
+Finished negative: 123/123 pass (0 known defects still accepted)
 ```
 
 One hundred and twenty programs: every one must be rejected and is. The last one
@@ -221,6 +221,15 @@ and the measurement that says how much of the front end is still untyped is
 
 ## A `try` binding annotation is checked where the payload is written
 
+**Closed 2026-11-12.** Two refusals close the hole this section measured.
+`tests/negative/n132_result_ok_payload_mismatch.orb` pins `ok(5)` in a
+`-> result<string>` body, and `n133_result_composed_payload.orb` pins a
+`-> result` wrapper whose callee answered a payload. A bare `result` value
+itself stays compatible with every value; `result-bare-wildcard` in
+`DEFECTS.md` records that one. The history below is the measurement that led
+here; the paragraphs that say the hole is open describe the tree before the
+fix.
+
 `compiler/front/sema.orb:4808` answers a `try` with the payload the callee's signature
 writes, so the annotation on the binding is compared with what the read yields:
 
@@ -260,8 +269,11 @@ out of 551 files. The earlier 67 and 13 added up to 80, which is the unfiltered
 total: seven `tests/frontend` harness string literals were counted as signatures.
 The count moves with the corpus, so this line is the date to trust, not the one
 above it.
+**Re-measured 2026-11-12:** **73 return a bare `-> result` and 17 write a
+payload**, out of 564 tracked `.orb` files. The two refusals above are in the
+corpus.
 
-The half that stays open is those 67. For a bare `-> result` the read's type is the
+The half this section measured open was the bare `-> result` signatures; the refusals below closed it on 2026-11-12. For a bare `-> result` the read's type is the
 annotation itself: `compiler/ir/builder.orb:3140` retypes the unwrap register to it and
 `compiler/emit/c_backend.orb:4383` emits the cast for `int`, `bool`, `string` and `list`.
 Nothing conflicts with the annotation, so there is nothing to check; the program is wrong
@@ -282,7 +294,7 @@ both files write their payloads. The probe above is
 not a `tests/negative` case: that gate pins a program that fails to compile, and
 this one compiles.
 
-The hole is open on the shipped compiler and was run today. `ok(5)` inside
+Before the fix, the hole was open on the shipped compiler and was run on 2026-11-10. `ok(5)` inside
 `fn wrong() -> result` checks clean, and `val v: string = try wrong() catch {
 return 7 }` checks clean too, `orbit build` compiles it, and running the binary
 faults: `[ORBIT RUNTIME CRASH] ExceptionCode 0xC0000005`, exit 139, because the
@@ -310,14 +322,14 @@ probe at the top of the section still demonstrates: writing a payload on a
 signature is possible now, but `-> result` with no payload is still compatible with
 every value, so `val v: string = try wrong()` stays accepted.
 
-The size of the hole is countable without changing anything. 47 sites in the corpus
+The size of the hole was countable without changing anything. 47 sites in the corpus
 bind a `try` with a written annotation (`val d0: string = try base64Decode(...)`),
 and 41 of them call a function that declares the bare `result`. None of the 47 can
 be compared with a payload, because no function declares one. The annotation is
 therefore decoration in every one of them today, and the 6 left are annotations
 whose callee this scan did not resolve.
 
-Writing the payload at the declaration does not work today either, and the reason is
+Before the fix, writing the payload at the declaration did not work either, and the reason was
 the checker. Spelling `std/convert/codec.orb:146` as
 `fn hexDecode(s: string) -> result<string>` makes `orbit check` refuse the file:
 
@@ -329,7 +341,7 @@ The body returns `ok(out)`, and `compiler/front/sema.orb:4251` gives that call a
 `result`. A declaration cannot be more precise than the constructor expression the
 checker hands it. The two rules have to move together -- `ok` and `err` typed from
 their argument, then `try` typed from the declared `result<T>` -- and neither is a
-rule the frontend pass can take on its own. That is why this section stays open.
+rule the frontend pass can take on its own. That is why this section stayed open until 2026-11-12.
 
 ## Writes work, but duplicates and missing tables fail
 

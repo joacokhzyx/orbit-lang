@@ -1,0 +1,18 @@
+// List construction, push, index reads and iteration.
+fn total(xs: list < int >) -> int {
+    var s = 0
+    for x in xs { s = s + x }
+    return s
+}
+
+fn main() -> int {
+    val xs: list < int > = [1, 2, 3]
+    xs.push(4)
+    if xs.len() != 4 { return 1 }
+    if xs.get(0) != 1 { return 2 }
+    if xs.get(3) != 4 { return 3 }
+    if total(xs) != 10 { return 4 }
+    val empty: list < string > = []
+    if empty.len() != 0 { return 5 }
+    return 0
+}

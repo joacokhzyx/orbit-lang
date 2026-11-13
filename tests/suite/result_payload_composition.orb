@@ -1,0 +1,17 @@
+// expect-exit 0
+// A `-> result` wrapper of a `result<int>` forwards the payload the callee
+// answered, so the caller's try reads an int and the value survives the
+// composition.
+fn five() -> result < int > {
+    return ok(5)
+}
+
+fn pass() -> result {
+    return five()
+}
+
+fn main() -> int {
+    val v: int = try pass() catch { return 7 }
+    if v != 5 { return 1 }
+    return 0
+}

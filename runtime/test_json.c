@@ -276,7 +276,7 @@ static void test_parse_arrays(void) {
  * rule: truncation, trailing comma, single quotes, bare keys, non-object
  * tops, trailing data, leading zeros, dangling fraction/exponent, mixed
  * or null-bearing or nested arrays, overflow past int64 or finite
- * double, lone surrogates. */
+ * double, lone surrogates, a decoded NUL. */
 static void test_parse_rejects(void) {
     static const char* bad[] = {
         "{",
@@ -301,6 +301,7 @@ static void test_parse_rejects(void) {
         "{\"a\":\"\\ud800\\u\"}",
         "{\"a\":\"\\ud800\\u12\"}",
         "{\"a\":\"\\udc00\"}",
+        "{\"a\":\"\\u0000\"}",
         "{\"a\":\"bad\\escape\"}",
         "{\"a\":\"unterminated}",
         "{\"a\":tru}",

@@ -194,7 +194,7 @@ conversion between them goes through a cast on a `uintptr_t`:
 r_2 = (orbit_int)(uintptr_t)(takesStr((orbit_string)(r_1)));
 ```
 
-Three things follow, and all three are user-visible.
+Four things follow, and all four are user-visible.
 
 **The C cast comes from the static type alone.** `mapTypeToC`
 (`compiler/emit/c_backend.orb:500`) turns an Orbit type name into a C type, and the
@@ -203,13 +203,8 @@ runtime is never asked whether the word it was handed is of that type, because
 there is nothing to ask. A function parameter declared `s: string` produces
 `takesStr((orbit_string)(r_1))` no matter what produced `r_1`.
 
-**An unannotated binding is assumed to be a string.** Sema does not track the
-type of a local bound to a literal, so `val v = f()` reads back as `unknown`.
-Such a binding is allowed through on purpose (`isInterpolatable`,
-`compiler/front/sema.orb:3989`, which returns true for `unknown` and says why in the
-comment above it). Where the backend then has to guess, it guesses
-string. Passing such a binding to a `string` parameter compiles cleanly and
-dereferences an integer as a pointer:
+**The checker compares the types it can see.** A call argument whose type
+disagrees with the parameter is refused before emission:
 
 ```orbit
 fn takesStr(s: string) -> int { return s.len() }
@@ -217,22 +212,32 @@ fn g() -> int { return 11 }
 fn main() -> int { print(takesStr(g()))  return 0 }
 ```
 
-`orbit check` reports no errors and the program segfaults. With a `float` in
-the same position the mistake is louder, because the cast is a C-level
-inconvertible and the build stops: `error: cannot convert to a pointer type`.
-Both failures are the same missing runtime tag. Annotating the binding and the
-argument types is the whole workaround.
+`orbit check` answers `error[E1005]: Parameter 1 of takesStr is declared string
+but the argument is int`, exit 1. A local bound to a call keeps the call's
+return type, so `val v = g()` followed by `print(takesStr(v))` reaches the same
+refusal. Measured 2026-11-12 on `orbit 0.1.0`.
 
-**`print` has no float form.** `print` on a value the backend settled on as
-`float` emits `printf("%lld\n", (long long)(r))` - the value is a correct
-`orbit_float`, and the fraction is thrown away by the format string. Verified:
-`val a = 1.5` then `print(a)` prints `1`; `a + 2.0` prints `3`. There is no
-`%f` path and no float overload of `print` in the emitter.
+**`unknown` is the one value every rule accepts.** Where the checker has no
+type for a value - an extern whose signature writes a bare `result`, or a
+construct the front end cannot type - the value is `unknown`, and
+`checkCompatibility` accepts it for any expected type
+(`compiler/front/sema.orb:2097`). The unknown-type census counts those
+instructions and the ratchet holds the count: the baseline records 3
+instructions typed `unknown` in 149,684, 0.0 per mille
+(`scripts/baselines/unknown_count.json`). A value that is `unknown` at a
+`string` boundary is still cast by assertion, and the runtime has no tag to
+contradict it.
 
-For a user, the summary is: **annotate your bindings, and treat a value that
-crosses a `string` boundary as the one place the compiler will not help you.**
-`internals/LIMITATIONS_LOG.md` records what this costs. `docs/LANGUAGE_REFERENCE.md#imports-and-visibility`
-covers the other place the same missing types bite, at import boundaries.
+**`print` has a float form.** A value the backend settled on as `float` prints
+with its fraction: `val a = 1.5` then `print(a)` prints `1.5`, and
+`print(a + 2.0)` prints `3.5`. `print(1.0 / 3.0)` prints
+`0.3333333333333333`. Measured 2026-11-12 on `orbit 0.1.0`.
+
+For a user, the summary is: **annotate your bindings where a value crosses a
+boundary, and treat a value the checker reports as `unknown` as the one place
+the compiler will not help you.** `internals/LIMITATIONS_LOG.md` records what
+that costs. `docs/LANGUAGE_REFERENCE.md#imports-and-visibility` covers the
+other place the same missing types bite, at import boundaries.
 
 ---
 
@@ -672,7 +677,7 @@ symbol, the dependent module imports the owning module.
 |---|---|
 | `scripts/trust.py build` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
 | `scripts/trust.py verify` | Hermetic fixed-point chain; `--release` pins the published hash |
-| `scripts/corpus_gates.py` | The eight corpus checks, one entry: `suite`, `negative`, `frontend`, `werror`, `runtime_gen`, `runtime_module`, `parity`, `fuzz_frontend`. `parity` covers every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
+| `scripts/corpus_gates.py` | The nine corpus checks, one entry: `suite`, `negative`, `frontend`, `werror`, `check_build`, `runtime_gen`, `runtime_module`, `parity`, `fuzz_frontend`. `parity` covers every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
 | `scripts/static_gates.py` | The five T0 text gates, one entry: `schema`, `walk`, `counts`, `flags`, `cites` |
 | `scripts/doctor_gates.py` | The doctor goldens (`doctor`, and `--scope-only` for the clean-directory check), the CLI subcommand, help and exit-code contract (`cli-probe`), the rich and colour screens (`snapshots`), the checker's dispatch arms (`dispatch`) |
 | `scripts/measure.py routes` | Route argument normalisation |

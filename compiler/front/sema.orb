@@ -3869,7 +3869,15 @@ fn checkReturnValue(sema: Sema, expectedType: string, actualType: string) {
         // a result: the declaration names no payload, so it accepts any. The
         // exact spelling comparison refused it and turned a valid return into
         // a diagnostic.
-        if compatTypeBase(actualType) == "result" { return }
+        //
+        // What that callee answered is also what this function now returns to
+        // its own callers. Without recording it, a `-> result` wrapper of a
+        // `result<int>` stayed a bare `result`, its callers' `try` answered
+        // `unknown`, and an annotation on that read was never compared.
+        if compatTypeBase(actualType) == "result" {
+            recordResultPayload(sema, compatTypeResultPayload(actualType))
+            return
+        }
         if semaKnownType(actualType) == false { return }
         reportError(sema, "Return type mismatch: expected result, got " + actualType + ": build one with ok(value) or err(message), or return a result bound with `val`")
         return
@@ -3935,6 +3943,17 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     // rule fire for it -- `ok(42)` was refused as
                     // `ok response body must be a string or an object, got int`.
                     if compatTypeBase(sema.currentReturnType) == "result" {
+                        // A payload written in the signature is a promise to
+                        // every caller: `try` reads exactly that type back.
+                        // `ok(5)` in a `-> result<string>` body put an int word
+                        // where the caller's try casts to a string pointer, so
+                        // the declaration and the value have to agree here.
+                        val declaredPayload = compatTypeResultPayload(sema.currentReturnType)
+                        if declaredPayload != "" {
+                            if checkCompatibility(declaredPayload, bodyType) == false {
+                                reportErrorAt(sema, "E1006", "Change the ok value, or change the result payload in the signature.", 0, 0, "Return type mismatch: " + sema.currentFunction + " is declared " + sema.currentReturnType + " but the ok value is " + bodyType)
+                            }
+                        }
                         recordResultPayload(sema, bodyType)
                     } else {
                         // orbit_response_json takes a C string body: a known

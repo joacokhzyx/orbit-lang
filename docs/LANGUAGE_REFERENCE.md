@@ -588,6 +588,13 @@ directly.
 2xx/3xx status is rejected the same way. An `ok` body must be a string or an
 object outside `-> result` functions. An `err` body must be a string.
 
+Inside a `-> result` function, `ok(v)` is compared with the payload the
+signature declares: `fn f() -> result<string>` refuses `return ok(5)` with
+E1006, and a bare `-> result` takes its payload from the `ok` value or from
+the result it returns. `tests/negative/n132_result_ok_payload_mismatch.orb`
+and `n133_result_composed_payload.orb` pin the refusals;
+`tests/suite/result_payload_composition.orb` pins the read that now works.
+
 ```orbit
 fn load_value() -> result {
     val value: result = ok(41)
@@ -1936,11 +1943,11 @@ These print the one-line `Semantic error:` form and pin a substring:
 ## Formatting
 
 The rules below are the contract for `orbit fmt`: the style the repository already follows, rule by rule, with evidence, and the formatter implements exactly what is written here. The corpus is recursive `*.orb`
-under `compiler/` (29 files), `tests/suite/` (128),
+under `compiler/` (29 files), `tests/suite/` (129),
 `std/` (21) and `tests/std/` (24), plus
 `examples/*.orb` (13, minus
-`orbit_full_expansion.orb`). 215 files -- the exact list
-the fmt gate verifies (`make all` prints `fmt ... (215 files, 8 workers)`). The rules were inferred
+`orbit_full_expansion.orb`). 216 files -- the exact list
+the fmt gate verifies (`make all` prints `fmt ... (216 files, 8 workers)`). The rules were inferred
 from that corpus with strings and comments stripped, so stylish string contents (JSON payloads,
 URLs) do not pollute them, and they stay readable as the corpus grows.
 
