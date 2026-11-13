@@ -316,20 +316,20 @@ argument, not open work.
 
 - **Duplicate `match` arm.** (Record, shipped as `D022`.) The original argument
   was that it is not a doctor check: `patternVariantName`
-  (`compiler/front/sema.orb:3278`) and `qualifiedVariantName`
-  (`compiler/front/sema.orb:3303`) need a `Sema`, and doctor's only door to it is
+  (`compiler/front/sema.orb:3280`) and `qualifiedVariantName`
+  (`compiler/front/sema.orb:3305`) need a `Sema`, and doctor's only door to it is
   `checkSourceWithFile(...) -> bool` (`compiler/host/pipeline.orb:185`). It would
-  belong beside `checkMatchExhaustive` (`compiler/front/sema.orb:3322`) as a
+  belong beside `checkMatchExhaustive` (`compiler/front/sema.orb:3324`) as a
   second E-code.
-  `covered` (`compiler/front/sema.orb:3327`) accumulates variant names and never
+  `covered` (`compiler/front/sema.orb:3329`) accumulates variant names and never
   checks for a repeat. Note the wildcard bails first
-  (`compiler/front/sema.orb:3340`, `:3351`), so a check placed after that bail
+  (`compiler/front/sema.orb:3342`, `:3353`), so a check placed after that bail
   would skip exactly the dead arms.
 - **Shadowing.** (Record, shipped as `D023`.) Shadowing is intended:
   `variableSymbol` (`compiler/ir/builder.orb:279`) and `resolveSymbol`
-  (`compiler/front/sema.orb:1498`) both resolve innermost-first on purpose, and
+  (`compiler/front/sema.orb:1500`) both resolve innermost-first on purpose, and
   same-scope re-declaration is already a hard error in `declareSymbolWithParams`
-  (`compiler/front/sema.orb:1428`).
+  (`compiler/front/sema.orb:1430`).
   The only useful form -- "this name shadows an outer one that is used
   afterwards" -- is the most expensive candidate here. `LiteralNode`
   (`compiler/front/ast.orb:173`) has no `line`/`col`, so a *use* has no position
@@ -368,7 +368,7 @@ code path that does not run.
 #### Unguarded Mutable Shared State -- nothing to find
 
 The check was "a `var` at module scope, written from a handler". There are no
-module-scope `var`s: E1007 rejects them (`compiler/front/sema.orb:2506-2513`), and
+module-scope `var`s: E1007 rejects them (`compiler/front/sema.orb:2508-2515`), and
 `compiler/ir/builder.orb:2794` records a surviving top-level `val` as a module
 global. `generateRoutePreamble` (`compiler/emit/c_backend.orb:2024`) emits that
 global as a `#define` of an int or bool literal. `ENGINEERING.md` already said
