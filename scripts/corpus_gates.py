@@ -48,7 +48,8 @@ first occurrence below, and the resolution never merged two behaviours:
   `self_test`   `werror_gate.py` and `runtime_gen.py` each have one:
                 `self_test_werror`, `self_test_runtime_gen`, each wired to
                 that subcommand's `--self-test`. No other gate in this file
-                had a `--self-test` before the merge, and none gained one.
+                had a `--self-test` before the merge; `check_build` and
+                `negative` gained one afterwards.
   `run`         `runtime_module_gate.py` defines `run(argv, env)` at module
                 level, which is a different function from `_common.run`; it is
                 `rtmod_run`, and `_common.run` stays qualified.
@@ -461,11 +462,13 @@ def cmd_suite(args) -> int:
 # One directive is optional on an expect-error case instead:
 #
 #     // one-diagnostic:
-#         The rejection is exactly one diagnostic line (`error[<CODE>]` in the
-#         combined output). A header that pins a substring passes when the same
-#         refusal prints four times, which is what a checker that re-reads a node
-#         does: the text is right and the reader sees it two, three or four
-#         times. Use it where the count is the thing being claimed.
+#         The rejection is exactly one diagnostic line in the combined output:
+#         an `error[<CODE>]` card, or the unprefixed `Semantic error:` form a
+#         refusal with no position to point at prints. A header that pins a
+#         substring passes when the same refusal prints four times, which is
+#         what a checker that re-reads a node does: the text is right and the
+#         reader sees it two, three or four times. Use it where the count is
+#         the thing being claimed.
 #
 # Usage:
 #     python scripts/negative_gate.py [--compiler PATH] [--cc CC] [--list]
@@ -485,9 +488,29 @@ NO_DIAGNOSTIC = re.compile(r"^\s*//\s*no-diagnostic:\s*$", re.M)
 ONE_DIAGNOSTIC = re.compile(r"^\s*//\s*one-diagnostic:\s*$", re.M)
 
 # One front-end diagnostic, as it appears in the combined stdout and stderr of
-# `orbit check`: the code is the part a reader acts on, so a repeated line is a
-# repeated refusal even when the framing differs.
-DIAGNOSTIC_LINE = re.compile(r"error\[[A-Z][0-9]+\]")
+# `orbit check`. Two shapes carry one refusal: a node with a recorded position
+# prints the `error[<CODE>]:` card, and a check with no position to point at
+# prints the unprefixed one-line `Semantic error:` form. Counting only the card
+# answered 0 for a refusal, so `one-diagnostic:` could not pin the refusal
+# cases at all; the code is still the part a reader acts on, so a repeated line
+# is a repeated refusal even when the framing differs.
+DIAGNOSTIC_LINE = re.compile(r"error\[[A-Z][0-9]+\]|^Semantic error:", re.M)
+
+
+def diagnostic_count(combined):
+    """How many diagnostics the combined output of one `orbit check` carries."""
+    return len(DIAGNOSTIC_LINE.findall(combined))
+
+
+def one_diagnostic_verdict(combined):
+    """The `one-diagnostic:` rule on its own: (count, holds).
+
+    Apart from the subprocess so `--self-test` can drive it with recorded
+    output. One refusal is one line, whichever of the two shapes printed it;
+    the same refusal twice is two.
+    """
+    count = diagnostic_count(combined)
+    return count, count == 1
 
 
 def neg_unescape(literal):
@@ -604,13 +627,13 @@ def run_case(compiler, case, verbose=False, cc=None, work=None):
                             "    got:            %s"
                             % (needle, describe(combined, True)))
         if case.one_diagnostic:
-            found = DIAGNOSTIC_LINE.findall(combined)
-            if len(found) != 1:
+            count, holds = one_diagnostic_verdict(combined)
+            if not holds:
                 return "fail", ("the same refusal printed %d times: %s\n"
                                 "    header declares one-diagnostic:, so the "
                                 "program is rejected by one diagnostic\n"
                                 "    got:            %s"
-                                % (len(found), case.rel,
+                                % (count, case.rel,
                                    describe(combined, True)))
         return "pass", describe(combined, verbose)
 
@@ -729,8 +752,53 @@ def pin_wrong_value(compiler, case, cc, work, ref, verbose):
     return "pass", "still accepted by check, still wrong: %s" % want.replace("\n", " / ")
 
 
+def self_test_negative():
+    """The `one-diagnostic:` count, exercised on recorded output.
+
+    The rule exists to hold a number, so the test is strings rather than
+    programs: one refusal printed once must hold, and the same refusal printed
+    twice must not. The semantic-error pair is the case that motivated the
+    count. A refusal with no position prints the unprefixed `Semantic error:`
+    line, and a reader that matched only `error[<CODE>]` answered 0 for it --
+    which is both wrong and indistinguishable from silence, so the passing case
+    fails if that alternative is ever dropped. The `error[<CODE>]` pair keeps
+    the shape the directive already held.
+    """
+    fails = 0
+
+    def check(label, ok):
+        nonlocal fails
+        if ok:
+            out.say(f"  ok    {label}")
+        else:
+            out.fail(f"  BROKEN {label}")
+            fails += 1
+
+    refusal = ("Semantic error: Cannot declare 'arena': every function this "
+               "compiler emits already takes an OrbitArena* arena\n")
+
+    count, holds = one_diagnostic_verdict(refusal)
+    check("one unprefixed semantic error counts once and holds",
+          count == 1 and holds)
+    count, holds = one_diagnostic_verdict(refusal + refusal)
+    check("the same semantic error twice counts twice and fails",
+          count == 2 and not holds)
+
+    card = "  error[E1006]: 'n' is declared int but the value is string.\n"
+    count, holds = one_diagnostic_verdict(card)
+    check("one error[<CODE>] card counts once and holds", count == 1 and holds)
+    count, holds = one_diagnostic_verdict(card + card)
+    check("the same error[<CODE>] card twice counts twice and fails",
+          count == 2 and not holds)
+
+    out.finish("negative self-test", 4 - fails, 4)
+    return 1 if fails else 0
+
+
 def cmd_negative(args):
     out.set_quiet(args.quiet)
+    if args.self_test:
+        return self_test_negative()
 
     cases = load_cases()
     if cases is None:
@@ -2168,6 +2236,8 @@ def main() -> int:
                     help="print one line per declared case and exit")
     sp.add_argument("--verbose", action="store_true",
                     help="also print the diagnostic each case produced")
+    sp.add_argument("--self-test", action="store_true",
+                    help="exercise the one-diagnostic: count on recorded output")
     out.add_quiet(sp)
 
     sp = gates.add_parser(

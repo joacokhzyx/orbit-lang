@@ -1364,7 +1364,7 @@ $ echo $?
 ```
 
 `declareSymbol` walks the current scope and reports `Duplicate symbol: <name>`
-the moment it sees a second one (`compiler/front/sema.orb:1428`).
+the moment it sees a second one (`compiler/front/sema.orb:1442`).
 The check is on the symbol's name alone - no module, no origin, no overload. It
 does not matter which file is imported first, and it fires even if the two
 functions have different signatures.

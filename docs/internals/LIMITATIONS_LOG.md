@@ -97,10 +97,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 124/124 pass (0 known defects still accepted)
+Finished negative: 126/126 pass (0 known defects still accepted)
 ```
 
-One hundred and twenty-four programs: every one must be rejected and is. The last one
+One hundred and twenty-six programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
@@ -234,6 +234,16 @@ the fix.
 `n134` pins the refusal, `Parameter 1 of take is declared result but the
 argument is int`, and `result_parameter.orb` pins the valid form.
 
+**Closed 2026-11-13, a refusal stays one diagnostic.** A refused declaration
+used to return without declaring the name, so the read after it reported the
+name undeclared and counted a resolution miss. The `main`, generic and extern
+value refusals answered `unknown`, so the call after one reported a second
+error: not a function. All four leave the poisoned spelling now. It fits every
+expected type and is a type nowhere, so the refusal remains the whole output.
+`tests/negative/n135_arena_refusal_one_diagnostic.orb` and
+`n136_main_value_refusal_one_diagnostic.orb` pin the count with
+`one-diagnostic:`, and neither prints an `UNRESOLVED` line.
+
 `compiler/front/sema.orb:4808` answers a `try` with the payload the callee's signature
 writes, so the annotation on the binding is compared with what the read yields:
 
@@ -260,7 +270,7 @@ reaching the C backend with an int where a string pointer belongs. The fix there
 named a receiver type; this site has no receiver to name, because the payload is
 written nowhere, and `tests/negative/n123_try_annotation_payload.orb` keeps the refusal.
 Before 2026-11-05 the same arm answered `unknown` for every `try`, and the compatibility
-rules accept `unknown` for anything, at `compiler/front/sema.orb:1146` and `:2012`: the
+rules accept `unknown` for anything, at `compiler/front/sema.orb:1153` and `:2125`: the
 probe above built, and `print(n)` read a string pointer as an integer.
 Two counts of this sentence have been wrong and both are dated rather than hidden: the
 first said 51 in 31 files, counting the spelling wherever it appeared, and the second
@@ -697,7 +707,7 @@ Both directions are pinned. `tests/suite/union_shared_variant_name.orb` declares
 `Packet.Body(int)` and `Signal.Body(string)`, constructs each qualified, matches
 each with a qualified pattern and with a bare pattern under its own scrutinee,
 and exits 0. The checker reads a payload from the owner the program wrote --
-`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:755`)
+`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:762`)
 -- and a bare pattern resolves through the scrutinee's type in `bareVariantOwner`
 (`compiler/ir/builder.orb:2415`). The constructor macro carries both names:
 `val mvMacro = cUserName(mvType.name + "_" + mvName)`
