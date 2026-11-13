@@ -273,13 +273,19 @@ int orbit_run_migrations_down(const char* const* downs, int count) {
     return 1;
 }
 
-/* ── Internal: append a JSON-escaped string within [p, end). ──────────── */
+/* ── Internal: append a JSON-escaped string of @p len bytes within [p, end).
+ *
+ * The length comes from the caller because a TEXT column may hold a zero
+ * byte: sqlite3_column_bytes counts it, and a strlen walk stopped there, so
+ * `a\0b` rendered as "a" and the tail was lost. A zero is an ordinary
+ * control byte here and becomes `\u0000`, which the row bound already
+ * reserves six bytes for. */
 
-static char* orbit_db_append_json_escaped(char* p, char* end, const char* s) {
+static char* orbit_db_append_json_escaped(char* p, char* end, const char* s, size_t len) {
     if (p >= end) return p;
     *(p++) = '"';
-    for (const char* c = s ? s : ""; *c && p < end; c++) {
-        unsigned char ch = (unsigned char)*c;
+    for (size_t i = 0; s && i < len && p < end; i++) {
+        unsigned char ch = (unsigned char)s[i];
         if (ch == '"' || ch == '\\') {
             if (p + 2 > end) break;
             *(p++) = '\\';
@@ -334,14 +340,16 @@ static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* 
     for (int i = 0; i < cols && p < end; i++) {
         const char* col_name = sqlite3_column_name(stmt, i);
         const char* col_text = (const char*)sqlite3_column_text(stmt, i);
+        int col_bytes = sqlite3_column_bytes(stmt, i);
+        if (col_bytes < 0) col_bytes = 0;
 
         if (i > 0 && p < end) *(p++) = ',';
         if (p >= end) break;
 
-        p = orbit_db_append_json_escaped(p, end, col_name ? col_name : "");
+        p = orbit_db_append_json_escaped(p, end, col_name, col_name ? strlen(col_name) : 0);
         if (p + 1 >= end) break; /* need room for ':' and at least one more byte */
         *(p++) = ':';
-        p = orbit_db_append_json_escaped(p, end, col_text);
+        p = orbit_db_append_json_escaped(p, end, col_text, (size_t)col_bytes);
     }
 
     if (p < end) *(p++) = '}';

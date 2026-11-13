@@ -3620,8 +3620,8 @@ def cmd_measure_selfhost(args) -> int:
 # ---- from scripts/emit_ir_corpus.py ----
 # Emit the designated IR corpus with `orbit build --emit-ir`.
 #
-# The corpus is tests/suite (128 programs plus imports.support.orb) and
-# tests/std (24 programs): the 152+1 programs docs/IR_SPEC.md section 5.5
+# The corpus is tests/suite (129 programs plus imports.support.orb) and
+# tests/std (24 programs): the 153+1 programs docs/IR_SPEC.md section 5.5
 # designates, with the same discovery scripts/test_suite.py and
 # scripts/measure.py census already use (`.orb`, minus `*.support.orb`,
 # which is kept here because the corpus is about IR and the support module
@@ -3648,7 +3648,7 @@ def cmd_measure_selfhost(args) -> int:
 # 1 on any drift.  Emission is deterministic, so drift means a different
 # compiler or changed sources -- which is the point of the check.
 #
-# `--self-test` is the hermetic half: it asserts the corpus contract (152
+# `--self-test` is the hermetic half: it asserts the corpus contract (153
 # executables plus imports.support.orb, discovered in pinned order) and
 # drives the comparator with a synthetic manifest, so the drift detector is
 # proven to catch a changed hash, a changed size, a missing member, an extra
@@ -3665,7 +3665,7 @@ IR_SCHEMA = "r6-ir-corpus/1"
 
 # The corpus size docs/IR_SPEC.md section 5.5 designates. Named here so the
 # self-test asserts a contract rather than re-deriving it from the listing.
-SUITE_PROGRAMS = 128
+SUITE_PROGRAMS = 129
 STD_PROGRAMS = 24
 SUPPORT_MODULES = 1
 PROGRAMS = SUITE_PROGRAMS + STD_PROGRAMS

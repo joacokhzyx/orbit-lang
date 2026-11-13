@@ -2,13 +2,18 @@
 // what: a generic has no one signature until a call fixes its parameters, so
 //      a bare reference has nothing to infer from. Binding it would
 //      monomorphise nothing and the value would carry an empty signature.
-//      Calling it is the only honest use.
+//      The binding is then called, because a program that binds the refusal
+//      and never touches it pins only the declaration: the call is where the
+//      widened site would print `not a function` about a name the refusal
+//      never gave a callable type. The arm answers the poisoned spelling and
+//      the call answers it again, so the refusal is the one diagnostic.
 // expect-error: Cannot use generic function 'id' as a value
+// one-diagnostic:
 fn id[T](x: T) -> T {
     return x
 }
 
 fn main() -> int {
     val f = id
-    return 0
+    return f(1)
 }

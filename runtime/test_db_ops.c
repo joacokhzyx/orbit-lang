@@ -346,6 +346,30 @@ static void test_large_row_is_not_truncated(void) {
     orbit_db_close();
 }
 
+/* A TEXT value may hold a zero byte; SQLite stores it and
+ * sqlite3_column_bytes counts it. The row JSON used to measure the column
+ * with strlen and stop at the zero, so `a\0b` rendered as "a" and the tail
+ * was silently gone. The escape is written with the column's byte length, so
+ * the zero becomes `\u0000` (six bytes, which the JSON bound already
+ * reserves per byte) and the value round-trips in valid JSON. */
+static void test_nul_in_text_is_escaped(void) {
+    fresh_db();
+    assert(orbit_db_exec_ddl("CREATE TABLE IF NOT EXISTS nultext (v TEXT);"));
+    assert(orbit_db_exec_ddl("DELETE FROM nultext;"));
+    assert(orbit_db_exec_ddl("INSERT INTO nultext (v) VALUES (CAST(x'610062' AS TEXT));"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    orbit_string row = orbit_db_query_first(arena, "nultext");
+    assert(row != NULL);
+    assert(strcmp(row, "{\"v\":\"a\\u0000b\"}") == 0);
+    /* Control: the same escape path still writes an ordinary value whole. */
+    assert(orbit_db_exec_ddl("INSERT INTO nultext (v) VALUES ('ab');"));
+    orbit_string both = orbit_db_query_where_v(arena, "nultext", "v = ?", 1, "ab");
+    assert(both != NULL);
+    assert(strstr(both, "{\"v\":\"ab\"}") != NULL);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("db_ops tests\n");
     fflush(stdout);
@@ -353,6 +377,7 @@ int main(void) {
     RUN_TEST(test_escaped_values);
     RUN_TEST(test_unknown_key_is_refused);
     RUN_TEST(test_large_row_is_not_truncated);
+    RUN_TEST(test_nul_in_text_is_escaped);
     RUN_TEST(test_null_is_not_the_text_null);
     RUN_TEST(test_update_missing_is_false);
     RUN_TEST(test_where_two_params);

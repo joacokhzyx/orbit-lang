@@ -455,6 +455,12 @@ orbit_string orbit_file_upload_save(OrbitArena* arena, OrbitRequest* req, orbit_
             }
         }
 
+        /* A zero byte in the part headers cannot survive into an orbit_string.
+         * The sanitizer rewrote it to '_', so `a\0b.txt` saved as `a_b.txt`:
+         * a path naming a file the sender never wrote. Refuse the part and
+         * create nothing rather than rename the value behind the caller. */
+        if (memchr(cur, '\0', hdrlen)) return "";
+
         /* filename="..." wins; otherwise a generated one */
         char namebuf[256];
         int have_name = 0;

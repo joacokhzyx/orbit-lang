@@ -337,11 +337,34 @@ fn reportErrorAt(sema: Sema, code: string, hint: string, line: int, col: int, me
 // Whether the checker can name this type. `unknown` is the absence of an
 // answer, and `""`/`void` are the shapes a node with no type rule comes back
 // as; a rule about operand types can only act on a name.
+//
+// `<poisoned>` is what a refused declaration and a refused value leave behind.
+// It marks a name whose type was decided by a diagnostic that has already
+// printed, so no type rule may act on it: saying "bitwise '~' takes one int,
+// not '<poisoned>'" would report the consequence of the refusal instead of the
+// refusal. The angle brackets are the point: parseTypeName starts at an
+// identifier and appends the `<...>` parameters, so an annotation cannot start
+// with `<` and no program can hand a declared name the type a refusal reserved
+// for itself.
 fn semaKnownType(t: string) -> bool {
     if t == "" { return false }
     if t == "unknown" { return false }
     if t == "void" { return false }
+    if semaPoisonedType(t) { return false }
     return true
+}
+
+// Whether this spelling is the one a refusal reserved for itself. It is the
+// one name no type rule may act on, and `semaKnownType` is not the test every
+// rule wants: that answers false for `unknown` too, and two rules refuse
+// `unknown` on purpose. A `for` over a never-set dynamic field crashes at run
+// time (`tests/negative/n59_for_over_unknown_field.orb` holds the refusal), so
+// a rule that refuses what it cannot prove asks this instead and keeps its
+// `unknown` case. The declaration site, the three refusals that answer it,
+// the callee accessor and the compatibility rule name it; no rule refuses an
+// operand because of it.
+fn semaPoisonedType(t: string) -> bool {
+    return t == "<poisoned>"
 }
 
 // Runtime functions the compiler calls by name when it lowers other syntax:
@@ -1416,11 +1439,18 @@ fn declareSymbolWithParams(sema: Sema, name: string, typeName: string, isMutable
     // other fix is to mangle the backend's own parameter, which is a
     // scope-aware rename of every identifier the backend emits; reserving the
     // name is the one the language can make honestly today.
+    val scope = sema.scopes.get(sema.currentScope)
     if name == "arena" {
         reportError(sema, "Cannot declare 'arena': every function this compiler emits already takes an OrbitArena* arena, so the generated C would declare it twice. Rename it - 'region' and 'pool' read the same.")
+        // Declared anyway, with the spelling no type rule names, so the
+        // refusal stays the one diagnostic. Returning without declaring it is
+        // what made `val arena = 7; return arena` print a second error saying
+        // the name was undeclared: the program did declare it, and the refusal
+        // was the reason it has no type. The `<poisoned>` spelling keeps the
+        // read silent and keeps the name out of the resolution-miss census.
+        scope.symbols.push(Symbol(name, "<poisoned>", isMutable, isFunction, paramTypes))
         return
     }
-    val scope = sema.scopes.get(sema.currentScope)
     var i = 0
     while i < scope.symbols.len() {
         val sym = scope.symbols.get(i)
@@ -1683,6 +1713,13 @@ fn resolveCalleeName(sema: Sema, name: string) -> string {
     // direct call does. A declared function wins above, so a shadowing local
     // still calls the function -- the value needs its own name to be called.
     if isFnType(declared) { return fnTypeReturn(declared) }
+    // A binding of a refused value is declared and has no callable type. Its
+    // spelling already means "the diagnostic printed", so the sentence below
+    // would be a second error about a type the refusal never gave the name.
+    // Answering it is the whole answer: the call then answers `unknown`, the
+    // absence of a type, and every rule that acts on an operand's type stays
+    // quiet on that.
+    if declared == "<poisoned>" { return declared }
     if declared != "" {
         // The name is declared, just not as something callable. "Undeclared"
         // would be the wrong word for that, and the wrong word sends the
@@ -2103,8 +2140,14 @@ fn checkCompatibility(expected: string, actual: string) -> bool {
     val want = canonicalTypeSpelling(expected)
     val got = canonicalTypeSpelling(actual)
     if want == "unknown" || got == "unknown" { return true }
+    // A refused declaration and a refused value answer `<poisoned>`, which
+    // means "the diagnostic already printed". It fits every expected type,
+    // because a second complaint about the type of a name the refusal never
+    // gave a type is the cascade, not a finding. `semaKnownType` answers false
+    // for it, so a rule that acts on an operand's type still stays quiet.
+    if want == "<poisoned>" || got == "<poisoned>" { return true }
     if want == got { return true }
-    if want == "result" { return true }
+    if want == "result" { return compatTypeBase(got) == "result" }
     if want == "response" { return true }
     if compatTypeBase(want) == "list" && compatTypeBase(got) == "list" {
         return compatibleListElement(want, got)
@@ -3143,13 +3186,13 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
             // A `for x in lo..hi` counts ints from lo while the counter is
             // below hi: both bounds are checked here and the item is an int,
             // while the tail below (scope, bindings, body) is shared with
-            // the list path. Anything but two ints is refused with both
-            // types named, the way a non-list iterable is.
+            // the list path. Anything but two ints is refused with both types
+            // named; a poisoned bound was already refused, so it is silent.
             match f.iterable {
                 ASTNode.Range(r) => {
                     val loType = checkNode(sema, r.lo)
                     val hiType = checkNode(sema, r.hi)
-                    if loType != "int" || hiType != "int" {
+                    if (loType != "int" || hiType != "int") && semaPoisonedType(loType) == false && semaPoisonedType(hiType) == false {
                         reportError(sema, "for ranges count ints, not " + loType + ".." + hiType + ".")
                     }
                     checkForBody(sema, f, "int")
@@ -3166,7 +3209,11 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
                     // unknown dynamic read segfaults on the first element. Model
                     // field reads answer their declared type above, so declared
                     // lists pass; only the unprovable is refused, with its type named.
-                    if compatTypeBase(iterType) != "list" {
+                    // `<poisoned>` is not unprovable, it is already refused: the
+                    // refusal was the diagnostic, and naming the sentinel here
+                    // would hand the user the spelling of a diagnostic instead of
+                    // its sentence.
+                    if compatTypeBase(iterType) != "list" && semaPoisonedType(iterType) == false {
                         reportError(sema, "for loops iterate lists, not " + iterType + ".")
                     }
                     checkForBody(sema, f, listElementOf(sema, iterType, bareNameOf(f.iterable)))
@@ -4291,12 +4338,21 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 // NULL or provided name in the program crashed here).
                 if foundSym != NULL {
                     if foundSym.isFunction {
+                        // The three refusals below answer the `<poisoned>`
+                        // spelling, not `unknown`. A binding of `unknown` is a
+                        // declared name of no known type, and the call arm
+                        // reads exactly that as "a value that is not a
+                        // function", so `val f = main; return f()` printed a
+                        // second error about a type the refusal never gave it.
+                        // `<poisoned>` says "the diagnostic already printed" and
+                        // silences that consequence. An annotation cannot spell
+                        // it: parseTypeName starts at an identifier.
                         // The entry point is not a value: its C name is orbit_main
                         // and its address is the process entry, so binding it
                         // would call back into startup, not into the body.
                         if l.text == "main" {
                             reportError(sema, "Cannot use 'main' as a value: it is the entry point, not a callable value; move the body into a named function and use that.")
-                            return "unknown"
+                            return "<poisoned>"
                         }
                         // A generic has no one signature until a call fixes its
                         // parameters, so a bare reference has nothing to infer
@@ -4304,7 +4360,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // would monomorphise nothing.
                         if isGenericFn(sema, l.text) {
                             reportError(sema, "Cannot use generic function '" + l.text + "' as a value: call it so the arguments fix its type parameters; a bare reference has nothing to infer them from.")
-                            return "unknown"
+                            return "<poisoned>"
                         }
                         // A value is called through a C cast that passes the
                         // request arena first, which is correct for every
@@ -4319,7 +4375,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // is worse than a refusal.
                         if isExternFnName(sema, l.text) {
                             reportError(sema, "Cannot use extern function '" + l.text + "' as a value: a value is called through a C cast that passes the request arena first, and an extern does not take one, so its arguments would shift; call the extern directly instead.")
-                            return "unknown"
+                            return "<poisoned>"
                         }
                         return fnTypeSpelling(foundSym.typeName, foundSym.paramTypes)
                     }
@@ -4829,8 +4885,11 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             if indexBase == "list" { return listElementOf(sema, objType, bareNameOf(ia.object)) }
             /* `p[0]` on a model, an int or a bool compiled clean and returned
              * `unknown`, so the read reached codegen with no kind and no
-             * refusal. Only a list, a map and a string hold elements. */
-            if objType != "unknown" && indexBase != "map" && indexBase != "string" {
+             * refusal. Only a list, a map and a string hold elements. A
+             * `<poisoned>` receiver is a name a refusal already reported, so it
+             * is silent here for the reason the `for` iterable is: the refusal
+             * is the whole message, and this sentence would print its sentinel. */
+            if objType != "unknown" && indexBase != "map" && indexBase != "string" && semaPoisonedType(objType) == false {
                 reportErrorAt(sema, "E1013", "Index a list, a map or a string. A model field is read by name, and anything else has no elements to index.", ia.line, ia.col, "The value being indexed is a " + objType + ", which holds no elements.")
             }
             return "unknown"

@@ -206,6 +206,69 @@ static void test_nul_byte_in_body_survives(void) {
     orbit_arena_destroy(arena);
 }
 
+/* A zero byte in a part header is not representable in an orbit_string, so
+ * the save refuses the part instead of sanitizing the value into a name the
+ * sender did not choose. `a\0b.txt` used to land as `a_b.txt`: the byte
+ * became '_' in the sanitized name and the path named a file the sender
+ * never wrote. No file is created, and the answer is "". */
+static void test_nul_in_filename_is_refused(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    static const unsigned char fname[7] = { 'a', 0, 'b', '.', 't', 'x', 't' };
+    static const char pre[] =
+        "Content-Disposition: form-data; name=\"file\"; filename=\"";
+    static const char mid[] = "\"\r\n\r\npayload\n";
+    size_t blen = strlen(HDR_BOUNDARY);
+
+    char body[1024];
+    size_t n = 0;
+    memcpy(body + n, "--", 2);
+    n += 2;
+    memcpy(body + n, HDR_BOUNDARY, blen);
+    n += blen;
+    memcpy(body + n, "\r\n", 2);
+    n += 2;
+    memcpy(body + n, pre, sizeof(pre) - 1);
+    n += sizeof(pre) - 1;
+    memcpy(body + n, fname, sizeof(fname));
+    n += sizeof(fname);
+    memcpy(body + n, mid, sizeof(mid) - 1);
+    n += sizeof(mid) - 1;
+    memcpy(body + n, "\r\n--", 4);
+    n += 4;
+    memcpy(body + n, HDR_BOUNDARY, blen);
+    n += blen;
+    memcpy(body + n, "--\r\n", 4);
+    n += 4;
+    assert(n < sizeof(body));
+
+    char raw[2048];
+    int hlen = snprintf(raw, sizeof(raw),
+        "POST /upload HTTP/1.1\r\n"
+        "Content-Type: multipart/form-data; boundary=%s\r\n"
+        "Content-Length: %zu\r\n"
+        "\r\n", HDR_BOUNDARY, n);
+    assert(hlen > 0 && (size_t)hlen + n <= sizeof(raw));
+    memcpy(raw + hlen, body, n);
+
+    OrbitRequest* r = NULL;
+    size_t c = orbit_http_parse_request_ex(arena, raw, (size_t)hlen + n, &r, NULL);
+    assert(c > 0 && r != NULL);
+
+    /* Both names the old sanitizer could produce are absent beforehand, so
+       either one appearing is the defect. */
+    remove("./a_b.txt");
+    remove("./a.txt");
+
+    const char* saved = orbit_file_upload_save(arena, r, "file", ".");
+    assert(strcmp(saved, "") == 0);
+    FILE* f = orbit_fopen("./a_b.txt", "rb");
+    assert(f == NULL);
+    f = orbit_fopen("./a.txt", "rb");
+    assert(f == NULL);
+
+    orbit_arena_destroy(arena);
+}
+
 int main(void) {
     printf("test_upload\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -214,5 +277,6 @@ int main(void) {
     RUN_TEST(test_traversal_filename_stays_inside);
     RUN_TEST(test_empty_part_saves_empty_file);
     RUN_TEST(test_nul_byte_in_body_survives);
+    RUN_TEST(test_nul_in_filename_is_refused);
     return 0;
 }

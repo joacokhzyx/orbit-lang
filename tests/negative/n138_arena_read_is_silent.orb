@@ -1,0 +1,24 @@
+// case: arena-read-is-silent-in-the-type-rules
+// what: `val arena = 7` is refused because every function this compiler emits
+//      already takes an OrbitArena* arena, and the refusal declares the name
+//      with the poisoned spelling so the read stays silent. `n135` pinned the
+//      plain read; the three rules that refuse an operand by its type did not
+//      consult the sentinel, so the for loop reported `for loops iterate
+//      lists, not <poisoned>`, the range reported `for ranges count ints,
+//      not <poisoned>..<poisoned>`, and the index reported `The value being
+//      indexed is a <poisoned>`. All are the consequence of the refusal, and
+//      all leaked the spelling to the user. `one-diagnostic:` pins the count,
+//      so a fourth line is a red build.
+// expect-error: Cannot declare 'arena'
+// one-diagnostic:
+
+fn main() -> int {
+    val arena = 7
+    for x in arena {
+        print(x)
+    }
+    for y in arena..arena {
+        print(y)
+    }
+    return arena[0]
+}

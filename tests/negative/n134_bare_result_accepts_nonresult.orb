@@ -1,0 +1,13 @@
+// case: bare-result-accepts-non-result
+// what: `take` declares a bare `result` and `main` passes the integer 5.
+//      checkCompatibility accepted every value for a bare result, so
+//      `orbit check` exited 0 and the C step rejected o_take.
+// expect-error: Parameter 1 of take is declared result but the argument is int
+fn take(r: result) -> int {
+    val v = try r catch { return 7 }
+    return 0
+}
+
+fn main() -> int {
+    return take(5)
+}

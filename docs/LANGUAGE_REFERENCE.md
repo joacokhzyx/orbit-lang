@@ -1364,7 +1364,7 @@ $ echo $?
 ```
 
 `declareSymbol` walks the current scope and reports `Duplicate symbol: <name>`
-the moment it sees a second one (`compiler/front/sema.orb:1428`).
+the moment it sees a second one (`compiler/front/sema.orb:1458`).
 The check is on the symbol's name alone - no module, no origin, no overload. It
 does not matter which file is imported first, and it fires even if the two
 functions have different signatures.
@@ -1943,11 +1943,11 @@ These print the one-line `Semantic error:` form and pin a substring:
 ## Formatting
 
 The rules below are the contract for `orbit fmt`: the style the repository already follows, rule by rule, with evidence, and the formatter implements exactly what is written here. The corpus is recursive `*.orb`
-under `compiler/` (29 files), `tests/suite/` (129),
+under `compiler/` (29 files), `tests/suite/` (130),
 `std/` (21) and `tests/std/` (24), plus
 `examples/*.orb` (13, minus
-`orbit_full_expansion.orb`). 216 files -- the exact list
-the fmt gate verifies (`make all` prints `fmt ... (216 files, 8 workers)`). The rules were inferred
+`orbit_full_expansion.orb`). 217 files -- the exact list
+the fmt gate verifies (`make all` prints `fmt ... (217 files, 8 workers)`). The rules were inferred
 from that corpus with strings and comments stripped, so stylish string contents (JSON payloads,
 URLs) do not pollute them, and they stay readable as the corpus grows.
 

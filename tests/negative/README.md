@@ -24,7 +24,7 @@ Each file declares exactly one, in a header comment.
 | `// wrong-value: <stdout>` | Optional, on a `known-defect:` case only. The program is built and run, and its stdout must still be exactly this (`\n` separates lines). |
 | `// cc-rejects: <substring>` | Optional, on a `known-defect:` case only. The front end must stay silent **and** the C toolchain must still reject the output with `<substring>`. |
 | `// no-diagnostic:` | Optional, on a `known-defect:` case only, and **instead of** the two above. The program must still build and must still die without saying anything: non-zero exit, nothing on stdout or stderr. This is for the class where the wrong answer is a crash, which a `wrong-value:` cannot hold. |
-| `// one-diagnostic:` | Optional, on an `expect-error:` case only. The rejection is **exactly one** `error[<CODE>]` line. A substring match passes when the same refusal prints four times, so the count is the part this directive holds. |
+| `// one-diagnostic:` | Optional, on an `expect-error:` case only. The rejection is **exactly one** diagnostic line: an `error[<CODE>]` card, or the unprefixed `Semantic error:` form a refusal with no position prints. A substring match passes when the same refusal prints four times, so the count is the part this directive holds. |
 
 A case may pin at most one of `wrong-value:`, `cc-rejects:` and
 `no-diagnostic:` — they are three ways of saying what the program actually does,
@@ -225,9 +225,17 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-123 cases: 123 are `expect-error:` - each program is rejected, with a pinned
+128 cases: 128 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 123/123 pass (0 known defects still accepted)`. `n130` pins the 33rd route limit: the runtime table holds 32 and drops the rest, so the checker refuses the program instead of serving a route under a weaker policy. `n129` pins the payload a bare `-> result` never wrote: `ok(5)` read back through a `string` annotation was a fault, and the checker now refuses the annotation. `n132` and `n133` pin the two payload refusals: `ok(5)` where `result<string>` is declared, and a `-> result` wrapper that lost the payload its callee answered. `n122` pins what a `match` binding knows: an int payload used as a string argument is refused. `n121` is the case
+negative: 128/128 pass (0 known defects still accepted)`. `n135` and `n136` pin
+that a refusal stays one diagnostic: a refused declaration leaves a `<poisoned>`
+symbol and a refused `main`-as-value answers the same spelling, so the read or
+call after either stays silent. `n138` pins the same for the three rules that
+refuse an operand by its type: the list `for`, the range and the index stay quiet
+on a `<poisoned>` operand, so `val arena = 7` followed by all three reads prints
+one diagnostic and never the spelling. `n137` pins the other half of that: the
+sentinel is not a type name a program can spell, so `val p: poisoned = 7` is
+refused with E1006. `n130` pins the 33rd route limit: the runtime table holds 32 and drops the rest, so the checker refuses the program instead of serving a route under a weaker policy. `n129` pins the payload a bare `-> result` never wrote: `ok(5)` read back through a `string` annotation was a fault, and the checker now refuses the annotation. `n132` and `n133` pin the two payload refusals: `ok(5)` where `result<string>` is declared, and a `-> result` wrapper that lost the payload its callee answered. `n122` pins what a `match` binding knows: an int payload used as a string argument is refused. `n121` is the case
 where refusing is the whole point: two unions declare one variant name and the
 construction writes only the name, so the checker has no owner to read the
 payload from and no expected type to infer one - `E1011` names both owners

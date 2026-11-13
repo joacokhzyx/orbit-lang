@@ -97,10 +97,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 123/123 pass (0 known defects still accepted)
+Finished negative: 128/128 pass (0 known defects still accepted)
 ```
 
-One hundred and twenty programs: every one must be rejected and is. The last one
+One hundred and twenty-eight programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
@@ -224,13 +224,27 @@ and the measurement that says how much of the front end is still untyped is
 **Closed 2026-11-12.** Two refusals close the hole this section measured.
 `tests/negative/n132_result_ok_payload_mismatch.orb` pins `ok(5)` in a
 `-> result<string>` body, and `n133_result_composed_payload.orb` pins a
-`-> result` wrapper whose callee answered a payload. A bare `result` value
-itself stays compatible with every value; `result-bare-wildcard` in
-`DEFECTS.md` records that one. The history below is the measurement that led
-here; the paragraphs that say the hole is open describe the tree before the
-fix.
+`-> result` wrapper whose callee answered a payload. The bare `result` itself
+was still a wildcard at that point. The history below is the measurement that
+led here; the paragraphs that say the hole is open describe the tree before
+the fix.
 
-`compiler/front/sema.orb:4808` answers a `try` with the payload the callee's signature
+**Closed 2026-11-13.** A bare `result` no longer accepts a non-result:
+`checkCompatibility` answers `compatTypeBase(got) == "result"` for that arm.
+`n134` pins the refusal, `Parameter 1 of take is declared result but the
+argument is int`, and `result_parameter.orb` pins the valid form.
+
+**Closed 2026-11-13, a refusal stays one diagnostic.** A refused declaration
+used to return without declaring the name, so the read after it reported the
+name undeclared and counted a resolution miss. The `main`, generic and extern
+value refusals answered `unknown`, so the call after one reported a second
+error: not a function. All four leave the poisoned spelling now. It fits every
+expected type and is a type nowhere, so the refusal remains the whole output.
+`tests/negative/n135_arena_refusal_one_diagnostic.orb` and
+`n136_main_value_refusal_one_diagnostic.orb` pin the count with
+`one-diagnostic:`, and neither prints an `UNRESOLVED` line.
+
+`compiler/front/sema.orb:4935` answers a `try` with the payload the callee's signature
 writes, so the annotation on the binding is compared with what the read yields:
 
 ```console
@@ -251,12 +265,12 @@ $ orbit check tryprobe.orb
 
 `decode` carries a `string`, `n` is annotated `int`, and `print(n)` reads that
 pointer as an integer. The mechanism is already written down at
-`compiler/front/sema.orb:4690`, which blames it for `ok 200 system.uptime()`
+`compiler/front/sema.orb:4842`, which blames it for `ok 200 system.uptime()`
 reaching the C backend with an int where a string pointer belongs. The fix there
 named a receiver type; this site has no receiver to name, because the payload is
 written nowhere, and `tests/negative/n123_try_annotation_payload.orb` keeps the refusal.
 Before 2026-11-05 the same arm answered `unknown` for every `try`, and the compatibility
-rules accept `unknown` for anything, at `compiler/front/sema.orb:1146` and `:2012`: the
+rules accept `unknown` for anything, at `compiler/front/sema.orb:1167` and `:2142`: the
 probe above built, and `print(n)` read a string pointer as an integer.
 Two counts of this sentence have been wrong and both are dated rather than hidden: the
 first said 51 in 31 files, counting the spelling wherever it appeared, and the second
@@ -300,7 +314,7 @@ return 7 }` checks clean too, `orbit build` compiles it, and running the binary
 faults: `[ORBIT RUNTIME CRASH] ExceptionCode 0xC0000005`, exit 139, because the
 int is read back as a string pointer. No `tests/negative` case pins a refusal,
 because there is no refusal to pin -- the bare `result` is compatible with every
-payload at `compiler/front/sema.orb:2068`, and `checkCompatibility` returns true
+payload at `compiler/front/sema.orb:2150`, and `checkCompatibility` returns true
 whenever the wanted type is `result`.
 
 One route to closing it was tried and is falsified here, because the plan said
@@ -337,7 +351,7 @@ the checker. Spelling `std/convert/codec.orb:146` as
 Semantic error: Return type mismatch: expected result<string>, got result [in hexDecode]
 ```
 
-The body returns `ok(out)`, and `compiler/front/sema.orb:4251` gives that call a bare
+The body returns `ok(out)`, and `compiler/front/sema.orb:4630` gives that call a bare
 `result`. A declaration cannot be more precise than the constructor expression the
 checker hands it. The two rules have to move together -- `ok` and `err` typed from
 their argument, then `try` typed from the declared `result<T>` -- and neither is a
@@ -693,7 +707,7 @@ Both directions are pinned. `tests/suite/union_shared_variant_name.orb` declares
 `Packet.Body(int)` and `Signal.Body(string)`, constructs each qualified, matches
 each with a qualified pattern and with a bare pattern under its own scrutinee,
 and exits 0. The checker reads a payload from the owner the program wrote --
-`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:755`)
+`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:778`)
 -- and a bare pattern resolves through the scrutinee's type in `bareVariantOwner`
 (`compiler/ir/builder.orb:2415`). The constructor macro carries both names:
 `val mvMacro = cUserName(mvType.name + "_" + mvName)`

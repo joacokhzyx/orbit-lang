@@ -221,7 +221,7 @@ refusal. Measured 2026-11-12 on `orbit 0.1.0`.
 type for a value - an extern whose signature writes a bare `result`, or a
 construct the front end cannot type - the value is `unknown`, and
 `checkCompatibility` accepts it for any expected type
-(`compiler/front/sema.orb:2097`). The unknown-type census counts those
+(`compiler/front/sema.orb:2134`). The unknown-type census counts those
 instructions and the ratchet holds the count: the baseline records 3
 instructions typed `unknown` in 149,684, 0.0 per mille
 (`scripts/baselines/unknown_count.json`). A value that is `unknown` at a
