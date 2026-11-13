@@ -707,7 +707,7 @@ Both directions are pinned. `tests/suite/union_shared_variant_name.orb` declares
 `Packet.Body(int)` and `Signal.Body(string)`, constructs each qualified, matches
 each with a qualified pattern and with a bare pattern under its own scrutinee,
 and exits 0. The checker reads a payload from the owner the program wrote --
-`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:776`)
+`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:778`)
 -- and a bare pattern resolves through the scrutinee's type in `bareVariantOwner`
 (`compiler/ir/builder.orb:2415`). The constructor macro carries both names:
 `val mvMacro = cUserName(mvType.name + "_" + mvName)`

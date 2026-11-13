@@ -360,7 +360,9 @@ fn semaKnownType(t: string) -> bool {
 // `unknown` on purpose. A `for` over a never-set dynamic field crashes at run
 // time (`tests/negative/n59_for_over_unknown_field.orb` holds the refusal), so
 // a rule that refuses what it cannot prove asks this instead and keeps its
-// `unknown` case. The refusal sites and the accessors name it; no rule compares it.
+// `unknown` case. The declaration site, the three refusals that answer it,
+// the callee accessor and the compatibility rule name it; no rule refuses an
+// operand because of it.
 fn semaPoisonedType(t: string) -> bool {
     return t == "<poisoned>"
 }
