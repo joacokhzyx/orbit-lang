@@ -17,7 +17,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Result construction and returns | `result_values.orb` |
 | Result propagation | `result_try.orb` |
 | Result handling | `result_catch.orb` |
-| Result bound to a val or passed as an argument | `result_bind.orb`, `result_binding.orb` |
+| Result bound to a val or passed as an argument | `result_bind.orb`, `result_binding.orb`, `result_parameter.orb` |
 | Models and mutation | `model_fields.orb`, `model_local_named_mid.orb`, `model_ctor_call_arg_unused.orb`, `model_two_fields.orb`, `model_mutation.orb` |
 | Field and element stores | `member_and_index_store.orb` |
 | Integer literals (hex, separators) | `integer_literals.orb` |

@@ -1,0 +1,10 @@
+// A bare `result` parameter accepts a `result<int>` argument.
+fn take(r: result) -> int {
+    val v: int = try r catch { return 7 }
+    return v
+}
+
+fn main() -> int {
+    if take(ok(5)) != 5 { return 1 }
+    return 0
+}

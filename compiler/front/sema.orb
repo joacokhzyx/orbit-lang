@@ -2104,7 +2104,7 @@ fn checkCompatibility(expected: string, actual: string) -> bool {
     val got = canonicalTypeSpelling(actual)
     if want == "unknown" || got == "unknown" { return true }
     if want == got { return true }
-    if want == "result" { return true }
+    if want == "result" { return compatTypeBase(got) == "result" }
     if want == "response" { return true }
     if compatTypeBase(want) == "list" && compatTypeBase(got) == "list" {
         return compatibleListElement(want, got)

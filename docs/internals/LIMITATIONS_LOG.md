@@ -97,10 +97,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 123/123 pass (0 known defects still accepted)
+Finished negative: 124/124 pass (0 known defects still accepted)
 ```
 
-One hundred and twenty programs: every one must be rejected and is. The last one
+One hundred and twenty-four programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
@@ -224,11 +224,15 @@ and the measurement that says how much of the front end is still untyped is
 **Closed 2026-11-12.** Two refusals close the hole this section measured.
 `tests/negative/n132_result_ok_payload_mismatch.orb` pins `ok(5)` in a
 `-> result<string>` body, and `n133_result_composed_payload.orb` pins a
-`-> result` wrapper whose callee answered a payload. A bare `result` value
-itself stays compatible with every value; `result-bare-wildcard` in
-`DEFECTS.md` records that one. The history below is the measurement that led
-here; the paragraphs that say the hole is open describe the tree before the
-fix.
+`-> result` wrapper whose callee answered a payload. The bare `result` itself
+was still a wildcard at that point. The history below is the measurement that
+led here; the paragraphs that say the hole is open describe the tree before
+the fix.
+
+**Closed 2026-11-13.** A bare `result` no longer accepts a non-result:
+`checkCompatibility` answers `compatTypeBase(got) == "result"` for that arm.
+`n134` pins the refusal, `Parameter 1 of take is declared result but the
+argument is int`, and `result_parameter.orb` pins the valid form.
 
 `compiler/front/sema.orb:4808` answers a `try` with the payload the callee's signature
 writes, so the annotation on the binding is compared with what the read yields:
