@@ -1,0 +1,21 @@
+// case: composed-result-keeps-its-payload
+// what: `pass` declares a bare `result` and returns `five()`, which answers
+//      `result<int>`. The return arm accepted a result and recorded nothing,
+//      so `pass` stayed a bare result, the caller's `try` answered `unknown`,
+//      and the string annotation was never compared. The read then took the
+//      int word as a string pointer and the binary died with 0xC0000005,
+//      exit 139.
+// expect-error: is declared string but the value is int
+fn five() -> result<int> {
+    return ok(5)
+}
+
+fn pass() -> result {
+    return five()
+}
+
+fn main() -> int {
+    val v: string = try pass() catch { return 7 }
+    print(v)
+    return 0
+}
