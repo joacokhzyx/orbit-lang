@@ -265,7 +265,7 @@ $ orbit check tryprobe.orb
 
 `decode` carries a `string`, `n` is annotated `int`, and `print(n)` reads that
 pointer as an integer. The mechanism is already written down at
-`compiler/front/sema.orb:4838`, which blames it for `ok 200 system.uptime()`
+`compiler/front/sema.orb:4840`, which blames it for `ok 200 system.uptime()`
 reaching the C backend with an int where a string pointer belongs. The fix there
 named a receiver type; this site has no receiver to name, because the payload is
 written nowhere, and `tests/negative/n123_try_annotation_payload.orb` keeps the refusal.

@@ -318,7 +318,7 @@ argument, not open work.
   was that it is not a doctor check: `patternVariantName`
   (`compiler/front/sema.orb:3278`) and `qualifiedVariantName`
   (`compiler/front/sema.orb:3303`) need a `Sema`, and doctor's only door to it is
-  `checkSourceWithFile(...) -> bool` (`compiler/host/pipeline.orb:184`). It would
+  `checkSourceWithFile(...) -> bool` (`compiler/host/pipeline.orb:185`). It would
   belong beside `checkMatchExhaustive` (`compiler/front/sema.orb:3322`) as a
   second E-code.
   `covered` (`compiler/front/sema.orb:3327`) accumulates variant names and never

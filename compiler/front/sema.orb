@@ -360,7 +360,7 @@ fn semaKnownType(t: string) -> bool {
 // `unknown` on purpose. A `for` over a never-set dynamic field crashes at run
 // time (`tests/negative/n59_for_over_unknown_field.orb` holds the refusal), so
 // a rule that refuses what it cannot prove asks this instead and keeps its
-// `unknown` case. Nothing else may name the spelling.
+// `unknown` case. The refusal sites and the accessors name it; no rule compares it.
 fn semaPoisonedType(t: string) -> bool {
     return t == "<poisoned>"
 }
@@ -3184,13 +3184,13 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
             // A `for x in lo..hi` counts ints from lo while the counter is
             // below hi: both bounds are checked here and the item is an int,
             // while the tail below (scope, bindings, body) is shared with
-            // the list path. Anything but two ints is refused with both
-            // types named, the way a non-list iterable is.
+            // the list path. Anything but two ints is refused with both types
+            // named; a poisoned bound was already refused, so it is silent.
             match f.iterable {
                 ASTNode.Range(r) => {
                     val loType = checkNode(sema, r.lo)
                     val hiType = checkNode(sema, r.hi)
-                    if loType != "int" || hiType != "int" {
+                    if (loType != "int" || hiType != "int") && semaPoisonedType(loType) == false && semaPoisonedType(hiType) == false {
                         reportError(sema, "for ranges count ints, not " + loType + ".." + hiType + ".")
                     }
                     checkForBody(sema, f, "int")
