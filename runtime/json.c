@@ -328,6 +328,10 @@ static const char* json_parse_string(JsonParse* j, const char** p) {
                 json_fail(j, "json: bad unicode escape");
                 return NULL;
             }
+            if (cp == 0) {
+                json_fail(j, "json: NUL is not representable in a string");
+                return NULL;
+            }
             if (cp >= 0xD800 && cp <= 0xDBFF) {
                 int lo;
                 if (q[5] != '\\' || q[6] != 'u') {
@@ -381,6 +385,7 @@ static const char* json_parse_string(JsonParse* j, const char** p) {
             }
             r++;
             if (*r == 'u') {
+                /* cp 0 never reaches here: the measuring pass refuses it. */
                 int cp = json_unicode_unit(r + 1);
                 if (cp >= 0xD800 && cp <= 0xDBFF) {
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (json_unicode_unit(r + 7) - 0xDC00);
