@@ -1,0 +1,16 @@
+// Recursive calls: a factorial and a Fibonacci number.
+fn fact(n: int) -> int {
+    if n <= 1 { return 1 }
+    return n * fact(n - 1)
+}
+
+fn fib(n: int) -> int {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main() -> int {
+    if fact(5) != 120 { return 1 }
+    if fib(10) != 55 { return 2 }
+    return 0
+}
