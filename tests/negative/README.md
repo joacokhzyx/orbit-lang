@@ -225,9 +225,9 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-121 cases: 121 are `expect-error:` - each program is rejected, with a pinned
+123 cases: 123 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 121/121 pass (0 known defects still accepted)`. `n130` pins the 33rd route limit: the runtime table holds 32 and drops the rest, so the checker refuses the program instead of serving a route under a weaker policy. `n129` pins the payload a bare `-> result` never wrote: `ok(5)` read back through a `string` annotation was a fault, and the checker now refuses the annotation. `n122` pins what a `match` binding knows: an int payload used as a string argument is refused. `n121` is the case
+negative: 123/123 pass (0 known defects still accepted)`. `n130` pins the 33rd route limit: the runtime table holds 32 and drops the rest, so the checker refuses the program instead of serving a route under a weaker policy. `n129` pins the payload a bare `-> result` never wrote: `ok(5)` read back through a `string` annotation was a fault, and the checker now refuses the annotation. `n122` pins what a `match` binding knows: an int payload used as a string argument is refused. `n121` is the case
 where refusing is the whole point: two unions declare one variant name and the
 construction writes only the name, so the checker has no owner to read the
 payload from and no expected type to infer one - `E1011` names both owners
