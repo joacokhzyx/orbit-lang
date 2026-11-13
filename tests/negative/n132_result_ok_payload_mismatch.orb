@@ -1,0 +1,16 @@
+// case: result-ok-payload-mismatch
+// what: `bad` declares `result<string>` and its body builds the success value
+//      with `ok(5)`. The return arm accepted any value for an `ok`, so the
+//      declaration promised a string to `try` and the body put an int word
+//      there. The consumer read it as a string pointer and the binary died
+//      with 0xC0000005, exit 139.
+// expect-error: bad is declared result<string> but the ok value is int
+fn bad() -> result<string> {
+    return ok(5)
+}
+
+fn main() -> int {
+    val v: string = try bad() catch { return 7 }
+    print(v)
+    return 0
+}
