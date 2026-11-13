@@ -677,7 +677,7 @@ symbol, the dependent module imports the owning module.
 |---|---|
 | `scripts/trust.py build` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
 | `scripts/trust.py verify` | Hermetic fixed-point chain; `--release` pins the published hash |
-| `scripts/corpus_gates.py` | The eight corpus checks, one entry: `suite`, `negative`, `frontend`, `werror`, `runtime_gen`, `runtime_module`, `parity`, `fuzz_frontend`. `parity` covers every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
+| `scripts/corpus_gates.py` | The nine corpus checks, one entry: `suite`, `negative`, `frontend`, `werror`, `check_build`, `runtime_gen`, `runtime_module`, `parity`, `fuzz_frontend`. `parity` covers every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
 | `scripts/static_gates.py` | The five T0 text gates, one entry: `schema`, `walk`, `counts`, `flags`, `cites` |
 | `scripts/doctor_gates.py` | The doctor goldens (`doctor`, and `--scope-only` for the clean-directory check), the CLI subcommand, help and exit-code contract (`cli-probe`), the rich and colour screens (`snapshots`), the checker's dispatch arms (`dispatch`) |
 | `scripts/measure.py routes` | Route argument normalisation |
