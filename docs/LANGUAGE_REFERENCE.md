@@ -588,6 +588,13 @@ directly.
 2xx/3xx status is rejected the same way. An `ok` body must be a string or an
 object outside `-> result` functions. An `err` body must be a string.
 
+Inside a `-> result` function, `ok(v)` is compared with the payload the
+signature declares: `fn f() -> result<string>` refuses `return ok(5)` with
+E1006, and a bare `-> result` takes its payload from the `ok` value or from
+the result it returns. `tests/negative/n132_result_ok_payload_mismatch.orb`
+and `n133_result_composed_payload.orb` pin the refusals;
+`tests/suite/result_payload_composition.orb` pins the read that now works.
+
 ```orbit
 fn load_value() -> result {
     val value: result = ok(41)
