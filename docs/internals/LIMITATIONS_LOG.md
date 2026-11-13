@@ -97,10 +97,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 126/126 pass (0 known defects still accepted)
+Finished negative: 127/127 pass (0 known defects still accepted)
 ```
 
-One hundred and twenty-six programs: every one must be rejected and is. The last one
+One hundred and twenty-seven programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)

@@ -1,0 +1,14 @@
+// case: poisoned-annotation-is-refused
+// what: `poisoned` was the spelling the checker wrote into a symbol whose
+//      declaration it had refused, so a program must not be able to declare a
+//      name with it. checkAnnotation guards capitalised names only and
+//      checkCompatibility accepted the spelling for any expected type, so
+//      `val p: poisoned = 7` checked clean and the C emitter gave `p` the type
+//      it gives every name it has no rule for. The sentinel reads `<poisoned>`
+//      now, which parseTypeName cannot produce, so this annotation is an
+//      ordinary unknown type again and the value is refused against it.
+// expect-error: 'p' is declared poisoned but the value is int.
+fn main() -> int {
+    val p: poisoned = 7
+    return p
+}

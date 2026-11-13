@@ -338,16 +338,19 @@ fn reportErrorAt(sema: Sema, code: string, hint: string, line: int, col: int, me
 // answer, and `""`/`void` are the shapes a node with no type rule comes back
 // as; a rule about operand types can only act on a name.
 //
-// `poisoned` is what a refused declaration and a refused value leave behind.
+// `<poisoned>` is what a refused declaration and a refused value leave behind.
 // It marks a name whose type was decided by a diagnostic that has already
 // printed, so no type rule may act on it: saying "bitwise '~' takes one int,
-// not 'poisoned'" would report the consequence of the refusal instead of the
-// refusal.
+// not '<poisoned>'" would report the consequence of the refusal instead of the
+// refusal. The angle brackets are the point: parseTypeName starts at an
+// identifier and appends the `<...>` parameters, so an annotation cannot start
+// with `<` and no program can hand a declared name the type a refusal reserved
+// for itself.
 fn semaKnownType(t: string) -> bool {
     if t == "" { return false }
     if t == "unknown" { return false }
     if t == "void" { return false }
-    if t == "poisoned" { return false }
+    if t == "<poisoned>" { return false }
     return true
 }
 
@@ -1430,9 +1433,9 @@ fn declareSymbolWithParams(sema: Sema, name: string, typeName: string, isMutable
         // refusal stays the one diagnostic. Returning without declaring it is
         // what made `val arena = 7; return arena` print a second error saying
         // the name was undeclared: the program did declare it, and the refusal
-        // was the reason it has no type. The poisoned spelling keeps the read
-        // silent and keeps the name out of the resolution-miss census.
-        scope.symbols.push(Symbol(name, "poisoned", isMutable, isFunction, paramTypes))
+        // was the reason it has no type. The `<poisoned>` spelling keeps the
+        // read silent and keeps the name out of the resolution-miss census.
+        scope.symbols.push(Symbol(name, "<poisoned>", isMutable, isFunction, paramTypes))
         return
     }
     var i = 0
@@ -1700,9 +1703,10 @@ fn resolveCalleeName(sema: Sema, name: string) -> string {
     // A binding of a refused value is declared and has no callable type. Its
     // spelling already means "the diagnostic printed", so the sentence below
     // would be a second error about a type the refusal never gave the name.
-    // Answering it is the whole answer; the call's own type rule then sees a
-    // spelling `semaKnownType` refuses and stays quiet.
-    if declared == "poisoned" { return declared }
+    // Answering it is the whole answer: the call then answers `unknown`, the
+    // absence of a type, and every rule that acts on an operand's type stays
+    // quiet on that.
+    if declared == "<poisoned>" { return declared }
     if declared != "" {
         // The name is declared, just not as something callable. "Undeclared"
         // would be the wrong word for that, and the wrong word sends the
@@ -2123,12 +2127,12 @@ fn checkCompatibility(expected: string, actual: string) -> bool {
     val want = canonicalTypeSpelling(expected)
     val got = canonicalTypeSpelling(actual)
     if want == "unknown" || got == "unknown" { return true }
-    // A refused declaration and a refused value answer `poisoned`, which means
-    // "the diagnostic already printed". It fits every expected type, because a
-    // second complaint about the type of a name the refusal never gave a type
-    // is the cascade, not a finding. `semaKnownType` answers false for it, so
-    // a rule that acts on an operand's type still stays quiet.
-    if want == "poisoned" || got == "poisoned" { return true }
+    // A refused declaration and a refused value answer `<poisoned>`, which
+    // means "the diagnostic already printed". It fits every expected type,
+    // because a second complaint about the type of a name the refusal never
+    // gave a type is the cascade, not a finding. `semaKnownType` answers false
+    // for it, so a rule that acts on an operand's type still stays quiet.
+    if want == "<poisoned>" || got == "<poisoned>" { return true }
     if want == got { return true }
     if want == "result" { return compatTypeBase(got) == "result" }
     if want == "response" { return true }
@@ -4317,20 +4321,21 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 // NULL or provided name in the program crashed here).
                 if foundSym != NULL {
                     if foundSym.isFunction {
-                        // The three refusals below answer the poisoned
+                        // The three refusals below answer the `<poisoned>`
                         // spelling, not `unknown`. A binding of `unknown` is a
                         // declared name of no known type, and the call arm
                         // reads exactly that as "a value that is not a
                         // function", so `val f = main; return f()` printed a
                         // second error about a type the refusal never gave it.
-                        // Poisoned says "the diagnostic already printed" and
-                        // silences that consequence.
+                        // `<poisoned>` says "the diagnostic already printed" and
+                        // silences that consequence. An annotation cannot spell
+                        // it: parseTypeName starts at an identifier.
                         // The entry point is not a value: its C name is orbit_main
                         // and its address is the process entry, so binding it
                         // would call back into startup, not into the body.
                         if l.text == "main" {
                             reportError(sema, "Cannot use 'main' as a value: it is the entry point, not a callable value; move the body into a named function and use that.")
-                            return "poisoned"
+                            return "<poisoned>"
                         }
                         // A generic has no one signature until a call fixes its
                         // parameters, so a bare reference has nothing to infer
@@ -4338,7 +4343,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // would monomorphise nothing.
                         if isGenericFn(sema, l.text) {
                             reportError(sema, "Cannot use generic function '" + l.text + "' as a value: call it so the arguments fix its type parameters; a bare reference has nothing to infer them from.")
-                            return "poisoned"
+                            return "<poisoned>"
                         }
                         // A value is called through a C cast that passes the
                         // request arena first, which is correct for every
@@ -4353,7 +4358,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // is worse than a refusal.
                         if isExternFnName(sema, l.text) {
                             reportError(sema, "Cannot use extern function '" + l.text + "' as a value: a value is called through a C cast that passes the request arena first, and an extern does not take one, so its arguments would shift; call the extern directly instead.")
-                            return "poisoned"
+                            return "<poisoned>"
                         }
                         return fnTypeSpelling(foundSym.typeName, foundSym.paramTypes)
                     }
