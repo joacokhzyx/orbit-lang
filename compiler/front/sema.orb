@@ -3935,6 +3935,17 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     // rule fire for it -- `ok(42)` was refused as
                     // `ok response body must be a string or an object, got int`.
                     if compatTypeBase(sema.currentReturnType) == "result" {
+                        // A payload written in the signature is a promise to
+                        // every caller: `try` reads exactly that type back.
+                        // `ok(5)` in a `-> result<string>` body put an int word
+                        // where the caller's try casts to a string pointer, so
+                        // the declaration and the value have to agree here.
+                        val declaredPayload = compatTypeResultPayload(sema.currentReturnType)
+                        if declaredPayload != "" {
+                            if checkCompatibility(declaredPayload, bodyType) == false {
+                                reportErrorAt(sema, "E1006", "Change the ok value, or change the result payload in the signature.", 0, 0, "Return type mismatch: " + sema.currentFunction + " is declared " + sema.currentReturnType + " but the ok value is " + bodyType)
+                            }
+                        }
                         recordResultPayload(sema, bodyType)
                     } else {
                         // orbit_response_json takes a C string body: a known
