@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The corpus gates: eight checkers over the committed programs, one entry point.
+"""The corpus gates: nine checkers over the committed programs, one entry point.
 
 Each gate keeps its own command, its own flags and its own closing line:
 
@@ -9,6 +9,7 @@ Each gate keeps its own command, its own flags and its own closing line:
                       text their header pins
     frontend          tests/frontend/ fixtures against their `.tir` goldens
     werror            the probe programs compiled and run under `-Werror`
+    check_build       tests/check_build/ programs must check clean AND build
     parity            tests/parity/probes/ against tests/parity/golden/
     runtime_gen       runtime/gen/*.c equal to what the compiler emits
     runtime_module    `orbit build --runtime-module` to a linkable object
@@ -17,9 +18,10 @@ Each gate keeps its own command, its own flags and its own closing line:
 The gate labels in `scripts/gate_registry.py` (`suite`, `suite_std`,
 `suite_native`, `suite_std_native`, `runtime_module`,
 `runtime_module_native`, `runtime_gen`, `negative`, `frontend`, `parity`,
-`werror`, `fuzz_frontend`) do not change here, and neither do the verdict
-lines other tools match on: `Finished suite: N/N`, `Finished frontend: N/N`,
-`Finished negative: N/N`, `Finished parity: N/N`, `Finished werror: N/N`,
+`werror`, `check_build`, `fuzz_frontend`) do not change here, and neither do
+the verdict lines other tools match on: `Finished suite: N/N`,
+`Finished frontend: N/N`, `Finished negative: N/N`, `Finished parity: N/N`,
+`Finished werror: N/N`, `Finished check-build: N/N`,
 `Finished runtime_gen: N/N`, `Finished runtime_module: N/N` and the fuzz line
 `Fuzzed N iterations: ...`. `scripts/alive_check.py` keeps one regex per gate
 and `scripts/gate_registry.py` one row per label, so a changed line stops
@@ -76,6 +78,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -1571,6 +1574,180 @@ def cmd_werror(args):
 
 
 # ---------------------------------------------------------------------------
+# ---- check_build ----
+#
+# If `orbit check` accepts a program, `orbit build` must succeed. That is the
+# promise every user and the LSP rely on, and until this gate nothing compared
+# the two: a program could pass the checker and die in the C compiler. The
+# measured case is `take(5)` against `fn take(r: result)`: check exits 0, and
+# the C step then rejects `o_take` because the argument is an int where
+# OrbitResult was declared.
+#
+# The corpus at tests/check_build/ holds small programs that check clean on
+# this tree, chosen across int, string, list, float, model and result programs.
+# Each one is held to both commands:
+#
+#     orbit check <file>            must exit 0 (the corpus states the promise)
+#     orbit build <file> -o <exe>   must then exit 0 with the real C compiler
+#
+# A non-zero build fails the gate and prints the tail of stderr, which is where
+# `orbit build` writes its diagnostics. A program that exposes an open defect
+# does not belong in the corpus: it would make the gate red on purpose, and the
+# defect already has its own record. `fmt --check` does not scan this directory,
+# so a new program is formatted with `orbit fmt` before it is committed.
+#
+# Usage:
+#     python scripts/corpus_gates.py check_build --compiler PATH [--cc CC]
+# ---------------------------------------------------------------------------
+
+CHECK_BUILD = os.path.join(ROOT, "tests", "check_build")
+
+# The build half of the invariant is a real C compile plus link. One program at
+# a time keeps the TEMP directory single (the emitted C has a fixed name) and
+# the per-program time meaningful; the whole corpus is nine small programs.
+CHECK_BUILD_TIMEOUT = 300
+
+
+def check_build_verdict(name, check_rc, build_rc, build_output=""):
+    """The rule, apart from the subprocesses so `--self-test` can drive it.
+
+    Returns (name, status, detail). `build_rc` is None when the check refused
+    the program and the build never ran: then the corpus itself is wrong, and
+    `build_output` is the check's diagnostic instead of a build's.
+    """
+    lines = (build_output or "").strip().splitlines()[-8:]
+    if check_rc != 0:
+        detail = "`orbit check` exited %d; the corpus must check clean" % check_rc
+        if lines:
+            detail += "\n" + "\n".join(lines)
+        return (name, "CHECK-FAIL", detail)
+    if build_rc != 0:
+        return (name, "BUILD-FAIL",
+                "`orbit check` accepted it and `orbit build` exited %s\n%s"
+                % (build_rc, "\n".join(lines)))
+    return (name, "OK", "checked and built")
+
+
+def check_build_program(runner, compiler, work, path):
+    """Check then build one program, through `runner(argv) -> CompletedProcess`.
+
+    The runner is a parameter so the self-test supplies an in-process fake and
+    needs no executable on disk, on either platform.
+    """
+    name = os.path.splitext(os.path.basename(path))[0]
+    exe = os.path.join(work, name + (".exe" if os.name == "nt" else ""))
+    check = runner([compiler, "check", path])
+    if check.returncode != 0:
+        return check_build_verdict(name, check.returncode, None,
+                                   (check.stderr or "") + (check.stdout or ""))
+    build = runner([compiler, "build", path, "-o", exe])
+    return check_build_verdict(name, 0, build.returncode,
+                               (build.stderr or "") + (build.stdout or ""))
+
+
+def self_test_check_build():
+    """The verdict, exercised with fake subprocess results.
+
+    Three outcomes decide the gate: both commands accept, check accepts and
+    build refuses, and check refuses. The second is the one this gate exists
+    for, so it must fail AND name the program; the third must not run the build
+    at all. A fake executable on disk would make the test depend on the
+    platform, so the runner is a closure that returns recorded results.
+    """
+    fails = 0
+
+    def check(label, ok):
+        nonlocal fails
+        if ok:
+            out.say(f"  ok    {label}")
+        else:
+            out.fail(f"  BROKEN {label}")
+            fails += 1
+
+    def fake(rcs, stderr=""):
+        pending = list(rcs)
+        calls = []
+
+        def runner(argv):
+            calls.append(list(argv))
+            rc = pending.pop(0)
+            return subprocess.CompletedProcess(argv, rc, stdout="",
+                                               stderr=stderr if rc else "")
+        return runner, calls
+
+    src = os.path.join(CHECK_BUILD, "probe.orb")
+    work = tempfile.gettempdir()
+
+    runner, calls = fake([0, 0])
+    name, status, _ = check_build_program(runner, "orbit", work, src)
+    check("check=0 build=0 passes", name == "probe" and status == "OK")
+    check("a passing program is checked before it is built",
+          len(calls) == 2 and calls[0][1] == "check" and calls[1][1] == "build")
+
+    diagnostic = "incompatible type for argument 2 of 'o_take'"
+    runner, calls = fake([0, 1], diagnostic + "\n")
+    name, status, detail = check_build_program(runner, "orbit", work, src)
+    check("check=0 build=1 fails", status == "BUILD-FAIL")
+    check("the failing program is named", name == "probe")
+    check("the build diagnostic reaches the failure",
+          "incompatible type for argument 2" in detail)
+
+    runner, calls = fake([1])
+    name, status, _ = check_build_program(runner, "orbit", work, src)
+    check("check=1 fails as a corpus error", status == "CHECK-FAIL")
+    check("a program that does not check is never built", len(calls) == 1)
+
+    out.finish("check-build self-test", 7 - fails, 7)
+    return 1 if fails else 0
+
+
+def cmd_check_build(args):
+    out.set_quiet(args.quiet)
+    if args.self_test:
+        return self_test_check_build()
+    if not os.path.isdir(CHECK_BUILD):
+        out.fail(f"Failed check-build: no such directory {CHECK_BUILD}")
+        return 1
+    programs = sorted(f for f in os.listdir(CHECK_BUILD) if f.endswith(".orb"))
+    if not programs:
+        out.fail(f"Failed check-build: no programs in {CHECK_BUILD}")
+        return 1
+
+    compiler = os.path.abspath(args.compiler)
+    cc = _common.resolve_cc(args.cc)
+    work = str(_common.scratch("orbit_check_build_"))
+    env = _common.build_env(work, cc=cc)
+    env = _common.disposable_test_env(env, cc=cc)
+
+    def runner(argv):
+        return subprocess.run(argv, cwd=ROOT, env=env, capture_output=True,
+                              text=True, errors="replace",
+                              timeout=CHECK_BUILD_TIMEOUT)
+
+    fails = 0
+    started_all = time.monotonic()
+    for f in programs:
+        path = os.path.join(CHECK_BUILD, f)
+        started = time.monotonic()
+        try:
+            name, status, detail = check_build_program(runner, compiler, work,
+                                                       path)
+        except subprocess.TimeoutExpired:
+            name, status, detail = os.path.splitext(f)[0], "TIMEOUT", (
+                f"check or build did not finish in {CHECK_BUILD_TIMEOUT}s")
+        elapsed = time.monotonic() - started
+        if status == "OK":
+            out.say(f"Checking {name} ... ok ({elapsed:.1f}s)")
+        else:
+            out.fail(f"Failed {name} [{status}] ({elapsed:.1f}s): {detail}")
+            fails += 1
+    total = time.monotonic() - started_all
+    out.say(f"check-build: {len(programs)} program(s) in {total:.1f}s")
+    out.finish("check-build", len(programs) - fails, len(programs))
+    return 1 if fails else 0
+
+
+# ---------------------------------------------------------------------------
 # ---- from scripts/runtime_gen.py ----
 #
 # Keep runtime/gen/<name>.c equal to what the compiler emits for runtime/orb/<name>.orb.
@@ -1966,7 +2143,7 @@ def _add_suite_args(sp):
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="The corpus gates: eight checkers over the committed "
+        description="The corpus gates: nine checkers over the committed "
                     "programs, one entry point.",
         epilog="Each subcommand takes the flags its own gate had before the "
                "merge; run `%(prog)s <gate> --help`.")
@@ -2013,6 +2190,14 @@ def main() -> int:
     sp.add_argument("--self-test", action="store_true")
 
     sp = gates.add_parser(
+        "check_build", help="tests/check_build/ programs must check clean and "
+                            "then build")
+    sp.add_argument("--compiler", default=str(ROOT_PATH / "orbit.exe"))
+    sp.add_argument("--cc", default=None)
+    sp.add_argument("--self-test", action="store_true")
+    out.add_quiet(sp)
+
+    sp = gates.add_parser(
         "parity", help="tests/parity/probes/ against tests/parity/golden/",
         description="Self-host stability gate vs goldens")
     sp.add_argument("--compiler", required=True, help="fixed-point orbit compiler executable")
@@ -2051,6 +2236,7 @@ def main() -> int:
         "negative": cmd_negative,
         "frontend": cmd_frontend,
         "werror": cmd_werror,
+        "check_build": cmd_check_build,
         "parity": parity_guarded,
         "runtime_gen": cmd_runtime_gen,
         "runtime_module": cmd_runtime_module,

@@ -198,6 +198,12 @@ GATES = [
     Gate("werror", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "werror", "--cc", "{cc}", "--compiler", "{fp}"),
          why="the -Wall -Werror probes: clean C from the emitter, not C that "
              "only one toolchain tolerates"),
+    Gate("check_build", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "check_build", "--compiler", "{fp}", "--cc", "{cc}"),
+         why="`orbit check` is the contract users and the LSP trust, and a "
+             "program it accepts that `orbit build` then rejects is a false "
+             "promise. tests/check_build/ holds programs that check clean "
+             "today, and each must survive the C compile and link; no other "
+             "gate compares the two commands"),
     Gate("fuzz_frontend", 2, "scripts/corpus_gates.py", _argv("corpus_gates.py", "fuzz_frontend", "--compiler", "{fp}"),
          why="the frontend fuzz driver, in the tier that has a binary to feed "
              "it"),
@@ -305,6 +311,8 @@ EXPECTED_ARGV = {
     "dispatch": ["{script}doctor_gates.py", "dispatch"],
     "parity": ["{script}corpus_gates.py", "parity", "--cc", "CC", "--compiler", "FP"],
     "werror": ["{script}corpus_gates.py", "werror", "--cc", "CC", "--compiler", "FP"],
+    "check_build": ["{script}corpus_gates.py", "check_build", "--compiler", "FP",
+                    "--cc", "CC"],
     "fuzz_frontend": ["{script}corpus_gates.py", "fuzz_frontend", "--compiler", "FP"],
     "kynx_live": ["{script}admission_gate.py", "live", "--cc", "CC", "--compiler",
                   "FP"],
@@ -338,8 +346,8 @@ EXPECTED_TIERS = {
         "ui_snapshots"],
     2: ["suite", "suite_std", "suite_native", "suite_std_native",
         "runtime_module", "runtime_module_native", "runtime_gen", "negative",
-        "frontend", "dispatch", "parity", "werror", "fuzz_frontend",
-        "kynx_live", "unknown_ratchet"],
+        "frontend", "dispatch", "parity", "werror", "check_build",
+        "fuzz_frontend", "kynx_live", "unknown_ratchet"],
     3: ["check_stale", "shard_split", "verify_seed", "alive_check"],
     99: ["routes_probe", "unknown_census", "diff_fuzz"],
 }
