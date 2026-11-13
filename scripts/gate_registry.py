@@ -209,14 +209,19 @@ GATES = [
              "green on every unit test and broken in the way that matters "
              "(dev.py:848-851)"),
     Gate("unknown_ratchet", 2, "scripts/measure.py", _argv(
-        "measure.py", "ratchet", "--compiler", "{fp}", "--cc", "{cc}"),
+        "measure.py", "ratchet", "--compiler", "{fp}", "--cc", "{cc}",
+        "--per-file"),
          why="D7's one-way ratchet, the reader the baseline never had in this "
              "sequence. It was a hard CI step until f001308 folded CI into "
              "`dev.py all`, and alive_check's row for it is liveness only (rc 1 "
              "tolerated, marker matches both verdicts) -- so without this entry "
              "a tree that raised unknown_per_mille above the baseline shipped "
-             "green. T2, like kynx_live: it measures the freshly built fp, and "
-             "`report` keeps only the raw census (dev.py:854-860)"),
+             "green. `--per-file` compares the by_file map as well, because the "
+             "rate is int(round(1000.0 * n / instructions)): at 149,684 "
+             "instructions a rise of up to 74 unknown instructions still rounds "
+             "to 0 per mille, and the baseline's 0 would hold. T2, like "
+             "kynx_live: it measures the freshly built fp, and `report` keeps "
+             "only the raw census (dev.py:854-860)"),
 
     # ---- T3: the root of trust.
     Gate("check_stale", 3, "scripts/trust.py", _argv(
@@ -304,7 +309,7 @@ EXPECTED_ARGV = {
     "kynx_live": ["{script}admission_gate.py", "live", "--cc", "CC", "--compiler",
                   "FP"],
     "unknown_ratchet": ["{script}measure.py", "ratchet", "--compiler", "FP",
-                        "--cc", "CC"],
+                        "--cc", "CC", "--per-file"],
     "check_stale": ["{script}trust.py", "build", "--cc", "CC",
                     "--check-stale"],
     "shard_split": ["{script}trust.py", "shard", "--name", "emit_verify",
