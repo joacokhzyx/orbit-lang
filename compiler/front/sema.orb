@@ -350,8 +350,19 @@ fn semaKnownType(t: string) -> bool {
     if t == "" { return false }
     if t == "unknown" { return false }
     if t == "void" { return false }
-    if t == "<poisoned>" { return false }
+    if semaPoisonedType(t) { return false }
     return true
+}
+
+// Whether this spelling is the one a refusal reserved for itself. It is the
+// one name no type rule may act on, and `semaKnownType` is not the test every
+// rule wants: that answers false for `unknown` too, and two rules refuse
+// `unknown` on purpose. A `for` over a never-set dynamic field crashes at run
+// time (`tests/negative/n59_for_over_unknown_field.orb` holds the refusal), so
+// a rule that refuses what it cannot prove asks this instead and keeps its
+// `unknown` case. Nothing else may name the spelling.
+fn semaPoisonedType(t: string) -> bool {
+    return t == "<poisoned>"
 }
 
 // Runtime functions the compiler calls by name when it lowers other syntax:
@@ -3196,7 +3207,11 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
                     // unknown dynamic read segfaults on the first element. Model
                     // field reads answer their declared type above, so declared
                     // lists pass; only the unprovable is refused, with its type named.
-                    if compatTypeBase(iterType) != "list" {
+                    // `<poisoned>` is not unprovable, it is already refused: the
+                    // refusal was the diagnostic, and naming the sentinel here
+                    // would hand the user the spelling of a diagnostic instead of
+                    // its sentence.
+                    if compatTypeBase(iterType) != "list" && semaPoisonedType(iterType) == false {
                         reportError(sema, "for loops iterate lists, not " + iterType + ".")
                     }
                     checkForBody(sema, f, listElementOf(sema, iterType, bareNameOf(f.iterable)))
@@ -4868,8 +4883,11 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             if indexBase == "list" { return listElementOf(sema, objType, bareNameOf(ia.object)) }
             /* `p[0]` on a model, an int or a bool compiled clean and returned
              * `unknown`, so the read reached codegen with no kind and no
-             * refusal. Only a list, a map and a string hold elements. */
-            if objType != "unknown" && indexBase != "map" && indexBase != "string" {
+             * refusal. Only a list, a map and a string hold elements. A
+             * `<poisoned>` receiver is a name a refusal already reported, so it
+             * is silent here for the reason the `for` iterable is: the refusal
+             * is the whole message, and this sentence would print its sentinel. */
+            if objType != "unknown" && indexBase != "map" && indexBase != "string" && semaPoisonedType(objType) == false {
                 reportErrorAt(sema, "E1013", "Index a list, a map or a string. A model field is read by name, and anything else has no elements to index.", ia.line, ia.col, "The value being indexed is a " + objType + ", which holds no elements.")
             }
             return "unknown"

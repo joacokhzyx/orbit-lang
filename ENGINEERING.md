@@ -316,20 +316,20 @@ argument, not open work.
 
 - **Duplicate `match` arm.** (Record, shipped as `D022`.) The original argument
   was that it is not a doctor check: `patternVariantName`
-  (`compiler/front/sema.orb:3259`) and `qualifiedVariantName`
-  (`compiler/front/sema.orb:3284`) need a `Sema`, and doctor's only door to it is
+  (`compiler/front/sema.orb:3278`) and `qualifiedVariantName`
+  (`compiler/front/sema.orb:3303`) need a `Sema`, and doctor's only door to it is
   `checkSourceWithFile(...) -> bool` (`compiler/host/pipeline.orb:184`). It would
-  belong beside `checkMatchExhaustive` (`compiler/front/sema.orb:3303`) as a
+  belong beside `checkMatchExhaustive` (`compiler/front/sema.orb:3322`) as a
   second E-code.
-  `covered` (`compiler/front/sema.orb:3308`) accumulates variant names and never
+  `covered` (`compiler/front/sema.orb:3327`) accumulates variant names and never
   checks for a repeat. Note the wildcard bails first
-  (`compiler/front/sema.orb:3321`, `:3332`), so a check placed after that bail
+  (`compiler/front/sema.orb:3340`, `:3351`), so a check placed after that bail
   would skip exactly the dead arms.
 - **Shadowing.** (Record, shipped as `D023`.) Shadowing is intended:
   `variableSymbol` (`compiler/ir/builder.orb:279`) and `resolveSymbol`
-  (`compiler/front/sema.orb:1484`) both resolve innermost-first on purpose, and
+  (`compiler/front/sema.orb:1498`) both resolve innermost-first on purpose, and
   same-scope re-declaration is already a hard error in `declareSymbolWithParams`
-  (`compiler/front/sema.orb:1414`).
+  (`compiler/front/sema.orb:1428`).
   The only useful form -- "this name shadows an outer one that is used
   afterwards" -- is the most expensive candidate here. `LiteralNode`
   (`compiler/front/ast.orb:173`) has no `line`/`col`, so a *use* has no position
@@ -368,7 +368,7 @@ code path that does not run.
 #### Unguarded Mutable Shared State -- nothing to find
 
 The check was "a `var` at module scope, written from a handler". There are no
-module-scope `var`s: E1007 rejects them (`compiler/front/sema.orb:2487-2499`), and
+module-scope `var`s: E1007 rejects them (`compiler/front/sema.orb:2506-2513`), and
 `compiler/ir/builder.orb:2794` records a surviving top-level `val` as a module
 global. `generateRoutePreamble` (`compiler/emit/c_backend.orb:2024`) emits that
 global as a `#define` of an int or bool literal. `ENGINEERING.md` already said
@@ -782,12 +782,12 @@ python scripts/corpus_gates.py werror --cc "$CC" --compiler /tmp/orbit_fp
 
 # 6a. [CI] Negative corpus: every program in tests/negative/ must FAIL to
 #        compile, with the diagnostic text its header names. One program per
-#        defect class; 127 today. The gate also fails when a diagnostic
+#        defect class; 128 today. The gate also fails when a diagnostic
 #        IMPROVES, so the wording of every rejection is pinned - a better error
 #        message is a red build until the header is updated. A program the
 #        compiler wrongly accepts declares `known-defect: <ref>` and the gate
 #        asserts the bug is STILL there, so nothing improves silently. The
-#        summary prints how many are outstanding; today 127/127 pass with 0 known
+#        summary prints how many are outstanding; today 128/128 pass with 0 known
 #        defects - the last one, F-0025, flipped to expect-error when E1009 gave
 #        the assignment target a rule. The history of
 #        the 19 programs the compiler used to accept is in

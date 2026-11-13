@@ -97,10 +97,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 127/127 pass (0 known defects still accepted)
+Finished negative: 128/128 pass (0 known defects still accepted)
 ```
 
-One hundred and twenty-seven programs: every one must be rejected and is. The last one
+One hundred and twenty-eight programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
@@ -244,7 +244,7 @@ expected type and is a type nowhere, so the refusal remains the whole output.
 `n136_main_value_refusal_one_diagnostic.orb` pin the count with
 `one-diagnostic:`, and neither prints an `UNRESOLVED` line.
 
-`compiler/front/sema.orb:4808` answers a `try` with the payload the callee's signature
+`compiler/front/sema.orb:4933` answers a `try` with the payload the callee's signature
 writes, so the annotation on the binding is compared with what the read yields:
 
 ```console
@@ -265,12 +265,12 @@ $ orbit check tryprobe.orb
 
 `decode` carries a `string`, `n` is annotated `int`, and `print(n)` reads that
 pointer as an integer. The mechanism is already written down at
-`compiler/front/sema.orb:4690`, which blames it for `ok 200 system.uptime()`
+`compiler/front/sema.orb:4838`, which blames it for `ok 200 system.uptime()`
 reaching the C backend with an int where a string pointer belongs. The fix there
 named a receiver type; this site has no receiver to name, because the payload is
 written nowhere, and `tests/negative/n123_try_annotation_payload.orb` keeps the refusal.
 Before 2026-11-05 the same arm answered `unknown` for every `try`, and the compatibility
-rules accept `unknown` for anything, at `compiler/front/sema.orb:1153` and `:2125`: the
+rules accept `unknown` for anything, at `compiler/front/sema.orb:1165` and `:2140`: the
 probe above built, and `print(n)` read a string pointer as an integer.
 Two counts of this sentence have been wrong and both are dated rather than hidden: the
 first said 51 in 31 files, counting the spelling wherever it appeared, and the second
@@ -314,7 +314,7 @@ return 7 }` checks clean too, `orbit build` compiles it, and running the binary
 faults: `[ORBIT RUNTIME CRASH] ExceptionCode 0xC0000005`, exit 139, because the
 int is read back as a string pointer. No `tests/negative` case pins a refusal,
 because there is no refusal to pin -- the bare `result` is compatible with every
-payload at `compiler/front/sema.orb:2068`, and `checkCompatibility` returns true
+payload at `compiler/front/sema.orb:2148`, and `checkCompatibility` returns true
 whenever the wanted type is `result`.
 
 One route to closing it was tried and is falsified here, because the plan said
@@ -351,7 +351,7 @@ the checker. Spelling `std/convert/codec.orb:146` as
 Semantic error: Return type mismatch: expected result<string>, got result [in hexDecode]
 ```
 
-The body returns `ok(out)`, and `compiler/front/sema.orb:4251` gives that call a bare
+The body returns `ok(out)`, and `compiler/front/sema.orb:4628` gives that call a bare
 `result`. A declaration cannot be more precise than the constructor expression the
 checker hands it. The two rules have to move together -- `ok` and `err` typed from
 their argument, then `try` typed from the declared `result<T>` -- and neither is a
@@ -707,7 +707,7 @@ Both directions are pinned. `tests/suite/union_shared_variant_name.orb` declares
 `Packet.Body(int)` and `Signal.Body(string)`, constructs each qualified, matches
 each with a qualified pattern and with a bare pattern under its own scrutinee,
 and exits 0. The checker reads a payload from the owner the program wrote --
-`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:762`)
+`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:776`)
 -- and a bare pattern resolves through the scrutinee's type in `bareVariantOwner`
 (`compiler/ir/builder.orb:2415`). The constructor macro carries both names:
 `val mvMacro = cUserName(mvType.name + "_" + mvName)`
