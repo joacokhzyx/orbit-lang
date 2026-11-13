@@ -852,14 +852,20 @@ python scripts/measure.py census --cc "$CC" --compiler /tmp/orbit_fp
 #     The ratcheted counts are `unknown_per_mille` and `silent_per_mille` (down)
 #     and `instructions` (up: a corpus that shrinks is TIR that went missing),
 #     the shares of `unknown_instructions` and `unknown_without_diagnostic` in
-#     the instruction total; the total itself is deliberately not ratcheted,
-#     because the corpus legitimately grows and a gate that fails when a file
-#     is added is a gate that gets deleted. Raising a baseline is a deliberate
-#     act - --write-baseline refuses to move a number up without
+#     the instruction total; the instruction total itself is deliberately not
+#     ratcheted, because the corpus legitimately grows. The gate runs with
+#     `--per-file`, so the `by_file` map is compared too: a file whose count
+#     rose fails even when both rates hold. The rates alone miss that. Each one
+#     is int(round(1000.0 * n / instructions)), and at 149,684 instructions a
+#     rise of up to 74 unknown instructions still rounds to 0 per mille. A new
+#     file that brings unknowns fails the same way. Raising a baseline is a
+#     deliberate act - --write-baseline refuses to move a number up without
 #     --allow-regression. Run on 2026-11-05, after the baseline fell with a list
-#     literal that answers its own element type: `Finished unknown-count: 3
-#     (baseline 4, ratchet holds)`, one metric down and the other unchanged.
-python scripts/measure.py ratchet --cc "$CC" --compiler /tmp/orbit_fp
+#     literal that answers its own element type: `Finished
+#     unknown-count: 3 (baseline 4, ratchet holds)`, one metric down and the
+#     other unchanged.
+python scripts/measure.py ratchet --cc "$CC" --compiler /tmp/orbit_fp \
+    --per-file
 
 # 16. [CI] Shard split round trip, T3. Splits the fixed point's bundled TU into
 #     shards (`--name emit_verify`; `--fresh`, so the bundle is one only this run
