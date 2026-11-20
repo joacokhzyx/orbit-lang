@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [ 'main', 'feat/**', 'feature/**' ]
+    branches: [ 'main', 'develop', 'feat/**', 'feature/**' ]
     tags: [ 'v*' ]
   pull_request:
-    branches: [ 'main', 'feat/**', 'feature/**' ]
+    branches: [ 'main', 'develop', 'feat/**', 'feature/**' ]
   workflow_dispatch:
 
 permissions:
