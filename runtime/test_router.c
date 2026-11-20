@@ -43,10 +43,18 @@ static OrbitAdmissionConfig make_cfg(int rate, int win_ms, int burst,
 }
 
 static OrbitRequest* parse(OrbitArena* arena, const char* method, const char* path) {
-    char raw[512];
-    snprintf(raw, sizeof(raw), "%s %s HTTP/1.1\r\nHost: localhost\r\n\r\n", method, path);
+    char head[512];
+    snprintf(head, sizeof(head), "%s %s HTTP/1.1\r\nHost: localhost\r\n\r\n", method, path);
+    size_t n = strlen(head);
+    /* The request's method, path and headers point into the buffer it was
+     * parsed from (http.h), so that buffer has to outlive the request. A stack
+     * buffer here survived on Windows by luck: the matcher read a dead path on
+     * Linux and dispatch answered 404 for a route that exists. */
+    char* raw = (char*)orbit_alloc(arena, n + 1);
+    assert(raw != NULL);
+    memcpy(raw, head, n + 1);
     OrbitRequest* r = NULL;
-    size_t c = orbit_http_parse_request_ex(arena, raw, strlen(raw), &r, NULL);
+    size_t c = orbit_http_parse_request_ex(arena, raw, n, &r, NULL);
     assert(c > 0 && r != NULL);
     return r;
 }
