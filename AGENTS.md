@@ -2,6 +2,27 @@
 
 Orbit is a self-hosted language compiler; the checkers, codegen and runtime are in `compiler/` (Orbit sources) and `runtime/` (C). If a gate's claim conflicts with this file, trust the gate.
 
+## Engineering criteria
+
+A stranger has to be able to clone this repository, install Orbit and build a
+program. That reader is what a change is measured against, not the machine the
+change was written on: only a run from a clean clone on CI is evidence, and a
+green local gate is a pre-check.
+
+- A red CI is the highest priority. No new work starts while a gate that ran is
+  red, and a gate that did not run is named as not run.
+- Every claim in a document carries the command and the number that produced
+  it. A claim that cannot be measured is deleted, not softened.
+- Deleting and simplifying beat adding. A new page, flag or script has to name
+  the question it answers.
+- When an instruction conflicts with the first rule, say so before following
+  it, and propose the alternative that keeps the guarantee.
+- One commit is one decision, in the imperative, with an Evidence block
+  ([CONTRIBUTING.md](CONTRIBUTING.md#commits)).
+- Creating or deleting a tag, publishing a release, force-pushing, deleting a
+  remote branch, and merging into `main` need the owner's explicit approval
+  first. Everything else is the author's decision.
+
 ## Build the compiler
 
 ```bash
