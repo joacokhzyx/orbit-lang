@@ -36,7 +36,7 @@ first occurrence below, and the resolution never merged two behaviours:
   `detect_cc`     build exits 2 when no C compiler is on PATH; verify answers
                   "cc" instead. Both stay: `bs_detect_cc` and `vs_detect_cc`.
   `ROOT`, `CANONICAL_C`, `MAIN_ORB`, `SUPPRESS_FLAGS`,
-  `PLATFORM_LINK_FLAGS`, `sha256`
+  `platform_link_flags`, `sha256`
                   the two bootstrap scripts repeated these verbatim, which is
                   what let their cc cache entries disagree; one definition
                   each here.
@@ -85,11 +85,48 @@ MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 
 # The bootstrap builds at -O1, or at -O0 under the low-memory profile; both
 # the build and the verify subcommands splice SUPPRESS_FLAGS and
-# PLATFORM_LINK_FLAGS into every cc argv through bootstrap_cc_middle, so one
+# platform_link_flags into every cc argv through bootstrap_cc_middle, so one
 # definition each is what keeps identical inputs hashing to one cache entry.
 SUPPRESS_FLAGS = ["-DORBIT_WITH_EXEC"] + (
     ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
-PLATFORM_LINK_FLAGS = ["-lws2_32", "-Wl,--stack,16777216"] if os.name == "nt" else []
+
+_STACK_FLAG = {}
+
+
+def stack_link_flag(cc: str) -> str:
+    """The stack-reserve flag, spelled for the linker the driver selects.
+
+    GNU ld takes ``--stack,<bytes>`` and the MSVC linker takes ``/STACK:<bytes>``;
+    the two are not interchangeable. A driver that targets MSVC (which is what
+    ``clang`` does on Windows by default) hands ``-Wl,--stack,16777216`` to
+    link.exe, which reads it as the input file ``16777216.obj`` and fails with
+    LNK1181. The driver reports its target triple, so the spelling follows the
+    triple instead of a vendor name.
+    """
+    if cc not in _STACK_FLAG:
+        triple = ""
+        try:
+            proc = subprocess.run([cc.split()[0], "-dumpmachine"], cwd=ROOT,
+                                  capture_output=True, text=True, errors="replace")
+            if proc.returncode == 0:
+                triple = (proc.stdout or "").strip().lower()
+        except OSError:
+            pass
+        _STACK_FLAG[cc] = ("-Wl,/STACK:16777216" if "msvc" in triple
+                           else "-Wl,--stack,16777216")
+    return _STACK_FLAG[cc]
+
+
+def platform_link_flags(cc: str) -> list:
+    """The link flags every Windows build of the compiler needs.
+
+    ``advapi32`` carries ``SystemFunction036`` (RtlGenRandom), which
+    ``runtime/os.c`` calls: mingw links the library by default and the MSVC
+    linker does not, so naming it keeps both paths linking.
+    """
+    if os.name != "nt":
+        return []
+    return ["-lws2_32", "-ladvapi32", stack_link_flag(cc)]
 
 
 # ---- from scripts/build_selfhost.py ----
@@ -600,7 +637,7 @@ def cmd_build(args) -> int:
     seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
     out.say("Building seed from canonical C")
     seed_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
-                 "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
+                 "-o", seed_exe, amal, *platform_link_flags(cc)]
     seed_argv, seed_sources = orbit_ccache.windows_stamp(
         seed_argv, [amal], work, "Orbit compiler", log=out.say)
     orbit_ccache.compile_cached(cc_cmd, seed_argv, seed_sources, log=out.say)
@@ -625,7 +662,7 @@ def cmd_build(args) -> int:
         out.say(f"Building iter{i} compiler from its own C")
         iter_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
                      "-I", os.path.join(ROOT, "runtime"),
-                     "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS]
+                     "-o", next_exe, c_i, *platform_link_flags(cc)]
         iter_argv, iter_sources = orbit_ccache.windows_stamp(
             iter_argv, [c_i], work, "Orbit compiler", log=out.say)
         reused = compile_tu_exe(cc, cc_cmd, iter_argv, iter_sources, c_i,
@@ -770,7 +807,7 @@ def cmd_build(args) -> int:
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by `trust.py build --promote`,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "61210666662AE1D030E7B49E5662710856412EE587929F4BCF0B76FB3D0E73AE"
+PUBLISHED_C = "939618E997167FCAA096C06EED3ECE788A5B80806C0808FB10BF12D9F04E3A17"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says
@@ -1180,7 +1217,7 @@ def cmd_verify(args) -> int:
     # which is what used to keep this entry apart from build's seed entry.
     seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
     seed_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
-                 "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
+                 "-o", seed_exe, amal, *platform_link_flags(cc)]
     seed_argv, seed_sources = orbit_ccache.windows_stamp(
         seed_argv, [amal], work, "Orbit compiler", log=out.say)
     orbit_ccache.compile_cached(cc_cmd, seed_argv, seed_sources, log=out.say)
@@ -1234,7 +1271,7 @@ def cmd_verify(args) -> int:
         fixed_out = os.path.join(work, "fixed_point_build" + exe)
         fixed_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
                       "-I", os.path.join(ROOT, "runtime"),
-                      "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS]
+                      "-o", fixed_out, shared, *platform_link_flags(cc)]
         fixed_argv, fixed_sources = orbit_ccache.windows_stamp(
             fixed_argv, [shared], work, "Orbit compiler", log=out.say)
         reused = compile_tu_exe(cc, cc_cmd, fixed_argv, fixed_sources,
@@ -1339,7 +1376,7 @@ def cmd_verify(args) -> int:
         out.say("Refreshing dist/orbit_seed")
         dist_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
                      "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe),
-                     amal, *PLATFORM_LINK_FLAGS]
+                     amal, *platform_link_flags(cc)]
         dist_argv, dist_sources = orbit_ccache.windows_stamp(
             dist_argv, [amal], work, "Orbit compiler", log=out.say)
         orbit_ccache.compile_cached(cc_cmd, dist_argv, dist_sources, log=out.say)
@@ -1987,7 +2024,7 @@ def shard_build(cc, tu_path, header_path, out_exe, work, tag="tu",
     t1 = time.monotonic()
     link_argv = [cc.split()[0], "-s", "-o", os.path.abspath(out_exe)] \
         + [obj for _src, obj, _dt, _p in sorted(results)] \
-        + [lib] + (["-lws2_32", "-Wl,--stack,16777216"] if os.name == "nt" else [])
+        + [lib] + platform_link_flags(cc)
     proc = subprocess.run(link_argv, cwd=ROOT, capture_output=True,
                           text=True, errors="replace")
     t_link = time.monotonic() - t1
@@ -2265,7 +2302,7 @@ def cmd_shard(args) -> int:
     t1 = time.monotonic()
     link_argv = [cc.split()[0], "-s", "-o", out_bin] \
         + [obj for _src, obj, _dt, _p in sorted(results)] \
-        + [lib] + (["-lws2_32", "-Wl,--stack,16777216"] if os.name == "nt" else [])
+        + [lib] + platform_link_flags(cc)
     proc = subprocess.run(link_argv, cwd=ROOT, capture_output=True,
                           text=True, errors="replace")
     t_link = time.monotonic() - t1

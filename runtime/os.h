@@ -76,9 +76,11 @@ orbit_string orbit_os_argv(OrbitArena* arena, orbit_int index);
 #ifdef _WIN32
 /* RtlGenRandom, the OS pool without a new link library: neither rand_s
  * nor the SystemFunction036 prototype exists in the headers this tree
- * builds with, and advapi32 (where it lives) is already linked into
- * every program, so the declaration rides here instead of in a header
- * that would promise it everywhere. */
+ * builds with, so the declaration rides here instead of in a header that
+ * would promise it everywhere. The library it lives in, advapi32, is named
+ * on the link line by every caller that links an MSVC-style driver
+ * (compiler/host/pipeline.orb, scripts/trust.py, scripts/runtime_c_tests.py);
+ * mingw links it by default and the MSVC linker does not. */
 BOOLEAN NTAPI SystemFunction036(PVOID RandomBuffer, ULONG RandomBufferLength);
 #endif
 OrbitResult orbit_random_bytes(OrbitArena* arena, orbit_int n);

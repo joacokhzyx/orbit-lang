@@ -144,7 +144,10 @@ def compile_argv(cc: str, p: dict, out: pathlib.Path) -> list:
     argv += NET + p["defines"]
     argv += [p["src"], "-o", str(out)]
     if windows():
-        argv.append("-lws2_32")
+        # advapi32 carries SystemFunction036 (RtlGenRandom), which
+        # runtime/os.c calls. mingw links it by default; an MSVC-style linker
+        # does not, so the library is named here rather than assumed.
+        argv += ["-lws2_32", "-ladvapi32"]
         if p["db"]:
             argv.append("runtime/vendor/win-x64/sqlite3.lib")
     elif p["db"]:

@@ -1287,22 +1287,6 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
         return false
     }
 
-    var linkFlags = ""
-    val osName = orbit_os_env_selfhost("OS")
-    val winDir = orbit_os_env_selfhost("WINDIR")
-    if osName == "Windows_NT" || winDir != "" {
-        // The stack reserve is explicit: a recursive-descent compiler needs
-        // more than the 2 MB default once `int` is 64 bits and an unoptimized
-        // frame holds eight-byte registers. The reserve is address space, not
-        // committed memory.
-        // ws2_32 is imported only by a program that uses the network
-        // (routes, the HTTP client, a database): docs/STARTUP.md.
-        linkFlags = " -Wl,--stack,16777216"
-        if moduleUsesNetwork(backend) {
-            linkFlags = " -lws2_32" + linkFlags
-        }
-    }
-
     // Sovereignty: the compiler never assumes a specific toolchain vendor.
     // Resolution order: ORBIT_CC -> CC -> POSIX "cc" convention.
     var cCompiler = orbit_os_env_selfhost("ORBIT_CC")
@@ -1311,6 +1295,38 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     }
     if cCompiler == "" {
         cCompiler = "cc"
+    }
+
+    // The stack reserve is explicit: a recursive-descent compiler needs more
+    // than the 2 MB default once `int` is 64 bits and an unoptimized frame
+    // holds eight-byte registers. The reserve is address space, not committed
+    // memory.
+    //
+    // The flag that asks for it is spelled for the linker the driver selects:
+    // GNU ld takes --stack,<bytes> and the MSVC linker takes /STACK:<bytes>.
+    // A driver that targets MSVC (clang on Windows by default) hands the GNU
+    // spelling to link.exe, which reads 16777216 as an input file and fails
+    // with LNK1181. The driver reports its target triple, so the spelling
+    // follows the triple instead of a vendor name.
+    //
+    // advapi32 carries SystemFunction036 (RtlGenRandom), which runtime/os.c
+    // calls: mingw links the library by default and the MSVC linker does not.
+    //
+    // ws2_32 is imported only by a program that uses the network
+    // (routes, the HTTP client, a database): docs/STARTUP.md.
+    var linkFlags = ""
+    val osName = orbit_os_env_selfhost("OS")
+    val winDir = orbit_os_env_selfhost("WINDIR")
+    if osName == "Windows_NT" || winDir != "" {
+        var stackFlag = " -Wl,--stack,16777216"
+        val triple = orbit_os_exec_selfhost(cCompiler + " -dumpmachine 2>&1")
+        if triple.indexOf("msvc") != -1 {
+            stackFlag = " -Wl,/STACK:16777216"
+        }
+        linkFlags = " -ladvapi32" + stackFlag
+        if moduleUsesNetwork(backend) {
+            linkFlags = " -lws2_32" + linkFlags
+        }
     }
 
     // ORBIT_SKIP_CC=1 emits the intermediate C and stops. The self-host
