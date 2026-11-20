@@ -973,13 +973,17 @@ CASES = [
 # phrases it that way -- gcc says "No such file or directory" -- so the case is
 # skipped where clang is absent rather than asserted against the wrong wording.
 #
-# The probe runs in an empty work directory, so the runtime include path does
-# not resolve there and the C step fails on socket_compat.h for any compiler.
+# The failure is forced with `-include`: the probe used to rely on the empty
+# work directory hiding `runtime/`, and that stopped being true once the
+# emitted C for a program without routes no longer includes a runtime header,
+# so the build succeeded and the case expected a failure it never saw. A
+# missing forced include is a compile failure for any generated C.
 TOOLCHAIN_CASES = [
     ("cc-include-failure-is-not-a-missing-toolchain",
      ["build", "tiny.orb", "-o", "y.exe"], 1, "err",
      "the C compiler rejected my output", "was not found",
-     {"ORBIT_CC": "clang", "ORBIT_CCFLAGS_EXTRA": ""}),
+     {"ORBIT_CC": "clang",
+      "ORBIT_CCFLAGS_EXTRA": "-include orbit_no_such_header.h"}),
 ]
 
 # Invariants that are about the tool's effect on disk rather than its exit
