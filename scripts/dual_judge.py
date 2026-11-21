@@ -3,7 +3,7 @@
 
 Corpus: tests/suite + tests/std (67+22), same discovery as scripts/test_suite.py
 (`*.orb` minus `*.support.orb`; `--dir` is repeatable), minus the db-link
-exclusions in DUAL_DB_EXCLUDE (2 tests whose link needs the MSVC
+exclusions in DUAL_DB_EXCLUDE (3 tests whose link needs the MSVC
 sqlite3.lib, which tcc cannot read; the gcc suite still covers them and the
 closing line counts them). Every remaining test is built
 twice from the same fixed-point compiler -- once with the gcc driver, once
@@ -99,18 +99,22 @@ ADVAPI32 = r"C:\Windows\System32\advapi32.dll"
 
 # Tests the tcc arm cannot link, skipped openly (never silently).
 #
-# By file stem so --dir prefixing cannot hide them. Today both exercise
-# db_* opcodes, so the compiler links runtime/vendor/win-x64/sqlite3.lib;
-# tcc 0.9.27 rejects that MSVC import library ("invalid object file") and
-# the path is hardcoded in the compiler's cc line, so no flag can reroute
-# it to the DLL the way the advapi32 gap is handled above. This is a
-# toolchain link limitation, not a semantic disagreement: the gcc suite
-# still builds and runs them, and the dual closing line counts them
-# separately. A stem added here must name the limitation, not the test.
+# By file stem so --dir prefixing cannot hide them. Each declares a database
+# construct (db_* or `migrations`), so the compiler links
+# runtime/vendor/win-x64/sqlite3.lib; tcc 0.9.27 rejects that MSVC import
+# library ("invalid object file") and the path is hardcoded in the compiler's
+# cc line, so no flag can reroute it to the DLL the way the advapi32 gap is
+# handled above. This is a toolchain link limitation, not a semantic
+# disagreement: the gcc suite still builds and runs them, and the dual closing
+# line counts them separately. A stem added here must name the limitation, not
+# the test. `migrations_down` arrived on 2026-11-01, while this arm had been
+# red on Windows since 2026-10-28, so it never ran here before.
 DUAL_DB_EXCLUDE = {
     # db_* DCE-veto shapes; link sqlite3.lib.
     "arena_sink_scope": "links MSVC sqlite3.lib, unreadable by tcc",
     "peephole_no_fold_side_effects": "links MSVC sqlite3.lib, unreadable by tcc",
+    # A `migrations` declaration alone sets hasDb; no db_* call needed.
+    "migrations_down": "links MSVC sqlite3.lib, unreadable by tcc",
 }
 
 
@@ -188,14 +192,33 @@ def base_env(work, cc):
     return env
 
 
+def shim_defs(shimdir):
+    """The shim's import libraries for names tcc 0.9.27's own libs miss.
+
+    Two files, and each names the system DLL the loader resolves at run
+    time: ws2_32.def for the 29 Winsock calls tcc has no library for, and
+    kernel32.def for the job-object and GlobalMemoryStatusEx imports its
+    bundled kernel32.def lacks. A name missing from both still fails the
+    link as an undefined symbol, so a gap in the shim is loud, not skipped.
+    """
+    if not shimdir:
+        return []
+    defs = []
+    for name in ("ws2_32.def", "kernel32.def"):
+        path = os.path.join(shimdir, name)
+        if os.path.isfile(path):
+            defs.append('"%s"' % path)
+    return defs
+
+
 def tcc_extra(shimdir, workshim):
     """ORBIT_CCFLAGS_EXTRA for the tcc arm (replaces, not appends).
 
     The ambient extra is dropped on purpose: a gcc-only flag there
     (-march=, -pipe is harmless, others may not be) would fail the tcc arm
-    for reasons unrelated to the corpus. What stays is exactly the three
-    documented gaps: winsock headers, tccenv.h, the generated header, and
-    advapi32 for RtlGenRandom.
+    for reasons unrelated to the corpus. What stays is exactly the
+    documented gaps: winsock headers, tccenv.h, the generated header,
+    advapi32 for RtlGenRandom, and the shim's import libraries.
     """
     parts = []
     if os.name == "nt":
@@ -203,6 +226,7 @@ def tcc_extra(shimdir, workshim):
     parts += ['-I"%s"' % workshim, "-include", "tcc_dual.h"]
     if os.name == "nt":
         parts += ['"%s"' % ADVAPI32]
+        parts += shim_defs(shimdir)
     return " ".join(parts)
 
 

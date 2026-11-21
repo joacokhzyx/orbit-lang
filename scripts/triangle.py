@@ -48,7 +48,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
 import _common
 from dual_judge import (TCC_DUAL_HEADER, resolve_tcc, resolve_tcc_shim,
-                        shim_header, ADVAPI32)
+                        shim_header, shim_defs, ADVAPI32)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
@@ -225,7 +225,7 @@ def main() -> int:
             tcc_extras += ["-I" + shimdir, "-include", shim_header(shimdir) or "tccenv.h"]
         tcc_extras += ["-I" + workshim, "-include", "tcc_dual.h"]
         if os.name == "nt":
-            tcc_extras += [ADVAPI32]
+            tcc_extras += [ADVAPI32] + shim_defs(shimdir)
     arms = [
         ("tcc", tcc, ["-DORBIT_WITH_EXEC"] + tcc_extras),
         ("gcc-O0", gcc, ["-s", "-O0", "-DORBIT_WITH_EXEC"]),

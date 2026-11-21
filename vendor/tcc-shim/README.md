@@ -1,4 +1,4 @@
-# `vendor/tcc-shim/` — tcc 0.9.27 Windows support (shim v1, 2026-10-14)
+# `vendor/tcc-shim/` - tcc 0.9.27 Windows support (shim v2, 2026-11-21)
 
 tcc 0.9.27 ships no Winsock headers and no `ws2_32` import library, and its
 bundled `kernel32`/`msvcrt` import libraries miss a handful of names the
@@ -15,6 +15,7 @@ with `tcc -impdef` before widening the set.
 | `ws2tcpip.h` | closed-set resolution header: `addrinfo`, `getaddrinfo`/`freeaddrinfo`, `IN6_IS_ADDR_LOOPBACK` |
 | `tcc_toolchain.h` | `-include` spellings: `GetTickCount64`→`GetTickCount`, `YieldProcessor`→`Sleep(0)`, `strtoll`→`_strtoi64`, `strtoull`→`_strtoui64` |
 | `ws2_32.def` | minimal import library: exactly the 29 functions the headers declare |
+| `kernel32.def` | the five `kernel32` imports tcc's bundled `kernel32.def` lacks: `GlobalMemoryStatusEx`, `CreateJobObjectA`, `SetInformationJobObject`, `AssignProcessToJobObject`, `TerminateJobObject` |
 | `sqlite3.def` | `.lib`→`.dll` wrapper: the 19 `sqlite3_*` symbols `runtime/database.c` + `tests/auth/auth_harness.c` use, bound to `sqlite3.dll` so tcc links without the MS COFF `sqlite3.lib` it cannot read |
 | `probe_socket.c` | CI/self check: loopback socket exercise + toolchain mappings, must print `TCC-SHIM-SOCKET-PASS` |
 | `probe_sqlite.c` | CI/self check: `:memory:` open/bind/select/close via the wrapper, must print `TCC-SHIM-SQLITE-PASS` |
@@ -32,12 +33,13 @@ Compile a translation unit with the shim (paths relative to the repo root):
 
 ```bash
 tcc -I vendor/tcc-shim -include tcc_toolchain.h \
-    -o prog.exe prog.c vendor/tcc-shim/ws2_32.def
+    -o prog.exe prog.c vendor/tcc-shim/ws2_32.def vendor/tcc-shim/kernel32.def
 ```
 
-Pass the `.def` file directly: it names `ws2_32.dll`, which the loader
-resolves from the system at runtime. Do not pass `-lws2_32`; tcc ships no
-such import library and the flag fails. DB programs add `vendor/tcc-shim/sqlite3.def` the same way and
+Pass the `.def` files directly: each names its DLL, which the loader resolves
+from the system at runtime. Do not pass `-lws2_32`; tcc ships no such import
+library and the flag fails. `kernel32.def` adds to tcc's own kernel32 library
+rather than replacing it. DB programs add `vendor/tcc-shim/sqlite3.def` the same way and
 keep `sqlite3.dll` beside the exe at runtime, exactly as the MSVC-linked
 builds already do (`runtime/vendor/README.md`).
 
@@ -50,7 +52,7 @@ builds already do (`runtime/vendor/README.md`).
   `ws2_32.dll` export with `tcc -impdef` on 2026-10-14.
 - `GetTickCount64` call sites (32-bit wrap documented in
   `tcc_toolchain.h`), `YieldProcessor` spin sites, `strtoll`/`strtoull`
-  call sites.
+  call sites, and the five `kernel32` imports listed in `kernel32.def`.
 - DB translation units using only the 19 wrapped `sqlite3_*` symbols
   (confirmed as real exports of `runtime/vendor/win-x64/sqlite3.dll`).
 

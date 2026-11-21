@@ -1,0 +1,8 @@
+LIBRARY kernel32.dll
+
+EXPORTS
+AssignProcessToJobObject
+CreateJobObjectA
+GlobalMemoryStatusEx
+SetInformationJobObject
+TerminateJobObject
