@@ -384,7 +384,7 @@ is not spent.
 
 `alloc`/`free` are not emitted, so there is nothing to walk. Allocation reaches
 the IR as an ordinary `IROpcode.call` to a runtime name, and the arena argument
-is injected by the backend via `functionNeedsArena` (`compiler/emit/c_backend.orb:5164`).
+is injected by the backend via `functionNeedsArena` (`compiler/emit/c_backend.orb:5170`).
 An allocation check is therefore a NAME match over calls, which is exactly what
 **D019** already does at the AST level and with positions attached. Anything
 D026 could add is path analysis ("is it freed on every path") over a data-flow
@@ -403,7 +403,7 @@ and sinks are named in the emitted calls.
   `orbit_db_query_get`, `orbit_db_insert`, `orbit_db_delete`
 
 The precedent for walking calls and matching names is `moduleCallsBuiltin`
-(`compiler/emit/c_backend.orb:5529`): walk `module.functions` -> `f.instructions` ->
+(`compiler/emit/c_backend.orb:5536`): walk `module.functions` -> `f.instructions` ->
 `inst.opcode == IROpcode.call` -> match `inst.operand1` as `IRValue.String`.
 
 **Doctor implements this on the AST, not the IR.** One instruction field is a

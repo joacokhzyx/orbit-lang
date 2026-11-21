@@ -40,7 +40,7 @@ Defined in `compiler/ir/ir.orb:3-79`, in this order (index 0–65):
 | 64 | `shr` | 65 | `bit_not` | | | | |
 
 The C backend dispatches all 66 in one `match instr.opcode` inside
-`emitInstruction`. Its default arm (`compiler/emit/c_backend.orb:4498-4501`) emits
+`emitInstruction`. Its default arm (`compiler/emit/c_backend.orb:4515-4518`) emits
 the comment `/* Unknown opcode */` and carries on: an IRv1 loader must turn
 that case into a fatal error, never into a comment.
 
@@ -398,7 +398,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 ### 3.1 `arg` / `call` protocol
 
 1. Each `arg` without `dest` appends `generateValue(O1)` to the backend's
-   pending stack (`callArgs`) (`compiler/emit/c_backend.orb:3543`).
+   pending stack (`callArgs`) (`compiler/emit/c_backend.orb:3549`).
 2. `call` reads O1: `String`/`Sym` → named call; any other value →
    indirect call.
 3. O2 (`Int`) is the arity recorded by the builder: the `call` consumes
@@ -515,7 +515,7 @@ builtin with the lowering of §3.1 item 6, unless the program writes its own
   534-554`), the inline `orbit_result_*` helpers, `orbit_alloc`
   (`h:334`), `orbit_response_*` (`h:697-703`).
 - **DB drift:** the backend emits `orbit_db_get/set/all/where`
-  (`compiler/emit/c_backend.orb:4435-4493`) plus the `orbit_db_init/close` preamble, but the
+  (`compiler/emit/c_backend.orb:4452-4509`) plus the `orbit_db_init/close` preamble, but the
   net library neither declares nor links any `orbit_db_*` symbol (zero hits
   in `orbit_api.h`). Until a published, pinned DB runtime artifact exists,
   the `db_get/db_set/db_all/db_where` opcodes are excluded from the M1
@@ -631,9 +631,9 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 | E-02 | `Register(-1)` operand value | Reject (V-09); negative register ids are not encodable | `generateValue` maps `n<0` to `"0"` |
 | E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "void*"` | Accept; ref elements the builder cannot name stay `"void*"` | `compiler/ir/builder.orb:4823-4827` |
 | E-04 | `elemKind: 0` on `list_create` | Accept; untyped accessor + `void*` destination | `elemKind` at `compiler/ir/ir.orb:131` |
-| E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `compiler/emit/c_backend.orb:3707-3712` |
-| E-06 | `print` call with 2 pending args | Accept the IR; lowering emits `/* print */` and drops them | `compiler/emit/c_backend.orb:3666-3671` |
-| E-07 | `label` never targeted by a jump | Accept; lowering omits the label when `refLabels` has no entry | `compiler/emit/c_backend.orb:3509-3514` |
+| E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `compiler/emit/c_backend.orb:3713-3718` |
+| E-06 | `print` call with 2 pending args | Accept the IR; lowering emits `/* print */` and drops them | `compiler/emit/c_backend.orb:3684-3688` |
+| E-07 | `label` never targeted by a jump | Accept; lowering omits the label when `refLabels` has no entry | `compiler/emit/c_backend.orb:3515-3520` |
 | E-08 | `jump` to an undeclared label number | Reject (V-14) | `refLabels` collection `2085-2089` |
 | E-09 | `isExtern: true` function with a non-empty `instructions` list | Accept but ignore the body (no prototype/definition emitted) | `functionProto` at `compiler/emit/c_backend.orb:166-167` |
 | E-10 | `routeMethod: ""` with non-empty `routePath` (and vice versa) | Reject (V-16); plain vs route is decided by `routeMethod` alone | `compiler/emit/c_backend.orb:170`, §2.3 |
@@ -709,7 +709,7 @@ U-08, U-10, U-11, U-13 complete the sequence.
 | U-01 | Which type spellings yield `elemKind` 5 (`isReferenceKindName`) | Predicate not audited here (§2.2). |
 | U-02 | The flat name-keyed `listKinds` registry shared across functions | Not reproducible in serialized IR (§2.3). |
 | U-03 | Population of `IRVariantDecl`/`IRVariantField` | Declared, no constructor site in the builder (§2.4). |
-| U-04 | Exact `functionNeedsArena` list (which calls get a prepended `arena`) | Not audited name by name (§3.1): `functionNeedsArena` at `compiler/emit/c_backend.orb:5164-5185`, applied by `calleeTakesArena`. |
+| U-04 | Exact `functionNeedsArena` list (which calls get a prepended `arena`) | Not audited name by name (§3.1): `functionNeedsArena` at `compiler/emit/c_backend.orb:5170-5192`, applied by `calleeTakesArena`. |
 | U-05 | Argument evaluation order of the indirect `call` | Unfixed by the observed lowering (§3.1). |
 | U-06 | Exact pointer-fallback tail of `mapTypeToC` | Tail rule not audited here (§3.2): `mapTypeToC` at `compiler/emit/c_backend.orb:500-560`. |
 | U-07 | Exact byte coverage of `escapeString` (e.g. non-ASCII, control bytes other than `\"`, `\n`, `\r`, `\t`, `\x1b`) | Table at `compiler/emit/c_backend.orb:2992-3015` not pinned byte by byte (§5.1). |
@@ -718,7 +718,7 @@ U-08, U-10, U-11, U-13 complete the sequence.
 | U-10 | Exact rewrite rules of `inferRegisterTypes` (3 passes, `compiler/emit/c_backend.orb:705-1161`) | Advisory `registerTypes` may change under emission; the pass rules are not pinned here (§2.3). |
 | U-11 | Exact cast rules of `storeCastFor` / `load_var` casts | Cast selection observed but its table is not pinned here (§1.2). |
 | U-12 | `type_info` semantics | Observed as a comment only (§1.2). |
-| U-13 | Label liveness beyond `refLabels` (duplicate labels, `label` after `ret`, cross-block jumps) | Only the referenced-emits rule on `label` is observed (`compiler/emit/c_backend.orb:3509-3514`), and the `refLabels` collection at 2739. |
+| U-13 | Label liveness beyond `refLabels` (duplicate labels, `label` after `ret`, cross-block jumps) | Only the referenced-emits rule on `label` is observed (`compiler/emit/c_backend.orb:3515-3520`), and the `refLabels` collection at 2739. |
 | U-14 | Union `{int tag; void* data;}` layout | Locally emitted text, no contractual runtime helper (§1.2). |
 | U-15 | Definition point of `ORBIT_API_RESPONSE` | Not declared in `runtime/orbit_api.h` (§1.2). |
 | U-16 | Resolution of `isExtern` symbols | Backend emits nothing; resolution is outside (§2.3). |

@@ -289,7 +289,7 @@ corpus.
 
 The half this section measured open was the bare `-> result` signatures; the refusals below closed it on 2026-11-12. For a bare `-> result` the read's type is the
 annotation itself: `compiler/ir/builder.orb:3140` retypes the unwrap register to it and
-`compiler/emit/c_backend.orb:4383` emits the cast for `int`, `bool`, `string` and `list`.
+`compiler/emit/c_backend.orb:4400` emits the cast for `int`, `bool`, `string` and `list`.
 Nothing conflicts with the annotation, so there is nothing to check; the program is wrong
 only when the value `ok` put there differs from what the caller asks, and that is a fact
 the signature never wrote.
@@ -1058,7 +1058,7 @@ Reading them named the largest one -- `.push`, 375 of them -- and a list write
 answers `void`, the type the build already gives it, so the call class fell 621 to
 226 the same day. `err` 37 and `ok` 13 then went the same way. The checker knows
 both by name, and `compiler/ir/builder.orb:389` and
-`compiler/emit/c_backend.orb:4622` already answer `result` for them. The name is
+`compiler/emit/c_backend.orb:4639` already answer `result` for them. The name is
 not a value to load, so the calls fell to 176 and 75 loads went with them.
 `system` went the same way on the same day. The checker resolves that receiver by
 name and answers `int` for its ten methods, so the receiver loads as `system` and
