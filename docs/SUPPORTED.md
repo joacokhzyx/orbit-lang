@@ -229,7 +229,7 @@ whose atomics no gate verifies, which is worse than a loud failure.
 
 | Platform | tcc story | How |
 |---|---|---|
-| Windows x64 | portable 0.9.27 + `vendor/tcc-shim/` | `python scripts/tcc_setup.py` (zip pinned by SHA-256, no admin); `-I vendor/tcc-shim -include tcc_toolchain.h` + `ws2_32.def` / `sqlite3.def` |
+| Windows x64 | portable 0.9.27 + `vendor/tcc-shim/` | `python scripts/tcc_setup.py` (zip pinned by SHA-256, no admin); `-I vendor/tcc-shim -include tcc_toolchain.h` + `ws2_32.def` / `kernel32.def` / `sqlite3.def` |
 | Linux x64 | system tcc, no shim (system headers are complete) | package manager (`sudo apt-get install -y tcc`, …); `tcc_setup.py --check` enforces the 0.9.27 pin and refuses anything else |
 | macOS ARM64 | no stable tcc (0.9.27 has no ARM64 backend; the mob branch is unpinned) | documented fallback: gcc/clang. `tcc_setup.py` exits SKIP saying so |
 
@@ -245,11 +245,15 @@ whose atomics no gate verifies, which is worse than a loud failure.
   `strtoull`→`_strtoui64` (tcc declares the former pair but imports
   only the latter). All `__TINYC__`-guarded so gcc/clang builds are
   unaffected.
-- `ws2_32.def` / `sqlite3.def`: minimal import libraries. The ws2 set
-  is exactly the 29 header functions. The sqlite set is exactly the 19
-  `sqlite3_*` symbols `runtime/database.c` and
-  `tests/auth/auth_harness.c` use, each confirmed as a real export of
-  `runtime/vendor/win-x64/sqlite3.dll`.
+- `ws2_32.def` / `kernel32.def` / `sqlite3.def`: minimal import libraries.
+  The ws2 set is exactly the 29 header functions. The kernel32 set is the
+  five names tcc's bundled `kernel32.def` lacks — `GlobalMemoryStatusEx`,
+  `CreateJobObjectA`, `SetInformationJobObject`, `AssignProcessToJobObject`
+  and `TerminateJobObject` — each confirmed as a real `kernel32.dll` export
+  via `tcc -impdef` on 2026-11-21; it adds to tcc's own library rather than
+  replacing it. The sqlite set is exactly the 19 `sqlite3_*` symbols
+  `runtime/database.c` and `tests/auth/auth_harness.c` use, each confirmed as
+  a real export of `runtime/vendor/win-x64/sqlite3.dll`.
 
 Verification, all in throwaway dirs (never in the repo):
 
