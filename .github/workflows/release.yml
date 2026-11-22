@@ -4,6 +4,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and publish (e.g. v0.1.0-rc.1)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -42,6 +47,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Verify self-host chain and emit the fixed-point compiler
         shell: bash
@@ -83,8 +90,13 @@ jobs:
           git -C r6-src checkout $env:R6_COMMIT
           if ($LASTEXITCODE -ne 0) { throw "R6_COMMIT $env:R6_COMMIT is not in orbit-r6" }
           $env:R6_CC = 'gcc'
-          & r6-src\scripts\build-r6.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'R6 did not build' }
+          $repoRoot = $PWD.Path
+          try {
+            & r6-src\scripts\build-r6.ps1
+            if ($LASTEXITCODE -ne 0) { throw 'R6 did not build' }
+          } finally {
+            Set-Location $repoRoot
+          }
           New-Item -ItemType Directory -Force dist\bin | Out-Null
           Copy-Item r6-src\.r6-build\r6.exe dist\bin\r6.exe
           Copy-Item r6-src\LICENSE dist\bin\LICENSE-r6.txt
@@ -181,7 +193,7 @@ jobs:
           cp LICENSE "$STAGE/LICENSE.txt"
           tar -czf "dist/${{ matrix.asset }}.tar.gz" -C dist/bundle orbit
           echo "[Release] Linux bundle: dist/${{ matrix.asset }}.tar.gz"
-          tar -tzf "dist/${{ matrix.asset }}.tar.gz" | head -n 8
+          tar -tzf "dist/${{ matrix.asset }}.tar.gz" | sed -n '1,8p'
 
       - name: Check the bundle links the prebuilt archive
         if: matrix.os == 'ubuntu-latest'
@@ -225,8 +237,12 @@ jobs:
           # Bump this version deliberately, never float it.
           choco install innosetup --version=6.3.3 -y --no-progress --allow-downgrade
           choco list --local-only innosetup
+          $tag = '${{ inputs.tag }}'
+          if (-not $tag -and '${{ github.ref }}' -like 'refs/tags/v*') {
+            $tag = '${{ github.ref_name }}'
+          }
           $ver = '0.0.0-dev'
-          if ('${{ github.ref }}' -like 'refs/tags/v*') { $ver = '${{ github.ref_name }}'.TrimStart('v') }
+          if ($tag -like 'v*') { $ver = $tag.TrimStart('v') }
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /DOrbitVersion=$ver installer\orbit.iss
           if (-not (Test-Path 'dist\Orbit-Setup-*.exe')) {
             Write-Error '[Release] FAILED: the Setup Wizard was not emitted.'
@@ -244,7 +260,7 @@ jobs:
   publish:
     name: Publish GitHub release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -268,7 +284,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '-rc') }}
           generate_release_notes: true
           # release-assets/* now includes SHA256SUMS from the step above.
           files: release-assets/*
