@@ -1,0 +1,29 @@
+orbit-tir 1
+module fixture
+function 0 parse result<object>
+param 0 0 t string
+block 0 0
+instr 0 0 0 const int 1
+instr 0 0 1 construct object 1 node v0
+instr 0 0 2 result_ok result 200 v1
+instr 0 0 3 return unit v2
+end-function 0
+function 1 show object
+param 1 0 t string
+block 1 0
+instr 1 0 0 load result<object> parse
+instr 1 0 1 load string t
+instr 1 0 2 call result<object> v0 v1
+instr 1 0 3 result_is_ok bool v2
+instr 1 0 4 branch unit v3 b1 b2
+block 1 1
+instr 1 1 5 result_unwrap object v2
+block 1 2
+instr 1 2 6 const int 0
+instr 1 2 7 construct object 1 empty v6
+instr 1 2 8 return unit v7
+block 1 0
+instr 1 0 9 bind unit o v5
+instr 1 0 10 load object o
+instr 1 0 11 return unit v10
+end-function 1

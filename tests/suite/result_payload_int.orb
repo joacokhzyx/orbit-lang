@@ -1,0 +1,15 @@
+// expect-exit 0
+// A `-> result < int >` signature whose value is built with `ok(42)`. The number
+// is the thing the caller reads back, so the payload cannot be only a string or
+// an object: `parseIntChecked` answers `result < int >` for exactly this value.
+fn num() -> result < int > {
+    return ok(42)
+}
+
+fn main() -> int {
+    val got: int = try num() catch { return 7 }
+    if got == 42 {
+        return 0
+    }
+    return 9
+}

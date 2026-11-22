@@ -1,0 +1,40 @@
+// case: route-limits-past-32-are-refused-not-dropped
+// what: 33 routes declare a limit. The runtime table holds 32
+//      (ADMISSION_MAX_ROUTE_LIMITS, runtime/admission.h), and past it
+//      orbit_admission_register_route_limit counts a drop and returns, so the
+//      server starts and serves that route under the global gate instead of
+//      the policy the source declared. The checker refuses the program.
+// expect-error: route limits, and 32 is the most the server can enforce
+route GET "/r01" limit 1 / s { return ok 200 "x" }
+route GET "/r02" limit 1 / s { return ok 200 "x" }
+route GET "/r03" limit 1 / s { return ok 200 "x" }
+route GET "/r04" limit 1 / s { return ok 200 "x" }
+route GET "/r05" limit 1 / s { return ok 200 "x" }
+route GET "/r06" limit 1 / s { return ok 200 "x" }
+route GET "/r07" limit 1 / s { return ok 200 "x" }
+route GET "/r08" limit 1 / s { return ok 200 "x" }
+route GET "/r09" limit 1 / s { return ok 200 "x" }
+route GET "/r10" limit 1 / s { return ok 200 "x" }
+route GET "/r11" limit 1 / s { return ok 200 "x" }
+route GET "/r12" limit 1 / s { return ok 200 "x" }
+route GET "/r13" limit 1 / s { return ok 200 "x" }
+route GET "/r14" limit 1 / s { return ok 200 "x" }
+route GET "/r15" limit 1 / s { return ok 200 "x" }
+route GET "/r16" limit 1 / s { return ok 200 "x" }
+route GET "/r17" limit 1 / s { return ok 200 "x" }
+route GET "/r18" limit 1 / s { return ok 200 "x" }
+route GET "/r19" limit 1 / s { return ok 200 "x" }
+route GET "/r20" limit 1 / s { return ok 200 "x" }
+route GET "/r21" limit 1 / s { return ok 200 "x" }
+route GET "/r22" limit 1 / s { return ok 200 "x" }
+route GET "/r23" limit 1 / s { return ok 200 "x" }
+route GET "/r24" limit 1 / s { return ok 200 "x" }
+route GET "/r25" limit 1 / s { return ok 200 "x" }
+route GET "/r26" limit 1 / s { return ok 200 "x" }
+route GET "/r27" limit 1 / s { return ok 200 "x" }
+route GET "/r28" limit 1 / s { return ok 200 "x" }
+route GET "/r29" limit 1 / s { return ok 200 "x" }
+route GET "/r30" limit 1 / s { return ok 200 "x" }
+route GET "/r31" limit 1 / s { return ok 200 "x" }
+route GET "/r32" limit 1 / s { return ok 200 "x" }
+route GET "/r33" limit 1 / s { return ok 200 "x" }

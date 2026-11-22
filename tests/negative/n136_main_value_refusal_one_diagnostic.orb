@@ -1,0 +1,16 @@
+// case: main-as-value-refusal-leaves-one-diagnostic
+// what: `val f = main` is refused because the entry point is not a callable
+//      value, and the arm answered `unknown` -- a spelling the call site then
+//      read as a declared binding of no known type and reported `it is a
+//      unknown, not a function`. That second line is about a type the first
+//      refusal never gave the name. The arm answers the poisoned spelling now,
+//      so the call stays silent and the refusal is the whole output.
+//      `one-diagnostic:` pins the count, and the `expect-error:` line pins the
+//      wording.
+// expect-error: Cannot use 'main' as a value
+// one-diagnostic:
+
+fn main() -> int {
+    val f = main
+    return f()
+}

@@ -1,0 +1,15 @@
+// `NULL` is a value the language has: `compiler/front/sema.orb` resolves the
+// name and `compiler/emit/c_backend.orb` maps its type to `void*`, so
+// `if items == NULL` builds today. The lowering pass had no answer for it, so
+// the name was reported as an unknown identifier -- E2001 on a load of a
+// constant -- and the file printed no canonical TIR.
+//
+// The type it answers is the string the build IR uses for the same value, which
+// is how `object` and `result` are reported: the pass names what the rest of the
+// compiler calls it rather than inventing a spelling.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn z() {  val n = NULL  }"
+    print(compileFrontendSource("fixture", source))
+}

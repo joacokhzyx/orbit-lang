@@ -1,0 +1,14 @@
+// `for outer: k in 0..n` names the loop, and `break outer` inside it jumps to that
+// loop's exit block -- the block the statements after the loop are lowered into. The
+// search is the build's: the innermost loop whose name is the label, made over the
+// function's own stack of loop names and targets. A plain `break` keeps the innermost
+// loop's exit, which is what it already jumped to.
+//
+// A label no enclosing loop carries is still a give-up, and says that instead of
+// refusing the whole loop: the loop has a target, the name does not.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn count(n: int) -> int { var total = 0 for outer: k in 0..n { total = total + 1 if k == 2 { break outer } } return total }"
+    print(compileFrontendSource("fixture", source))
+}

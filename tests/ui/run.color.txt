@@ -5,6 +5,6 @@
   [32mv[0m ir       [<bar>]  [90m N ms[0m
   [32mv[0m c        [<bar>]  [90m N ms[0m
   [32mv[0m link     [<bar>]  [90m N ms[0m
- [36m*[0m [1m./hello.orb.run.exe[0m N ms [90m.[0m N KB .text [90m.[0m c
+ [36m*[0m [1m./hello.orb.run[0m N ms [90m.[0m N KB .text [90m.[0m c
 [90m ----------------------------------------------------------------------------[0m
 hello

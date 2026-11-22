@@ -1,0 +1,11 @@
+// Integer arithmetic, precedence and counted loops.
+fn main() -> int {
+    if 2 + 3 * 4 - 13 != 1 { return 1 }
+    var total = 0
+    for i in 0..10 { total = total + i }
+    if total != 45 { return 2 }
+    var n = 3
+    while n > 0 { n = n - 1 }
+    if n != 0 { return 3 }
+    return 0
+}

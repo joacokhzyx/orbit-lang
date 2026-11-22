@@ -1,7 +1,8 @@
 /**
  * @file  test_ledger_percentiles.c
- * @brief Per-route percentiles: bucket boundaries, ordering, and the JSON
- *        keys, so /_ledger/data reports distribution without inventing it.
+ * @brief Per-route percentiles, estimated inside their bucket: ordering, the
+ *        clamps, and the JSON keys, so /_ledger/data reports distribution
+ *        without inventing it.
  */
 
 #include <stdio.h>
@@ -47,14 +48,42 @@ int main(void) {
     uint64_t p95 = orbit_ledger_percentile_us(e, 950);
     uint64_t p99 = orbit_ledger_percentile_us(e, 990);
 
-    /* p50 targets ceil(4*0.5)=2 -> bucket 12's boundary, 8192 cycles = 3 us. */
-    assert(p50 == 3);
-    /* p95 and p99 target 4 -> the outlier's bucket, reported as its boundary
-     * (2^25 cycles = 13421 us), never as the 10000 us actually measured. */
-    assert(p95 == 13421);
-    assert(p99 == 13421);
+    /* p50 targets ceil(4*0.5)=2 -> the 2 us sample, alone in bucket 12. A bucket
+     * holding one request answers that request, not the 8192-cycle edge (3 us)
+     * above it. */
+    assert(p50 == 2);
+    /* p95 and p99 target 4 -> the outlier's bucket, whose one sample is
+     * 25,000,000 cycles: 10000 us measured, where 2^25 = 13421 us was the edge
+     * the boundary rule reported. */
+    assert(p95 == 10000);
+    assert(p99 == 10000);
     assert(p50 <= p95);
     assert(p95 <= p99);
+
+    /* One bucket, one hundred requests spread 80 cycles apart from 8192 to
+     * 16112 -- all inside bucket 13, whose edges are 8192 and 16384. The mean is
+     * the middle of the spread and the rank decides where inside it the answer
+     * sits, so the table no longer reports the same edge for every one of them. */
+    int bulk = orbit_ledger_enter("GET", "/notes/bulk");
+    assert(bulk >= 0);
+    for (uint64_t k = 0; k < 100; k++) {
+        orbit_ledger_exit(bulk, 8192ULL + k * 80ULL, NULL);
+    }
+    const OrbitLedgerEntry* b = &orbit_ledger_table[bulk];
+    assert(b->count == 100);
+    assert(b->lat[13] == 100);
+    uint64_t bulk_p5 = orbit_ledger_percentile_us(b, 50);
+    uint64_t bulk_p50 = orbit_ledger_percentile_us(b, 500);
+    uint64_t bulk_p99 = orbit_ledger_percentile_us(b, 990);
+    /* The 50th of these is 12112 cycles = 4 us; one rank step (81 cycles) of
+     * slop is the price of dividing the width by the count, not the product. */
+    assert(bulk_p50 == 4);
+    /* The 5th wants to leave the bucket below and the 99th above: the clamp is
+     * what keeps a percentile between the edges that bound it. */
+    assert(bulk_p5 == 3);
+    assert(bulk_p99 == 6);
+    assert(bulk_p5 <= bulk_p50);
+    assert(bulk_p50 <= bulk_p99);
 
     /* An unentered route has no distribution to report. */
     const OrbitLedgerEntry empty = {0};
@@ -63,14 +92,14 @@ int main(void) {
     /* The JSON endpoint carries the percentiles and says they are boundaries. */
     OrbitArena* arena = orbit_arena_create(65536);
     const char* json = orbit_ledger_json(arena);
-    assert(strstr(json, "\"p50_us\":3") != NULL);
-    assert(strstr(json, "\"p95_us\":13421") != NULL);
-    assert(strstr(json, "\"p99_us\":13421") != NULL);
-    assert(strstr(json, "log2-bucket boundaries") != NULL);
+    assert(strstr(json, "\"p50_us\":2") != NULL);
+    assert(strstr(json, "\"p95_us\":10000") != NULL);
+    assert(strstr(json, "\"p99_us\":10000") != NULL);
+    assert(strstr(json, "log2-bucket estimates") != NULL);
 
     const char* html = orbit_ledger_html(arena);
     assert(strstr(html, "p50 µs") != NULL);
-    assert(strstr(html, "log2-bucket boundaries") != NULL);
+    assert(strstr(html, "log2-bucket estimates") != NULL);
 
     /* ORBIT_LEDGER_OUT: the same JSON, readable by a tool that is not an HTTP
      * client. That is the whole point of the dump -- a static analyser can read

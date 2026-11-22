@@ -1,0 +1,16 @@
+// An interpolated string is parts concatenated, and the pass now lowers it:
+// the text between the holes is a `string` const and each hole lowers to the
+// value of its own expression, so `interp` answers `string` and the file keeps its
+// canonical text. Before this arm the whole literal was one give-up -- 12 over
+// the corpus, `expression cannot be lowered to TIR: Interp` -- and the error
+// suppressed the file's TIR.
+//
+// The hole is written \x24{n} because a fixture cannot embed `${`: the lexer
+// reading the fixture's own literal would interpolate it. scripts/frontend_gate.py
+// decodes that marker in the test plumbing, not as a language escape.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn line(n: int) -> string { return \"count=\x24{n}!\" }"
+    print(compileFrontendSource("fixture", source))
+}

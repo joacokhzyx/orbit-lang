@@ -60,7 +60,7 @@ fn b64StdVal(c: int) -> int {
     return -1
 }
 
-fn base64Decode(s: string) -> result {
+fn base64Decode(s: string) -> result < string > {
     if s.len() % 4 != 0 {
         return err("not base64: length must be a multiple of 4", 1)
     }
@@ -143,7 +143,7 @@ fn hexVal(c: int) -> int {
     return -1
 }
 
-fn hexDecode(s: string) -> result {
+fn hexDecode(s: string) -> result < string > {
     if s.len() % 2 != 0 {
         return err("not hex: odd length", 1)
     }

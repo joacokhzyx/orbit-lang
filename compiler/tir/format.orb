@@ -3,6 +3,8 @@
 // This is frontend-owned: consumers may read the canonical text output but
 // must not depend on the representation of these models in memory.
 
+import "../host/extern.orb"
+
 model TirDiagnostic {
     severity: string
     code: string
@@ -30,22 +32,83 @@ model TirFunction {
     returnType: string
     parameters: list < TirParameter >
     instructions: list < TirInstruction >
+    // The loops being lowered, innermost last: the name the source wrote, the
+    // block a `break` jumps to and the block a `continue` jumps to. The build
+    // keeps the same three lists (`compiler/ir/builder.orb:20`).
+    loopLabels: list < string >
+    loopExits: list < int >
+    loopContinues: list < int >
     nextValueId: int
     nextBlockId: int
+}
+
+// One field of a model the file declares: the name, and the type text exactly
+// as the source wrote it.
+model TirField {
+    name: string
+    declaredType: string
+}
+
+// A model this file declares. The frontend keeps it for one question -- what
+// type is `d.x` -- and answers it from the program's own text, the way
+// `declaredReturnType` answers a call from the function the file declares. It
+// is never printed: the text records functions, and this is a resolution table
+// rather than a declaration the output claims to make.
+model TirType {
+    name: string
+    fields: list < TirField >
+    params: list < string >
+    // A union's variants in the order the source declares them. The emitter
+    // numbers a tag by this position (`<Type>_TAG_<Variant> = <index>` in
+    // `compiler/emit/c_backend.orb:2082`), so a match arm has to be read against
+    // the same order to print the number the C backend will define. A model
+    // leaves it empty.
+    variants: list < string >
+    // The payload each variant declares, parallel to `variants`: "" for one that
+    // carries none. A `match` arm that binds the payload names this type, so the
+    // `data` read below answers the model the arm's body then reads fields from.
+    payloads: list < string >
+}
+
+// One declared signature: the name and the return type exactly as the source
+// writes them. Bodies are lowered one at a time and a call may name a function
+// declared later in the same file, so the answers have to exist before the
+// first body is read -- otherwise the load of that name has nothing to read and
+// the file loses its canonical text to an `unknown` it never wrote.
+model TirSignature {
+    name: string
+    returnType: string
+}
+
+// A file-scope `val` or `const` with a literal. The C backend emits it as a
+// `#define`, so it has no instruction of its own, and a read of the name still
+// has a type -- the one the literal writes. Resolution only, like `types` and
+// `ctors`: never printed.
+model TirConstant {
+    name: string
+    typeName: string
 }
 
 model TirModule {
     name: string
     functions: list < TirFunction >
     diagnostics: list < TirDiagnostic >
+    types: list < TirType >
+    signatures: list < TirSignature >
+    // The qualified names of the declared type's variants that carry a payload,
+    // spelled `Type.variant`. A name in this list is a construction: it answers
+    // the type when it is called, and it answers nothing when it is read, so
+    // this is kept apart from `types` rather than filed beside the constants.
+    ctors: list < string >
+    constants: list < TirConstant >
 }
 
 fn initTirModule(name: string) -> TirModule {
-    return TirModule(name, [], [])
+    return TirModule(name, [], [], [], [], [], [])
 }
 
 fn initTirFunction(id: int, name: string, returnType: string) -> TirFunction {
-    return TirFunction(id, name, returnType, [], [], 0, 0)
+    return TirFunction(id, name, returnType, [], [], [], [], [], 0, 0)
 }
 
 fn tirAddFunction(module: TirModule, name: string, returnType: string) -> TirFunction {
@@ -74,6 +137,21 @@ fn tirEmit(function: TirFunction, blockId: int, opcode: string, typeName: string
 
 fn tirError(module: TirModule, code: string, message: string, line: int, column: int) {
     module.diagnostics.push(TirDiagnostic("error", code, message, line, column))
+}
+
+// The first error diagnostic as one line, or "" when there is none. Without
+// it a caller can only say that errors exist, which is what `orbit frontend`
+// used to do while printing none of them.
+fn tirFirstError(module: TirModule) -> string {
+    var i = 0
+    while i < module.diagnostics.len() {
+        val diagnostic: TirDiagnostic = module.diagnostics.get(i)
+        if diagnostic.severity == "error" {
+            return diagnostic.code + " at " + tirIntText(diagnostic.line) + ":" + tirIntText(diagnostic.column) + ": " + diagnostic.message
+        }
+        i = i + 1
+    }
+    return ""
 }
 
 fn tirHasErrors(module: TirModule) -> bool {
@@ -110,6 +188,39 @@ fn tirHasUnknownTypes(module: TirModule) -> bool {
         functionIndex = functionIndex + 1
     }
     return false
+}
+
+// The first place the module carries an `unknown` type, named so the answer is
+// actionable. "" when there is none. tirCanonical refuses an unknown anywhere,
+// so a caller that got "" from it with no errors is looking at one of these.
+fn tirFirstUnknown(module: TirModule) -> string {
+    var functionIndex = 0
+    while functionIndex < module.functions.len() {
+        val function: TirFunction = module.functions.get(functionIndex)
+        if function.returnType == "unknown" {
+            return "function " + function.name + " has an unknown return type"
+        }
+
+        var parameterIndex = 0
+        while parameterIndex < function.parameters.len() {
+            val parameter: TirParameter = function.parameters.get(parameterIndex)
+            if parameter.typeName == "unknown" {
+                return "parameter " + parameter.name + " of " + function.name + " has an unknown type"
+            }
+            parameterIndex = parameterIndex + 1
+        }
+
+        var instructionIndex = 0
+        while instructionIndex < function.instructions.len() {
+            val instruction: TirInstruction = function.instructions.get(instructionIndex)
+            if instruction.typeName == "unknown" {
+                return "function " + function.name + ": " + instruction.opcode + " at value " + tirIntText(instruction.valueId) + " has an unknown type"
+            }
+            instructionIndex = instructionIndex + 1
+        }
+        functionIndex = functionIndex + 1
+    }
+    return ""
 }
 
 fn tirEscape(text: string) -> string {

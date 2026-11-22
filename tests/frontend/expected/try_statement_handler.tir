@@ -1,0 +1,36 @@
+orbit-tir 1
+module fixture
+function 0 decode result<string>
+param 0 0 s string
+block 0 0
+instr 0 0 0 const string "t"
+instr 0 0 1 result_ok result 200 v0
+instr 0 0 2 return unit v1
+end-function 0
+function 1 main int
+block 1 0
+instr 1 0 0 const bool false
+instr 1 0 1 bind unit refused v0
+instr 1 0 2 load result<string> decode
+instr 1 0 3 const string "x"
+instr 1 0 4 call result<string> v2 v3
+instr 1 0 5 result_is_ok bool v4
+instr 1 0 6 branch unit v5 b1 b2
+block 1 1
+instr 1 1 7 jump unit b3
+block 1 2
+instr 1 2 8 const bool true
+instr 1 2 9 bind unit refused v8
+instr 1 2 10 jump unit b3
+block 1 3
+instr 1 3 11 load bool refused
+instr 1 3 12 branch unit v11 b4 b5
+block 1 4
+instr 1 4 13 const int 3
+instr 1 4 14 return unit v13
+block 1 5
+instr 1 5 15 jump unit b6
+block 1 6
+instr 1 6 16 const int 0
+instr 1 6 17 return unit v16
+end-function 1

@@ -1,0 +1,11 @@
+// The response-class counters are readable outside a server, where they are 0.
+// Inside one, orbit_send_response feeds them (runtime/test_response.c pins the
+// classification; this pins the language wiring and the link).
+fn main() -> int {
+    val passed = system.http_requests_ok()
+    val failed = system.http_requests_error()
+    print("${passed} ${failed}")
+    if passed != 0 { return 1 }
+    if failed != 0 { return 2 }
+    return 0
+}

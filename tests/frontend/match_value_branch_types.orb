@@ -1,0 +1,17 @@
+// The control for the join: arms that answer different types are not a value
+// this pass can print. One `instr` line carries one type, and
+// `match n { 0 => 1 _ => "two" }` has two, so the rule refuses, E3001 says what
+// is missing, and the file prints nothing.
+//
+// Answering `int` anyway would put a type on the read of `v` that the wildcard
+// contradicts at run time -- the same class of defect that made
+// `if_value_branch_types.orb` a refusal rather than a golden.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn bad(n: int) -> int { val v = match n { 0 => 1 _ => \"two\" } return v }"
+    val output = compileFrontendSource("fixture", source)
+    if output == "" {
+        print("arms that disagree stay a give-up")
+    }
+}

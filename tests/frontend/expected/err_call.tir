@@ -1,0 +1,9 @@
+orbit-tir 1
+module fixture
+function 0 fail result<string>
+block 0 0
+instr 0 0 0 const string "nope"
+instr 0 0 1 const int 1
+instr 0 0 2 call result err v0 v1
+instr 0 0 3 return unit v2
+end-function 0

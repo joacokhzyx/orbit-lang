@@ -1,0 +1,3 @@
+b.orb:1 error [D008] this file does not pass the compiler's checks. fix: run `orbit check dir/b.orb` and address the first error. (The detail is not reprinted here: it comes from the typecheck and the IR verifier, which a cached answer skips.)
+b.orb:3 warning [D002] duplicate route GET /dup (first seen at dir/a.orb:5). fix: keep one handler and remove the other.
+doctor: 2 finding(s) (1 error(s), 1 warning(s)) in 2 files under "dir".

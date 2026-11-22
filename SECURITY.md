@@ -12,7 +12,7 @@ Security updates are applied to the latest release of Orbit.
 
 ## Reporting a Vulnerability
 
-Security reports for the compiler, runtime and Kynx are handled privately. Do not open a public issue.
+Security reports for the compiler, runtime and admission are handled privately. Do not open a public issue.
 
 ### Disclosure Process
 

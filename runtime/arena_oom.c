@@ -25,7 +25,7 @@ OrbitOomHandler orbit_get_oom_handler(void) {
 /* ──────────────────────────────────────────────────────────────────────
  * Request-boundary OOM recovery.
  *
- * A Kynx lease caps one request's arena (runtime/kynx.c, 16 MB by default),
+ * A admission lease caps one request's arena (runtime/admission.c, 16 MB by default),
  * and a request that asked for more than the cap used to be answered by the
  * aborting default above: a refusal at the request boundary ended the
  * process. The refusal belongs to one request, so the answer does too, and
@@ -37,7 +37,7 @@ OrbitOomHandler orbit_get_oom_handler(void) {
  * What the longjmp skips is only the frames between the allocator and the
  * boundary, and nothing there holds a lock across an allocation: every lock
  * in the runtime is a CAS on a flag or a spinlock held around counters only
- * (runtime/arena_pool.c, runtime/kynx.c, runtime/ledger.c), and the
+ * (runtime/arena_pool.c, runtime/admission.c, runtime/ledger.c), and the
  * per-route ledger row is a set of atomic counters, so a skipped exit costs
  * that request its row rather than corrupting one. A refusal inside a sqlite
  * query leaks the prepared statement and no more: sqlite3 locks per call,

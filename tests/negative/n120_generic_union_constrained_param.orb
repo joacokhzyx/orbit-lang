@@ -1,0 +1,16 @@
+// case: generic-union-constrained-param
+// what: n53 refuses a constraint on a model's parameter because the argument is
+//      inferred and there is nothing to hold it to. A union's parameter is
+//      inferred from the payload written for the variant, which is the same
+//      promise about a value the compiler does not have, so `union Counter[T: int]`
+//      is refused with the same shape of message and its own reason. The
+//      parameter list itself parses -- this is the constraint half being
+//      refused, not the brackets.
+// expect-error: is not supported: a type parameter of a union is inferred
+union Counter[T: int] {
+    Tick(T)
+}
+
+fn main() -> int {
+    return 0
+}

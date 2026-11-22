@@ -8,12 +8,16 @@
 //      read the arena pointer as its path. The unreassigned form devirtualises
 //      into a direct call and works, which is why the spelling cannot be the
 //      rule: naming an extern as a value is refused outright.
+//      The binding is called after the refusal, because that is the site the
+//      widened rule guards: the call must not add `not a function` to the one
+//      sentence that explains the refusal.
 // expect-error: Cannot use extern function
+// one-diagnostic:
 extern fn probe_thing(path: string) -> bool
 
 fn pick(p: string) -> bool {
     val f = probe_thing
-    return true
+    return f(p)
 }
 
 fn main() -> int {

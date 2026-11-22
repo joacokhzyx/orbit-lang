@@ -1,0 +1,71 @@
+// A generic union is one declaration and many instances, the way a generic
+// model already is. `union Option[T] { Some(T) None }` was refused by the
+// checker: nothing substituted `T`, so a payload declared `T` would reach the
+// C backend as the parameter's own name. The argument comes from a position
+// where a type is WRITTEN -- a parameter's declared type, a binding's
+// annotation -- and from the value handed to a payload-carrying variant, and
+// each instantiation is its own tag set with its own payload type.
+//
+// A payload-less variant with no written type anywhere is refused, never
+// guessed: tests/negative/n118_generic_union_needs_a_written_type_for_none.orb.
+// A binding's annotation is one of those written types, so `val z` and `val w`
+// below take their instance from the annotation alone: `Option.None` carries no
+// payload to decide it, and `Option.None()` hands over nothing either.
+//
+// Every exit code below is distinct, so a regression names itself: a payload
+// bound to the wrong type, or an arm that dispatches to the wrong instance,
+// comes out non-zero.
+
+union Option[T] {
+    Some(T)
+    None
+}
+
+union Pair[A, B] {
+    Both(A, B)
+    Empty
+}
+
+fn takeInt(o: Option < int >) -> int {
+    match o {
+        Option.Some(n) => { return n * 2 }
+        Option.None => { return -1 }
+    }
+    return -2
+}
+
+fn takeString(o: Option < string >) -> string {
+    match o {
+        Option.Some(t) => { return t + "!" }
+        Option.None => { return "none" }
+    }
+    return "?"
+}
+
+fn makeSome(n: int) -> Option < int > {
+    if n > 0 {
+        return Option.Some(n)
+    }
+    return Option.None
+}
+
+fn main() -> int {
+    val a: Option < int > = Option.Some(21)
+    if takeInt(a) != 42 { return 90 }
+    if takeInt(Option.None) != -1 { return 91 }
+    val z: Option < int > = Option.None
+    if takeInt(z) != -1 { return 99 }
+    val w: Option < int > = Option.None()
+    if takeInt(w) != -1 { return 100 }
+    val s: Option < string > = Option.Some("hit")
+    if takeString(s) != "hit!" { return 92 }
+    if takeString(Option.None) != "none" { return 93 }
+    if takeInt(makeSome(5)) != 10 { return 94 }
+    if takeInt(makeSome(0)) != -1 { return 95 }
+    val p: Pair < int, string > = Pair.Both(3, "three")
+    match p {
+        Pair.Both(n, t) => { if n + 1 != 4 { return 96 } if t != "three" { return 97 } }
+        Pair.Empty => { return 98 }
+    }
+    return 0
+}

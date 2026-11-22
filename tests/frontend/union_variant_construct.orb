@@ -1,0 +1,17 @@
+// `Shape.Circle(n)` constructs a `Shape`. The name before the dot is a declared
+// type and the name after it is one of that type's payload-carrying variants, so
+// there is no value to read off anything: the qualified name travels on the call
+// and the answer is the type the source wrote before the dot. Lowering the callee
+// as an expression asked for a binding of `Shape`, which no function binds, and
+// reported E2001 for the load and E2004 for the member read after it.
+//
+// Reading the same name without calling it stays unanswered: a payload-carrying
+// variant is a construction that needs its argument, and a constant would claim a
+// value this pass cannot build. `tests/frontend/union_variant_read.orb` pins the
+// payload-less sibling, which is a constant and answers.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "union Shape { Circle(int), Square }  fn make(n: int) -> Shape { return Shape.Circle(n) }"
+    print(compileFrontendSource("fixture", source))
+}

@@ -1,0 +1,22 @@
+orbit-tir 1
+module fixture
+function 0 take int
+param 0 0 c bool
+block 0 0
+instr 0 0 0 list list 0
+instr 0 0 1 bind unit xs v0
+instr 0 0 2 load bool c
+instr 0 0 3 branch unit v2 b1 b2
+block 0 1
+instr 0 1 4 load list xs
+instr 0 1 5 const int 1
+instr 0 1 6 call void push v4 v5
+instr 0 1 7 jump unit b3
+block 0 2
+instr 0 2 8 jump unit b3
+block 0 3
+instr 0 3 9 load list<int> xs
+instr 0 3 10 const int 0
+instr 0 3 11 call int get v9 v10
+instr 0 3 12 return unit v11
+end-function 0

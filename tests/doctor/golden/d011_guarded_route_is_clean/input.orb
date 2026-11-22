@@ -7,5 +7,5 @@ route POST "/posts" {
 }
 extern fn orbit_db_delete(t: string, c: string, v: string) -> bool
 extern fn orbit_auth_has_role(r: string) -> bool
-extern fn orbit_db_query_all(q: string) -> list
+extern fn orbit_db_query_all(q: string) -> list<object>
 

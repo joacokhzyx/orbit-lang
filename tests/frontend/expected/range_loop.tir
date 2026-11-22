@@ -1,0 +1,76 @@
+orbit-tir 1
+module fixture
+function 0 sum int
+param 0 0 n int
+block 0 0
+instr 0 0 0 const int 0
+instr 0 0 1 bind unit s v0
+instr 0 0 2 const int 0
+instr 0 0 3 load int n
+instr 0 0 4 bind unit k_range v2
+instr 0 0 5 jump unit b1
+block 0 1
+instr 0 1 6 load int k_range
+instr 0 1 7 < bool v6 v3
+instr 0 1 8 branch unit v7 b2 b4
+block 0 2
+instr 0 2 9 load int k_range
+instr 0 2 10 bind unit k v9
+instr 0 2 11 load int s
+instr 0 2 12 load int k
+instr 0 2 13 + int v11 v12
+instr 0 2 14 bind unit s v13
+instr 0 2 15 jump unit b3
+block 0 3
+instr 0 3 16 load int k_range
+instr 0 3 17 const int 1
+instr 0 3 18 + int v16 v17
+instr 0 3 19 bind unit k_range v18
+instr 0 3 20 jump unit b1
+block 0 4
+instr 0 4 21 load int s
+instr 0 4 22 return unit v21
+end-function 0
+function 1 positions int
+param 1 0 n int
+block 1 0
+instr 1 0 0 const int 0
+instr 1 0 1 bind unit t v0
+instr 1 0 2 const int 2
+instr 1 0 3 load int n
+instr 1 0 4 bind unit x_range v2
+instr 1 0 5 jump unit b1
+block 1 1
+instr 1 1 6 load int x_range
+instr 1 1 7 < bool v6 v3
+instr 1 1 8 branch unit v7 b2 b4
+block 1 2
+instr 1 2 9 load int x_range
+instr 1 2 10 bind unit x v9
+instr 1 2 11 load int x_range
+instr 1 2 12 - int v11 v2
+instr 1 2 13 bind unit i v12
+instr 1 2 14 load int x
+instr 1 2 15 const int 3
+instr 1 2 16 == bool v14 v15
+instr 1 2 17 branch unit v16 b5 b6
+block 1 5
+instr 1 5 18 jump unit b3
+block 1 6
+instr 1 6 19 jump unit b7
+block 1 7
+instr 1 7 20 load int t
+instr 1 7 21 load int i
+instr 1 7 22 + int v20 v21
+instr 1 7 23 bind unit t v22
+instr 1 7 24 jump unit b3
+block 1 3
+instr 1 3 25 load int x_range
+instr 1 3 26 const int 1
+instr 1 3 27 + int v25 v26
+instr 1 3 28 bind unit x_range v27
+instr 1 3 29 jump unit b1
+block 1 4
+instr 1 4 30 load int t
+instr 1 4 31 return unit v30
+end-function 1

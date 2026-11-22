@@ -273,11 +273,112 @@ static void test_injection_fragments_are_refused(void) {
     orbit_db_close();
 }
 
+/* An insert names the table's columns, so a key that is not one of them is a
+ * typo. The runtime used to drop it: `Model.create` with a misspelled field
+ * wrote a row of empty values and answered true. It is refused and names the
+ * key. Missing keys are still allowed, which is what a partial row is. */
+static void test_unknown_key_is_refused(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":3}"));
+    assert(orbit_db_insert("items", "{\"id\":\"b\",\"ghost\":1}") == false);
+    OrbitArena* arena = orbit_arena_create(131072);
+    assert(orbit_db_count_all(arena, "items") == 1);
+    /* Controls: a partial row is allowed, and so is every column. */
+    assert(orbit_db_insert("items", "{\"id\":\"c\"}"));
+    assert(orbit_db_insert("items", "{\"id\":\"d\",\"name\":\"x\",\"qty\":4}"));
+    assert(orbit_db_count_all(arena, "items") == 3);
+    /* A colon inside a value does not become a key, escaped or not. */
+    assert(orbit_db_insert("items", "{\"id\":\"e\",\"name\":\"a \\\"ghost\\\": 1 b\"}"));
+    assert(orbit_db_count_all(arena, "items") == 4);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
+/* A JSON null is not the four-character string "null". The bare-value branch
+ * copied it verbatim and bound the text, so `{"qty":null}` stored "null" and
+ * every read answered it as a value. An absent key and an explicit null both
+ * land in the "" this runtime uses, because an Orbit string has no null. */
+static void test_null_is_not_the_text_null(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":null}"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    orbit_string row = orbit_db_query_get(arena, "items", "a");
+    assert(row != NULL);
+    assert(strstr(row, "\"qty\":\"\"") != NULL);
+    assert(strstr(row, "\"qty\":\"null\"") == NULL);
+    /* Control: a quoted "null" is a string and must still round-trip. */
+    assert(orbit_db_insert("items", "{\"id\":\"b\",\"name\":\"null\",\"qty\":3}"));
+    orbit_string quoted = orbit_db_query_get(arena, "items", "b");
+    assert(quoted != NULL);
+    assert(strstr(quoted, "\"name\":\"null\"") != NULL);
+    /* Update follows the same rule. */
+    assert(orbit_db_update("items", "b", "{\"name\":null}"));
+    orbit_string cleared = orbit_db_query_get(arena, "items", "b");
+    assert(cleared != NULL);
+    assert(strstr(cleared, "\"name\":\"\"") != NULL);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
+/* A row is rendered into a buffer sized for the row, not a fixed 4 KB. A
+ * 5000-byte post body used to come back cut at 4096 bytes and closed with
+ * '}', so the JSON looked complete and the tail was gone. */
+static void test_large_row_is_not_truncated(void) {
+    fresh_db();
+    char* json = (char*)malloc(8192);
+    assert(json != NULL);
+    char* p = json;
+    p += sprintf(p, "{\"id\":\"big\",\"name\":\"");
+    for (int i = 0; i < 5000; i++) *(p++) = 'x';
+    p += sprintf(p, "\",\"qty\":3}");
+    assert(orbit_db_insert("items", json));
+    free(json);
+    OrbitArena* arena = orbit_arena_create(262144);
+    orbit_string row = orbit_db_query_get(arena, "items", "big");
+    assert(row != NULL);
+    assert(strlen(row) > 5000);
+    assert(strstr(row, "\"qty\":\"3\"") != NULL);
+    orbit_string all = orbit_db_query_all(arena, "items");
+    assert(all != NULL);
+    assert(strlen(all) > 5000);
+    assert(strstr(all, "\"qty\":\"3\"") != NULL);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
+/* A TEXT value may hold a zero byte; SQLite stores it and
+ * sqlite3_column_bytes counts it. The row JSON used to measure the column
+ * with strlen and stop at the zero, so `a\0b` rendered as "a" and the tail
+ * was silently gone. The escape is written with the column's byte length, so
+ * the zero becomes `\u0000` (six bytes, which the JSON bound already
+ * reserves per byte) and the value round-trips in valid JSON. */
+static void test_nul_in_text_is_escaped(void) {
+    fresh_db();
+    assert(orbit_db_exec_ddl("CREATE TABLE IF NOT EXISTS nultext (v TEXT);"));
+    assert(orbit_db_exec_ddl("DELETE FROM nultext;"));
+    assert(orbit_db_exec_ddl("INSERT INTO nultext (v) VALUES (CAST(x'610062' AS TEXT));"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    orbit_string row = orbit_db_query_first(arena, "nultext");
+    assert(row != NULL);
+    assert(strcmp(row, "{\"v\":\"a\\u0000b\"}") == 0);
+    /* Control: the same escape path still writes an ordinary value whole. */
+    assert(orbit_db_exec_ddl("INSERT INTO nultext (v) VALUES ('ab');"));
+    orbit_string both = orbit_db_query_where_v(arena, "nultext", "v = ?", 1, "ab");
+    assert(both != NULL);
+    assert(strstr(both, "{\"v\":\"ab\"}") != NULL);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("db_ops tests\n");
     fflush(stdout);
     RUN_TEST(test_update_partial);
     RUN_TEST(test_escaped_values);
+    RUN_TEST(test_unknown_key_is_refused);
+    RUN_TEST(test_large_row_is_not_truncated);
+    RUN_TEST(test_nul_in_text_is_escaped);
+    RUN_TEST(test_null_is_not_the_text_null);
     RUN_TEST(test_update_missing_is_false);
     RUN_TEST(test_where_two_params);
     RUN_TEST(test_where_contract);

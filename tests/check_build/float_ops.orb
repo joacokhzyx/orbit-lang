@@ -1,0 +1,16 @@
+// Float arithmetic and comparison through values and parameters.
+fn mean4(xs: list < float >) -> float {
+    var s = 0.0
+    for x in xs { s = s + x }
+    return s / 4.0
+}
+
+fn main() -> int {
+    val a: float = 0.5
+    val b: float = 0.25
+    if a + b != 0.75 { return 1 }
+    if a * b != 0.125 { return 2 }
+    if mean4([1.0, 2.0, 3.0, 6.0]) != 3.0 { return 3 }
+    if (a < b) { return 4 }
+    return 0
+}

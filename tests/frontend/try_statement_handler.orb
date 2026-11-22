@@ -1,0 +1,15 @@
+// A `try` in statement position discards its value, so nothing has to merge: the
+// handler runs, the ok path does nothing, and the statements after the `try` continue
+// in the block the two arms jump to. The block shape is the one the `if` statement
+// already emits.
+//
+// This is the half of the class the payload table cannot reach: the handler bodies here
+// fall through, so the old rule asked for a merge value, and the payload check in front
+// of it asked for a type the callee's signature may not write. Neither question is about
+// a value no one reads.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn decode(s: string) -> result<string> { return ok 200 \"t\" }  fn main() -> int { var refused = false try decode(\"x\") catch { refused = true } if refused { return 3 } return 0 }"
+    print(compileFrontendSource("fixture", source))
+}

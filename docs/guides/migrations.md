@@ -53,14 +53,33 @@ before.
 - **Two writers, one file.** UNTESTED and explicitly out of
   scope - concurrent writes from two processes against one
   database file have no contract. One writer per file.
-- **Windows stop loses in-flight writes.** Stop is
-  `TerminateProcess`. A write in flight when you stop the
-  service may or may not have landed. Quiesce traffic first,
+- **A Windows stop that finds no channel is a kill.** The graceful ask sets
+  `Local\orbit-stop-<pid>`, and a server that never reached its start has no
+  such name, so the stop falls back to `TerminateProcess`. A write in flight
+  then may or may not have landed. Quiesce traffic first,
   then stop, then back up.
 
-## What is deliberately not there
+## Rolling back
 
-`down` migrations, a `schema_version` check that refuses newer-than-known,
-and `orbit migrate` as a standalone command do not exist. Migrations
-run at startup, inside the process, in order. That is the whole of the
-contract, and `runtime/test_migrations.c` pins exactly this behavior.
+A `migrations down "<SQL>"` line undoes the forward migration at the same
+position. At startup, `ORBIT_MIGRATE_DOWN=<version>` rolls back every applied
+version above that number, newest first, one transaction per version, removes
+their rows from `_orbit_migrations`, and stops: the forward set does not run
+in the same start, so the next run applies it again. `-1` rolls back
+everything. A version with no down line, a failing statement, or a database
+holding versions this program does not declare all fail startup with a
+message naming the version.
+
+A database whose schema is newer than the program is refused. If
+`_orbit_migrations` holds a version this program does not declare, startup
+prints the version and exits non-zero, instead of running old code against
+columns it cannot describe. That refusal is `test_newer_schema_is_refused` in
+`runtime/test_migrations.c`, and `test_down_rolls_back` pins the rollback.
+
+## Running migrations without starting the service
+
+`orbit migrate app.orb` builds the program once into `.orbit/migrate` and runs
+only the database block: it applies the forward migrations, or rolls back when
+`ORBIT_MIGRATE_DOWN=<version>` is set, then exits with the migration result. It
+never listens, so it is the command for a deploy step that must not start the
+service.

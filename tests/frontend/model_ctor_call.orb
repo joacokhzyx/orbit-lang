@@ -1,0 +1,14 @@
+// `Point(1, 2)` constructs the model the source declared. No function is named
+// `Point` and no binding holds it, so the name is not a value the pass can load:
+// lowering the callee as an expression reported E2001 for the load and E2005 for
+// the call after it. The name travels on the call and the answer is the model's
+// own name.
+//
+// A model name read without calling it is still a value nobody binds, and stays
+// E2001.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Point { x: int, y: int }  fn make() -> Point { return Point(1, 2) }"
+    print(compileFrontendSource("fixture", source))
+}

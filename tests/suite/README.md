@@ -1,6 +1,6 @@
 # Language Behavior Suite
 
-This directory holds small programs that verify what the fixed-point compiler does. Each file defines `fn main() -> int`; the exit code is the assertion read by `scripts/test_suite.py`. Keep each test focused on one behavior - small files catch regressions faster.
+This directory holds small programs that verify what the fixed-point compiler does. Each file defines `fn main() -> int`; the exit code is the assertion read by `scripts/corpus_gates.py suite`. Keep each test focused on one behavior - small files catch regressions faster.
 
 ## Current Coverage
 
@@ -17,7 +17,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Result construction and returns | `result_values.orb` |
 | Result propagation | `result_try.orb` |
 | Result handling | `result_catch.orb` |
-| Result bound to a val or passed as an argument | `result_bind.orb`, `result_binding.orb` |
+| Result bound to a val or passed as an argument | `result_bind.orb`, `result_binding.orb`, `result_parameter.orb` |
 | Models and mutation | `model_fields.orb`, `model_local_named_mid.orb`, `model_ctor_call_arg_unused.orb`, `model_two_fields.orb`, `model_mutation.orb` |
 | Field and element stores | `member_and_index_store.orb` |
 | Integer literals (hex, separators) | `integer_literals.orb` |
@@ -31,7 +31,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Many short-lived models | `model_alloc_loop.orb` |
 | Union payloads and match | `union_payload_return.orb`, `union_model_payload.orb`, `union_nested_match.orb`, `union_multi_payload_unit_variant.orb`, `union_variant_named_tag.orb` |
 | Enumerations | `enum_values.orb` |
-| Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb`, `result_catch_binding_scope.orb` |
+| Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb`, `result_catch_binding_scope.orb`, `result_payload_composition.orb` |
 | Function values chosen at run time | `fn_value_dispatch.orb` |
 | String scanning, building and comparison | `string_scan.orb`, `string_builder_loop.orb`, `string_compare_order.orb` |
 | Generic functions over lists | `generic_multi.orb` |
@@ -47,8 +47,8 @@ This directory holds small programs that verify what the fixed-point compiler do
 Build a fixed-point compiler, then run the suite:
 
 ```sh
-python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp
-python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp
+python scripts/trust.py verify --cc "$CC" --emit-fixed-point /tmp/orbit_fp
+python scripts/corpus_gates.py suite --cc "$CC" --compiler /tmp/orbit_fp
 ```
 
 The runner reports the number of successful programs and fails when a program cannot compile, times out, or exits with an unexpected code.

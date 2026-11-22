@@ -1,0 +1,13 @@
+// `catch e` names the message. The build opens the handler with a read of it --
+// `result_unwrap_err`, which `compiler/emit/c_backend.orb:870` types `string` -- and
+// binds the name to that value, so the pass emits the same two instructions before the
+// handler body. The name loads back `string`, which is what the read is.
+//
+// This is the entry both `try` shapes share: the value case and the statement case call
+// one helper for it, so the two cannot drift apart.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn pick(c: int) -> result<int> { return ok 200 c }  fn show(c: int) -> int { val n: int = try pick(c) catch e { return 9 } return n }"
+    print(compileFrontendSource("fixture", source))
+}

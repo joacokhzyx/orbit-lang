@@ -1,0 +1,17 @@
+// `for x in lo..hi` counts an int between the bounds, so every value the loop
+// reads has a type this pass can answer. The statement lowering had no arm for a
+// `for` at all, so it reached the expression reader as "expression cannot be
+// lowered to TIR: For" -- 46 over the corpus -- and the error suppressed the
+// file's canonical TIR.
+//
+// The shape is the `while` one plus the increment block, and the increment is
+// where a `continue` lands: jumping to the condition with the counter unchanged
+// repeats the same item forever. Over a list the item's type is the element kind
+// and this pass keeps no element table, so `list_iteration.orb` pins that the
+// other path stays the give-up it was.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn sum(n: int) -> int { var s = 0 for k in 0..n { s = s + k } return s } fn positions(n: int) -> int { var t = 0 for x, i in 2..n { if x == 3 { continue } t = t + i } return t }"
+    print(compileFrontendSource("fixture", source))
+}

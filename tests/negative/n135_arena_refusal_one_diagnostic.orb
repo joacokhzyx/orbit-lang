@@ -1,0 +1,16 @@
+// case: arena-refusal-leaves-one-diagnostic
+// what: `val arena = 7` is refused because every function this compiler emits
+//      already takes an OrbitArena* arena, and the refusal returned without
+//      declaring the name. The next read then reported `arena` undeclared and
+//      counted a resolution miss, so the refusal contradicted itself. The
+//      refusal now declares the name with the poisoned spelling, which the
+//      checker accepts for every expected type and names as a type nowhere, so
+//      the read stays silent. `one-diagnostic:` pins the count, and the
+//      `expect-error:` line pins the wording.
+// expect-error: Cannot declare 'arena'
+// one-diagnostic:
+
+fn main() -> int {
+    val arena = 7
+    return arena
+}

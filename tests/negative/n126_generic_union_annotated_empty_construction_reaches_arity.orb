@@ -1,0 +1,17 @@
+// case: generic-union-annotated-empty-construction-reaches-arity
+// what: `val x: Option<int> = Option.Some()` is the program the E1006 help text
+//      recommends. The annotation writes the instance, so the construction is
+//      read against `Option_int` and what refuses it is the payload: `Some`
+//      declares one and the construction hands over none. Before checkVarDecl
+//      resolved the annotation, this program stopped at the E1006 instance
+//      refusal and never reached arity.
+// expect-error: Variant 'Some' declares 1 payloads, but the construction passes 0.
+union Option[T] {
+    Some(T)
+    None
+}
+
+fn main() -> int {
+    val x: Option<int> = Option.Some()
+    return 0
+}

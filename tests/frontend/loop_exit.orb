@@ -1,0 +1,15 @@
+// `break` and `continue` are jumps to a loop's exit and condition blocks. They
+// had no arm in the statement lowering, so they reached the expression reader and
+// came back as "expression cannot be lowered to TIR: Break" -- 91 over the
+// corpus, 26 more for `continue` -- and the error suppressed the file's
+// canonical TIR.
+//
+// The blocks they jump to belong to the enclosing `while`, which is why the two
+// targets are threaded through the statement lowering: a `break` outside a loop
+// has no block to name and stays a give-up that says so.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn main() -> int { var i = 0 while i < 4 { i = i + 1 if i == 2 { continue } if i == 3 { break } } return i }"
+    print(compileFrontendSource("fixture", source))
+}

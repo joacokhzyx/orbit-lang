@@ -40,10 +40,10 @@ else {
     $Py = Get-Command python -ErrorAction SilentlyContinue
     if (-not $Py) { $Py = Get-Command python3 -ErrorAction SilentlyContinue }
     if (-not $Py) {
-        Write-Error "[ERROR] Python is required to run the bootstrap (scripts/build_selfhost.py)."
+        Write-Error "[ERROR] Python is required to run the bootstrap (scripts/trust.py build)."
     }
     Write-Host "[*] Building self-hosted fixed-point compiler..." -ForegroundColor Yellow
-    $buildArgs = @("$RootDir\scripts\build_selfhost.py", "--out", "$InstallDir\orbit.exe")
+    $buildArgs = @("$RootDir\scripts\trust.py", "build", "--out", "$InstallDir\orbit.exe")
     if ($Cc) { $buildArgs += @("--cc", $Cc) }
     & $Py.Source @buildArgs
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$InstallDir\orbit.exe")) {

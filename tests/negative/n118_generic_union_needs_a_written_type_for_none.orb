@@ -1,0 +1,19 @@
+// case: generic-union-needs-a-written-type-for-none
+// what: `union Option[T]` is legal and `Option.Some(21)` fixes the argument from
+//      the payload it carries. `Option.None` carries nothing, so no value says
+//      which instantiation it is. The argument may only come from a position
+//      where a type is WRITTEN -- a binding's annotation, a `return` in a
+//      `-> Option<int>` function, a call argument against its parameter -- and
+//      here none of them is: `val x` has no annotation. Guessing `Option_int`
+//      from the first row that declares `None` is the trade this repository
+//      already refused for generic models, so the construction is refused.
+// expect-error: carries no payload, so nothing in this expression says which instantiation
+union Option[T] {
+    Some(T)
+    None
+}
+
+fn main() -> int {
+    val x = Option.None
+    return 0
+}

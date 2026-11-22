@@ -23,8 +23,9 @@ extern fn orbit_string_hash_selfhost(s: string) -> string
 extern fn orbit_string_cmp_selfhost(a: string, b: string) -> int
 extern fn orbit_file_write_selfhost(path: string, content: string) -> bool
 extern fn orbit_file_read_selfhost(path: string) -> string
-extern fn orbit_file_list_dir_selfhost(path: string) -> list
+extern fn orbit_file_list_dir_selfhost(path: string) -> list < string >
 extern fn orbit_os_exit_selfhost(code: int)
+extern fn orbit_sleep_ms_selfhost(ms: int)
 extern fn orbit_os_write_stderr_selfhost(content: string)
 extern fn orbit_os_isatty_selfhost(fd: int) -> bool
 // Chunk buffer for codegen: the handle rides in a string-typed local
@@ -46,3 +47,12 @@ extern fn orbit_ui_text_size(path: string) -> int
 extern fn orbit_ui_anim_start(block: string, flags: int) -> int
 extern fn orbit_ui_anim_stage(block: string) -> int
 extern fn orbit_ui_anim_stop(finalBlock: string) -> int
+// The string primitives every module reaches for. They were declared where they
+// happened to be needed first -- `orbit_string_len` and `orbit_string_slice` in
+// std/sys/crypto/jwt.orb, `orbit_string_indexOf` in std/string/string.orb -- so
+// a compiler module calling one without importing that file compiled fine (the
+// C backend emits the prototype) while `orbit frontend` reported the name as
+// unknown and suppressed the file's TIR.
+extern fn orbit_string_len(s: string) -> int
+extern fn orbit_string_slice(s: string, start: int, end: int) -> string
+extern fn orbit_string_indexOf(s: string, sub: string) -> int

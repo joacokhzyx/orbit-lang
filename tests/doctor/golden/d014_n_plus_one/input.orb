@@ -1,4 +1,4 @@
-extern fn orbit_db_query_all(q: string) -> list
+extern fn orbit_db_query_all(q: string) -> list<object>
 
 fn handler(limit: int) -> int {
     var i = 0
@@ -10,5 +10,5 @@ fn handler(limit: int) -> int {
 }
 extern fn orbit_db_delete(t: string, c: string, v: string) -> bool
 extern fn orbit_auth_has_role(r: string) -> bool
-extern fn orbit_db_query_all(q: string) -> list
+extern fn orbit_db_query_all(q: string) -> list<object>
 

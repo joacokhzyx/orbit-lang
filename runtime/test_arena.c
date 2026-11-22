@@ -17,7 +17,11 @@
  * console, so an access violation loses every buffered line and the CI log
  * shows a bare "[ORBIT RUNTIME CRASH]" with no indication of which test died --
  * which is how a crash in the migrations test was read as a crash in whichever
- * test happened to be compiled last. The line is there to name the failure. */
+ * test happened to be compiled last. The line is there to name the failure.
+ *
+ * The count the program closes with counts the runs, because the hand-written
+ * figure said 24 while the list held 25. */
+static int tests_passed = 0;
 #define RUN_TEST(name) \
     do { \
         printf("Running test: %s... ", #name); \
@@ -25,6 +29,7 @@
         name(); \
         printf("PASSED\n"); \
         fflush(stdout); \
+        tests_passed++; \
     } while (0)
 
 // 1. Creation and destruction
@@ -229,6 +234,143 @@ static void test_checkpoint_generation_invalid(void) {
     assert(!ok);
     
     orbit_arena_destroy(arena);
+}
+
+// 16b. A checkpoint cannot name a segment it was not taken in. The overflow
+// path moves base to a fresh reservation and leaves the generation where it
+// was, so an offset carried across that move is a position in the live segment
+// that some other block already holds.
+static void test_rewind_across_segment_is_refused(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+
+    char* first = (char*)orbit_alloc(arena, 64);
+    memset(first, 0xAA, 64);
+    OrbitArenaCheckpoint cp_first = orbit_arena_checkpoint(arena);
+    assert(cp_first.segment == arena->segment);
+
+    // Past the 64 MB reservation. The new segment is reserved to the size of
+    // this one request, so the next request chains a segment after that.
+    const size_t big_bytes = 100 * 1024 * 1024;
+    char* big = (char*)orbit_alloc(arena, big_bytes);
+    assert(big != NULL);
+    assert(arena->overflow_list != NULL);
+    assert(arena->generation == cp_first.generation);
+    assert(arena->segment == cp_first.segment + 1);
+    memset(big, 0xC3, 4096);
+
+    char* live = (char*)orbit_alloc(arena, 256);
+    assert(live != NULL);
+    assert(arena->segment == cp_first.segment + 2);
+    memset(live, 0x5A, 256);
+
+    unsigned char* cursor_before = arena->cursor;
+    size_t used_before = arena->used;
+
+    // The stale offset is behind the current one and its generation still
+    // matches, so nothing but the segment can tell the arena to refuse here.
+    assert(cp_first.offset < used_before);
+    assert(!orbit_arena_rewind(arena, cp_first));
+    assert(arena->cursor == cursor_before);
+    assert(arena->used == used_before);
+
+    // The refused rewind left the live block alone: what comes next lands
+    // after it, and writing through that does not touch what came before.
+    char* next = (char*)orbit_alloc(arena, 512);
+    assert(next == live + 256);
+    memset(next, 0x11, 512);
+    for (int i = 0; i < 256; i++) {
+        assert((unsigned char)live[i] == 0x5A);
+    }
+    for (int i = 0; i < 4096; i++) {
+        assert((unsigned char)big[i] == 0xC3);
+    }
+    assert((unsigned char)first[0] == 0xAA);
+
+    // Inside one segment the rewind still restores the cursor and hands the
+    // same block back.
+    OrbitArenaCheckpoint cp_live = orbit_arena_checkpoint(arena);
+    assert(cp_live.segment == arena->segment);
+    char* tail = (char*)orbit_alloc(arena, 128);
+    assert(tail != NULL);
+    assert(orbit_arena_rewind(arena, cp_live));
+    assert(arena->cursor == (unsigned char*)tail);
+    assert(orbit_alloc(arena, 128) == (void*)tail);
+
+    // The epoch rule still holds after all of this.
+    orbit_arena_reset(arena);
+    assert(!orbit_arena_rewind(arena, cp_live));
+
+    orbit_arena_destroy(arena);
+}
+
+// 16c. The ceiling report names the source of its own limit. A process that
+// never set ORBIT_ARENA_MAX_MB is at the machine-derived default, and a line
+// blaming the variable sends whoever reads it to an environment with nothing
+// to change. The texts are asserted byte for byte.
+static void test_ceiling_message_names_its_source(void) {
+    char line[512];
+    size_t n;
+
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "1") == 0);
+    OrbitArena* named = orbit_arena_create(65536);
+    assert(named != NULL);
+    assert(named->max_rule == (size_t)1024 * 1024);
+    assert(named->max_rule_from_env == true);
+
+    n = orbit_oom_put(line, sizeof line, 0, "orbit: ");
+    n = orbit_oom_put_ceiling(line, sizeof line, n, named, 2 * 1024 * 1024);
+    assert(strcmp(line,
+                  "orbit: arena ceiling reached allocating 2097152 bytes; "
+                  "65536 of 1048576 bytes committed, the limit is 1 MB from "
+                  "ORBIT_ARENA_MAX_MB") == 0);
+    orbit_arena_destroy(named);
+
+    // Unset: the default, which is three quarters of what the machine reports.
+    assert(orbit_env_unset("ORBIT_ARENA_MAX_MB") == 0);
+    OrbitArena* dflt = orbit_arena_create(65536);
+    assert(dflt != NULL);
+    assert(dflt->max_rule == orbit_arena_default_max());
+    assert(dflt->max_rule_from_env == false);
+    assert(dflt->committed_bytes == 65536);
+
+    n = orbit_oom_put(line, sizeof line, 0, "orbit: ");
+    n = orbit_oom_put_ceiling(line, sizeof line, n, dflt, 2 * 1024 * 1024);
+    char expected[512];
+    snprintf(expected, sizeof expected,
+             "orbit: arena ceiling reached allocating 2097152 bytes; "
+             "65536 of %llu bytes committed, the limit is %llu MB, the default "
+             "of three quarters of physical memory",
+             (unsigned long long)dflt->max_rule,
+             (unsigned long long)(dflt->max_rule / (1024 * 1024)));
+    assert(strcmp(line, expected) == 0);
+    orbit_arena_destroy(dflt);
+
+    // A value that is not a positive count is not the variable speaking: the
+    // limit is still the default, and so is the clause.
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "0") == 0);
+    OrbitArena* zero = orbit_arena_create(65536);
+    assert(zero != NULL);
+    assert(zero->max_rule_from_env == false);
+    orbit_arena_destroy(zero);
+
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "lots") == 0);
+    OrbitArena* malformed = orbit_arena_create(65536);
+    assert(malformed != NULL);
+    assert(malformed->max_rule == orbit_arena_default_max());
+    assert(malformed->max_rule_from_env == false);
+    orbit_arena_destroy(malformed);
+
+    // A child inherits the cap and the clause that names it.
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "1") == 0);
+    OrbitArena* parent = orbit_arena_create(65536);
+    assert(parent != NULL);
+    assert(orbit_env_unset("ORBIT_ARENA_MAX_MB") == 0);
+    OrbitArena* child = orbit_arena_create_child(parent, 65536);
+    assert(child != NULL);
+    assert(child->max_rule == parent->max_rule);
+    assert(child->max_rule_from_env == parent->max_rule_from_env);
+    orbit_arena_destroy(child);
+    orbit_arena_destroy(parent);
 }
 
 // 17. Child arena
@@ -629,6 +771,8 @@ int main(void) {
     RUN_TEST(test_large_allocation_overflow);
     RUN_TEST(test_checkpoint_rewind);
     RUN_TEST(test_checkpoint_generation_invalid);
+    RUN_TEST(test_rewind_across_segment_is_refused);
+    RUN_TEST(test_ceiling_message_names_its_source);
     RUN_TEST(test_child_arena);
     RUN_TEST(test_promote_bytes);
     RUN_TEST(test_string_interning);
@@ -641,6 +785,7 @@ int main(void) {
     RUN_TEST(test_hot_retention_follows_footprint);
     RUN_TEST(test_ceiling_stops_a_runaway_arena);
     
-    printf("All 24 mandatory Orbit Arena runtime tests PASSED successfully!\n");
+    printf("All %d mandatory Orbit Arena runtime tests PASSED successfully!\n",
+           tests_passed);
     return 0;
 }

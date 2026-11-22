@@ -1,0 +1,16 @@
+// `if` as a value joins two arms on one name. Each arm writes its value to the
+// same binding (`bind unit join2 v2` and `bind unit join2 v5`) and the block after
+// the branches reads it (`load int join2`), which is the convention this rule adds
+// to the text: a name written in a branch is readable in the block after the join.
+// The type comes from the then branch, the way `branchTypeName`
+// (`compiler/ir/builder.orb:2134`) reads it, and the else branch has to answer the
+// same type -- `tests/frontend/if_value_branch_types.orb` holds that half.
+//
+// The brace form keeps the statements before the value: `n + 1` is emitted in the
+// arm's own block, not moved.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn pick(c: bool, n: int) -> int { val a = if c then 1 else 2 val b = if c { n + 1 } else { n - 1 } return a + b }"
+    print(compileFrontendSource("fixture", source))
+}

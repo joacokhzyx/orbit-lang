@@ -1,0 +1,9 @@
+orbit-tir 1
+module fixture
+function 0 make Point
+block 0 0
+instr 0 0 0 const int 1
+instr 0 0 1 const int 2
+instr 0 0 2 call Point Point v0 v1
+instr 0 0 3 return unit v2
+end-function 0

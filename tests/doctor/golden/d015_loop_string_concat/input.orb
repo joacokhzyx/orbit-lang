@@ -1,4 +1,4 @@
-fn joinit(names: list) -> string {
+fn joinit(names: list<string>) -> string {
     var out = ""
     for name in names {
         out = out + name

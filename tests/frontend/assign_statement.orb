@@ -1,0 +1,17 @@
+// `x = 5` in a statement position is a rebind, and the frontend lowers it to the
+// same `bind` a `val` emits. It used to fall to the expression reader, which has
+// no assignment rule, and came back as
+// `expression cannot be lowered to TIR: Assignment`, with no instruction for the
+// value either.
+//
+// `take` is declared by the same source, so its load reads the declaration and
+// answers int. The canonical TIR is suppressed if any instruction is `unknown`,
+// so this golden also pins that the callee rule made the text reachable at all.
+// One string literal: the gate reads the fixture's embedded source as a single
+// literal and compiles it through `orbit frontend`.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn take(n: int) -> int { return n * 2 } fn main() -> int { var x = 1 x = take(x + 20) x = x + 1 return x }"
+    print(compileFrontendSource("fixture", source))
+}

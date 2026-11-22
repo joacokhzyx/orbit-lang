@@ -358,7 +358,7 @@ fn irRuntimeExtern(name: string) -> IRFunction {
     if name == "orbit_db_update" { return irExternDecl(name, ["table", "id", "json"], ["string", "string", "string"], "bool") }
     if name == "orbit_db_delete" { return irExternDecl(name, ["table", "id"], ["string", "string"], "bool") }
     if name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" { return irExternDecl(name, [], [], "int") }
-    if name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return irExternDecl(name, [], [], "int") }
+    if name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" || name == "system_http_requests_ok" || name == "system_http_requests_error" { return irExternDecl(name, [], [], "int") }
     return initIRFunction("")
 }
 

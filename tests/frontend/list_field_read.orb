@@ -1,0 +1,14 @@
+// A field declared `list<string>` answers that text: `declaredFieldType` reads
+// the type the source wrote, so every later read of `items` carries its element
+// kind. A written `list` with no element is refused at the parser now, so the
+// bare container the type column used to carry is the one an empty literal
+// leaves behind. The index read `xs[i]` is not given the answer the `.get(i)`
+// call has, and that give-up is the one tests/frontend/index_write.orb names;
+// iterating a list with `for x in xs` is the same missing answer, pinned by
+// tests/frontend/list_iteration.orb.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Bag { items: list<string> }  fn take_items(bag: Bag) -> list<string> { return bag.items }"
+    print(compileFrontendSource("fixture", source))
+}

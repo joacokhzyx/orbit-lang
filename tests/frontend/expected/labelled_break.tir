@@ -1,0 +1,42 @@
+orbit-tir 1
+module fixture
+function 0 count int
+param 0 0 n int
+block 0 0
+instr 0 0 0 const int 0
+instr 0 0 1 bind unit total v0
+instr 0 0 2 const int 0
+instr 0 0 3 load int n
+instr 0 0 4 bind unit k_range v2
+instr 0 0 5 jump unit b1
+block 0 1
+instr 0 1 6 load int k_range
+instr 0 1 7 < bool v6 v3
+instr 0 1 8 branch unit v7 b2 b4
+block 0 2
+instr 0 2 9 load int k_range
+instr 0 2 10 bind unit k v9
+instr 0 2 11 load int total
+instr 0 2 12 const int 1
+instr 0 2 13 + int v11 v12
+instr 0 2 14 bind unit total v13
+instr 0 2 15 load int k
+instr 0 2 16 const int 2
+instr 0 2 17 == bool v15 v16
+instr 0 2 18 branch unit v17 b5 b6
+block 0 5
+instr 0 5 19 jump unit b4
+block 0 6
+instr 0 6 20 jump unit b7
+block 0 7
+instr 0 7 21 jump unit b3
+block 0 3
+instr 0 3 22 load int k_range
+instr 0 3 23 const int 1
+instr 0 3 24 + int v22 v23
+instr 0 3 25 bind unit k_range v24
+instr 0 3 26 jump unit b1
+block 0 4
+instr 0 4 27 load int total
+instr 0 4 28 return unit v27
+end-function 0

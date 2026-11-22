@@ -1,0 +1,15 @@
+// `xs[i] = v` is a write through an element place, and the frontend lowers it
+// to `store_index`. It used to be a give-up: the assignment reached the
+// expression reader, which had no write rule for an index, so nothing was
+// emitted for the write -- 22 over the corpus.
+//
+// The list arrives as a parameter, and the element kind is not claimed: this
+// pass keeps no element table, which is why the instruction answers `unit` and
+// why a *read* of the same place (`return xs[i]`) stays a give-up. The check of
+// the value against the element type is the checker's job in the build path.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn put(xs: list<int>, i: int, v: int) { xs[i] = v }"
+    print(compileFrontendSource("fixture", source))
+}

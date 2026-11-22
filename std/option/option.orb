@@ -1,0 +1,19 @@
+// An optional value: `Some(payload)` or `None`.
+//
+// One declaration, many instances. The argument comes from a position where a
+// type is written -- a parameter's declared type, a binding's annotation, a
+// `return` in a declared function, or a call argument against its parameter --
+// so `Option<int>` and `Option<string>` are two tag sets with two payload types
+// declared from this one union. A `None` that no written type names is refused
+// rather than guessed: each instance carries its own tag constants, so even the
+// payload-less variant has to say which instance it belongs to, and nothing in
+// such an expression says.
+//
+// The module lived in `std/quarantine/` while the checker refused a union with
+// a type parameter outright. `tests/std/test_option.orb` is the test that says
+// it does not any more, and it imports this file from another module, which is
+// the position an instance has to survive.
+union Option[T] {
+    Some(T)
+    None
+}

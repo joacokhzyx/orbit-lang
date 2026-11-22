@@ -16,6 +16,7 @@
 #include <direct.h>
 #include <windows.h>
 #include <io.h>
+#include <fcntl.h>
 #include <errno.h>
 #else
 #include <sys/wait.h>
@@ -380,6 +381,21 @@ orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile) {
     memcpy(cmdline, command, n + 1);
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof(pi));
+    /* The child gets hLog for both streams below. Its own copy of the caller's
+     * stdout is the one thing it must not get: a pipeline sees end of file only
+     * when every writer closes, and these children outlive the command that
+     * started them. Clearing the flag on the parent's handles is enough --
+     * CreateProcess copies only inheritable ones. */
+    {
+        HANDLE ownOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        HANDLE ownErr = GetStdHandle(STD_ERROR_HANDLE);
+        if (ownOut != NULL && ownOut != INVALID_HANDLE_VALUE) {
+            SetHandleInformation(ownOut, HANDLE_FLAG_INHERIT, 0);
+        }
+        if (ownErr != NULL && ownErr != INVALID_HANDLE_VALUE) {
+            SetHandleInformation(ownErr, HANDLE_FLAG_INHERIT, 0);
+        }
+    }
     BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE,
                              DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
                              NULL, NULL, &si, &pi);
@@ -421,6 +437,55 @@ orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile) {
 #endif
 }
 
+/* One stop channel per process, named by its pid.
+ *
+ * A stop asked from another process has no signal to send on Windows: the
+ * children are created DETACHED_PROCESS (see the spawn above), so there is no
+ * console for GenerateConsoleCtrlEvent to deliver into, and TerminateProcess
+ * loses the requests in flight. The name is the pid because that is the only
+ * thing the stopper knows. pid <= 0 means "this process", which is how the
+ * generated server opens its own channel without a getpid of its own.
+ *
+ * POSIX has SIGTERM, which the generated server's handler already turns into
+ * orbit_request_stop(). The three calls there do nothing and answer 0, so one
+ * emitted code path works on both hosts and the signal path stays the single
+ * answer to the question on POSIX. */
+#ifdef _WIN32
+static HANDLE orbit_stop_channel_handle = NULL;
+
+orbit_int orbit_stop_channel_open(orbit_int pid) {
+    char name[48];
+    DWORD own;
+    if (orbit_stop_channel_handle != NULL) return 1;
+    own = (pid > 0) ? (DWORD)pid : GetCurrentProcessId();
+    snprintf(name, sizeof(name), "Local\\orbit-stop-%lu", (unsigned long)own);
+    orbit_stop_channel_handle = CreateEventA(NULL, TRUE, FALSE, name);
+    return orbit_stop_channel_handle != NULL ? 1 : 0;
+}
+
+orbit_int orbit_stop_channel_poll(void) {
+    if (orbit_stop_channel_handle == NULL) return 0;
+    return WaitForSingleObject(orbit_stop_channel_handle, 0) == WAIT_OBJECT_0 ? 1 : 0;
+}
+
+orbit_int orbit_stop_channel_ask(orbit_int pid) {
+    char name[48];
+    HANDLE h;
+    BOOL ok;
+    if (pid <= 0) return 0;
+    snprintf(name, sizeof(name), "Local\\orbit-stop-%lu", (unsigned long)pid);
+    h = OpenEventA(EVENT_MODIFY_STATE, FALSE, name);
+    if (h == NULL) return 0;
+    ok = SetEvent(h);
+    CloseHandle(h);
+    return ok ? 1 : 0;
+}
+#else
+orbit_int orbit_stop_channel_open(orbit_int pid) { (void)pid; return 0; }
+orbit_int orbit_stop_channel_poll(void) { return 0; }
+orbit_int orbit_stop_channel_ask(orbit_int pid) { (void)pid; return 0; }
+#endif
+
 // Signal or probe a process by pid.
 // mode 0 = forceful stop  (POSIX SIGKILL / Windows TerminateProcess).
 // mode 1 = graceful stop  (POSIX SIGTERM, honored by the generated server's
@@ -440,6 +505,11 @@ orbit_int orbit_os_kill(orbit_int pid, orbit_int mode) {
         CloseHandle(h);
         return (w == WAIT_TIMEOUT) ? 1 : 0;
     }
+    /* A graceful stop, asked through the channel the child opened. When no
+     * channel exists -- the child is older than the channel, or it never got
+     * to the server start -- fall back to the terminate this function always
+     * did, and keep the same return value so callers do not change shape. */
+    if (mode == 1 && orbit_stop_channel_ask(pid) == 1) return 1;
     HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
     if (h == NULL) return 0;
     BOOL ok = TerminateProcess(h, 0);
@@ -559,6 +629,83 @@ OrbitResult orbit_random_bytes(OrbitArena* arena, orbit_int n) {
         }
         return orbit_result_ok(list);
     }
+}
+
+/* ── Standard input ───────────────────────────────────────────────────────
+ * A language that hosts a language server has to read the protocol stream,
+ * and the runtime had no read of stdin at all. `read_line` stops at LF and
+ * drops a CR before it, so a stream written by a Windows client and one
+ * written by a POSIX client read the same. `read_bytes` takes exactly what
+ * the caller asks for, because a JSON-RPC body has no line structure and may
+ * contain any byte but NUL: an orbit_string is NUL-terminated, so a body with
+ * a NUL truncates and the caller sees a short read as an empty one.
+ * `at_end` is what tells an empty line from the end of the stream. */
+orbit_string orbit_stdin_read_line(OrbitArena* arena) {
+    orbit_int cap = 128;
+    orbit_int len = 0;
+    char* buf;
+    int c;
+    if (!arena) return "";
+    buf = (char*)orbit_alloc_try(arena, (size_t)cap);
+    if (!buf) return "";
+    while ((c = fgetc(stdin)) != EOF && c != '\n') {
+        if (len + 1 >= cap) {
+            char* grown = (char*)orbit_alloc_try(arena, (size_t)cap * 2);
+            if (!grown) return "";
+            memcpy(grown, buf, (size_t)len);
+            buf = grown;
+            cap *= 2;
+        }
+        if (c != '\r') {
+            buf[len] = (char)c;
+            len++;
+        }
+    }
+    if (c == EOF && len == 0) return "";
+    buf[len] = 0;
+    return buf;
+}
+
+orbit_string orbit_stdin_read_bytes(OrbitArena* arena, orbit_int n) {
+    char* buf;
+    size_t got;
+    if (!arena || n <= 0) return "";
+    buf = (char*)orbit_alloc_try(arena, (size_t)n + 1);
+    if (!buf) return "";
+    got = 0;
+    /* A pipe may deliver less than asked in one call; a protocol reader has to
+       keep asking until the body it was promised has arrived, or the stream
+       ends. */
+    while (got < (size_t)n) {
+        size_t r = fread(buf + got, 1, (size_t)n - got, stdin);
+        if (r == 0) break;
+        got += r;
+    }
+    buf[got] = 0;
+    return buf;
+}
+
+bool orbit_stdin_at_end(void) {
+    return feof(stdin) != 0;
+}
+
+/* A protocol writer needs its bytes, not the platform's idea of a newline:
+   Windows text mode turns the "\n" of a "\r\n" header terminator into
+   "\r\n", so the stream carries "\r\r\n" and no client parses it. */
+bool orbit_stdout_binary(void) {
+#ifdef _WIN32
+    return _setmode(_fileno(stdout), _O_BINARY) != -1;
+#else
+    return true;
+#endif
+}
+
+/* `print` appends a newline, which a framed protocol cannot have: the bytes
+   between messages are part of the framing. */
+bool orbit_stdout_write(orbit_string text) {
+    if (!text) return false;
+    if (fwrite(text, 1, strlen(text), stdout) != strlen(text)) return false;
+    return fflush(stdout) == 0;
 }
 
 #endif

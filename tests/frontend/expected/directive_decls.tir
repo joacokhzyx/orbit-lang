@@ -1,0 +1,7 @@
+orbit-tir 1
+module fixture
+function 0 main int
+block 0 0
+instr 0 0 0 const int 0
+instr 0 0 1 return unit v0
+end-function 0

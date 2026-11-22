@@ -1,0 +1,24 @@
+// case: generic-union-empty-construction-in-an-argument-prints-one-refusal
+// what: `take(Option.None())` against an `int` parameter writes no type for the
+//      union anywhere, so the construction is refused. It was refused four
+//      times over two wordings: the callee's member was read as a value before
+//      the Call arm decided the construction (`this expression`), and every
+//      argument was checked a second time inside checkCallArgTypes, which ran
+//      the whole node again (`the construction`). calleeIsTemplateConstruction
+//      answers the construction question once now, and checkCallArgTypes reads
+//      the types the call site already computed. `one-diagnostic:` pins the
+//      count; `n124` pins the wording.
+// expect-error: carries no payload, so nothing in the construction says which instantiation
+// one-diagnostic:
+union Option[T] {
+    Some(T)
+    None
+}
+
+fn takeNumber(n: int) -> int {
+    return n
+}
+
+fn main() -> int {
+    return takeNumber(Option.None())
+}

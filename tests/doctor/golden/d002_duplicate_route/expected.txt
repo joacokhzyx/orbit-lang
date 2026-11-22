@@ -1,2 +1,0 @@
-b.orb:1 warning [D002] duplicate route GET /dup (first seen at dir/a.orb:1). fix: keep one handler and remove the other.
-doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 2 files under "dir".

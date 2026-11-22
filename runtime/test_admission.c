@@ -1,0 +1,651 @@
+/* admission 0.1 property tests: token bucket, zero false bans, IPv6 identity,
+ * per-route limits, lease energy, pool-fraction admission.
+ *
+ * Compiled with -DORBIT_ADMISSION_TEST so admission.c reads orbit_admission_test_now_ns
+ * (defined here) instead of the wall clock: every test steps time exactly.
+ *
+ *   gcc -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_ADMISSION_TEST \
+ *       runtime/test_admission.c -o t_admission_bin [-lws2_32]
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <stdint.h>
+
+#include "runtime.h"
+
+uint64_t orbit_admission_test_now_ns = 1000000000ULL; /* t0 = 1s */
+
+static int g_passed = 0;
+
+static void step_ms(uint64_t ms) {
+    orbit_admission_test_now_ns += ms * 1000000ULL;
+}
+
+static OrbitAdmissionConfig make_cfg(int rate, int win_ms, int burst,
+                                int ban, int inc, int dec) {
+    OrbitAdmissionConfig c;
+    memset(&c, 0, sizeof(c));
+    c.pool_size = 512;
+    c.rate_limit = rate;
+    c.window_ms = win_ms;
+    c.burst = burst;
+    c.ban_threshold = ban;
+    c.score_increment = inc;
+    c.score_decay = dec;
+    c.enabled = true;
+    return c;
+}
+
+/* T1: a client at (or under) its sustained rate is NEVER denied and never
+ * accumulates suspicion — over many windows. This is the zero-false-ban
+ * property the old window-counter bug violated (~70 reqs). */
+static void test_legit_client_never_denied(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(10, 1000, 10, 200, 10, 1));
+    int admits = 0;
+    for (int i = 0; i < 300; i++) { /* 30s at 8.3 rps vs limit 10 rps */
+        if (orbit_admission_check("10.0.0.1")) admits++;
+        step_ms(120);
+    }
+    assert(admits == 300);
+    assert(orbit_admission_get_suspicion("10.0.0.1") == 0);
+    assert(orbit_admission_get_total_blocked() == 0);
+    printf("T1 legit client never denied: PASSED\n");
+    g_passed++;
+}
+
+/* T2: bucket capacity = burst; denies carry a sane Retry-After and the
+ * next token arrives when Retry-After said it would. */
+static void test_burst_capacity_and_retry(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(5, 1000, 5, 200, 10, 1));
+    const char* ip = "10.0.0.2";
+    int admits = 0;
+    for (int i = 0; i < 5; i++) { /* full bucket of 5 */
+        if (orbit_admission_check(ip)) admits++;
+        else assert(0);
+    }
+    assert(!orbit_admission_check(ip)); /* 6th instant request denied */
+    int ra = orbit_admission_last_retry_ms();
+    assert(ra > 0 && ra <= 1000);
+    /* Exactly one token after ra milliseconds: admit again. */
+    step_ms((uint64_t)ra);
+    assert(orbit_admission_check(ip) == true);
+    assert(!orbit_admission_check(ip));
+    printf("T2 burst capacity + Retry-After: PASSED\n");
+    g_passed++;
+}
+
+/* T3: a single accidental burst scores ONE violation unit (not one per
+ * denied request) and never bans; clean traffic then decays the score
+ * back to zero within score_decay windows. */
+static void test_burst_is_one_violation_then_decays(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1, 1000, 1, 200, 10, 1));
+    const char* ip = "10.0.0.3";
+    assert(orbit_admission_check(ip)); /* spends the single-token bucket */
+    for (int i = 0; i < 100; i++) { /* same-instant flood */
+        assert(orbit_admission_check(ip) == false);
+    }
+    assert(orbit_admission_get_suspicion(ip) == 10); /* ONE window, +10 only */
+    assert(orbit_admission_get_total_blocked() == 100);
+    /* Clean 1 rps for 15 windows: score walks 10 -> 0. */
+    int scored_max = 10;
+    for (int i = 0; i < 15; i++) {
+        step_ms(1000);
+        assert(orbit_admission_check(ip) == true);
+        int s = orbit_admission_get_suspicion(ip);
+        if (s < scored_max) scored_max = s;
+    }
+    assert(orbit_admission_get_suspicion(ip) == 0);
+    printf("T3 burst = 1 violation, decays to 0: PASSED\n");
+    g_passed++;
+}
+
+/* T4: sustained abuse across violation windows DOES reach the ban, stays
+ * banned for 5 minutes, then recovers with a halved score. */
+static void test_sustained_abuse_bans_and_recovers(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1, 1000, 1, 20, 10, 1));
+    const char* ip = "10.0.0.4";
+    assert(orbit_admission_check(ip));
+    int banned_at = -1;
+    for (int w = 1; w <= 10 && banned_at < 0; w++) {
+        step_ms(1000);
+        /* every window: one admit (refill 1 token), then flood denies */
+        assert(orbit_admission_check(ip) == true);
+        for (int d = 0; d < 5; d++) assert(orbit_admission_check(ip) == false);
+        if (orbit_admission_get_suspicion(ip) >= 20) banned_at = w;
+    }
+    assert(banned_at == 3); /* w1: +10=10; w2: decay -1 then +10=19;
+                             * w3: decay -1 then +10=28 >= 20 -> ban */
+    assert(orbit_admission_check(ip) == false);
+    assert(orbit_admission_last_retry_ms() > 0);
+    /* Still banned at 4m59s. */
+    step_ms(299000);
+    assert(orbit_admission_check(ip) == false);
+    /* Past 5 minutes: unbanned (28/2=14), that same admit decays -1. */
+    step_ms(2000);
+    assert(orbit_admission_check(ip) == true);
+    int s = orbit_admission_get_suspicion(ip);
+    assert(s == 13);
+    printf("T4 sustained abuse bans after threshold, recovers: PASSED\n");
+    g_passed++;
+}
+
+/* T5: table stays bounded under an IP flood (oldest eviction, no growth
+ * past 1024 shards x 64 slots). */
+static void test_memory_bounded(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 200, 10, 1));
+    /* reset() clears the table but not the perf gauge: measure the delta. */
+    uint32_t base = orbit_perf_stats.admission_tracked_ips;
+    char buf[32];
+    for (int i = 0; i < 100000; i++) {
+        snprintf(buf, sizeof(buf), "10.%d.%d.%d",
+                 (i >> 16) & 0xFF, (i >> 8) & 0xFF, i & 0xFF);
+        assert(orbit_admission_check(buf) == true);
+    }
+    uint32_t delta = orbit_perf_stats.admission_tracked_ips - base;
+    assert(delta <= (uint32_t)(1024 * 64));
+    printf("T5 memory bounded under 100k IP flood: PASSED\n");
+    g_passed++;
+}
+
+/* T6: IPv6 text forms of the same address share one entry (violation
+ * state visible under both spellings); different addresses do not. */
+static void test_ipv6_identity(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1, 1000, 1, 200, 10, 1));
+    const char* short_form = "2001:db8::1";
+    const char* full_form  = "2001:0db8:0000:0000:0000:0000:0000:0001";
+    assert(orbit_admission_check(short_form)); /* insert */
+    assert(orbit_admission_get_suspicion(full_form) == 0); /* same entry */
+    assert(orbit_admission_check(short_form) == false); /* violate */
+    assert(orbit_admission_get_suspicion(full_form) == 10); /* shared state */
+    assert(orbit_admission_get_suspicion("2001:db8::2") == -1); /* distinct */
+    assert(orbit_admission_check("::1") == true); /* loopback parses, inserts */
+    assert(orbit_admission_check("fe80::1") == true);
+    assert(orbit_admission_check("::ffff:192.0.2.1") == true); /* v4-mapped */
+    assert(orbit_admission_check("1::2::3") == true); /* malformed: fail open */
+    assert(orbit_admission_check("gg::1") == true);    /* fail open */
+    printf("T6 IPv6 identity + fail-open: PASSED\n");
+    g_passed++;
+}
+
+/* T7: Retry-After is monotone and honored - stepping forward half the
+ * advised wait still denies, stepping past it admits. */
+static void test_retry_monotone(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(2, 1000, 2, 200, 10, 1));
+    const char* ip = "10.0.0.9";
+    assert(orbit_admission_check(ip));
+    assert(orbit_admission_check(ip));
+    assert(!orbit_admission_check(ip));
+    int ra1 = orbit_admission_last_retry_ms();
+    step_ms((uint64_t)ra1 / 2);
+    assert(!orbit_admission_check(ip)); /* still empty: Retry-After not reached */
+    int ra2 = orbit_admission_last_retry_ms();
+    assert(ra2 <= ra1); /* closer to the next token */
+    step_ms((uint64_t)ra2 + 1);
+    assert(orbit_admission_check(ip) == true);
+    printf("T7 Retry-After monotone and honored: PASSED\n");
+    g_passed++;
+}
+
+/* T8: disabled admission admits everything (kill switch). */
+static void test_disabled_fails_open(void) {
+    orbit_admission_reset();
+    OrbitAdmissionConfig c = make_cfg(1, 1000, 1, 10, 10, 1);
+    c.enabled = false;
+    orbit_admission_init(c);
+    for (int i = 0; i < 1000; i++) {
+        assert(orbit_admission_check("10.1.1.1") == true);
+    }
+    assert(orbit_admission_get_total_checks() == 0);
+    printf("T8 disabled = fail open: PASSED\n");
+    g_passed++;
+}
+
+/* T9: X-Forwarded-For is honored ONLY from trusted peers; untrusted peers
+ * can never spoof a client identity, and add_header serializes Retry-After. */
+static void test_effective_ip_and_header(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(10, 1000, 10, 200, 10, 1));
+    char out[64];
+
+    /* No trusted proxies: XFF is ignored entirely. */
+    orbit_admission_effective_ip("203.0.113.9", "1.2.3.4, 5.6.7.8", out, sizeof(out));
+    assert(strcmp(out, "203.0.113.9") == 0);
+    assert(!orbit_admission_is_trusted_proxy("10.0.0.5"));
+
+    /* Trust one proxy CIDR; XFF rightmost non-trusted hop wins. */
+    orbit_admission_add_trusted_proxy("10.0.0.0/8");
+    assert(orbit_admission_is_trusted_proxy("10.1.2.3"));
+    assert(!orbit_admission_is_trusted_proxy("11.0.0.1"));
+    orbit_admission_effective_ip("10.0.0.5", "203.0.113.7, 10.9.9.9", out, sizeof(out));
+    assert(strcmp(out, "203.0.113.7") == 0);
+    /* All hops trusted -> keep the peer. */
+    orbit_admission_effective_ip("10.0.0.5", "10.1.1.1, 10.2.2.2", out, sizeof(out));
+    assert(strcmp(out, "10.0.0.5") == 0);
+    /* Untrusted peer with XFF: spoof attempt ignored. */
+    orbit_admission_effective_ip("198.51.100.1", "203.0.113.7", out, sizeof(out));
+    assert(strcmp(out, "198.51.100.1") == 0);
+    /* A malformed prefix trusts nothing (atoi used to read it as /0, which
+     * trusts every address). Each entry below is refused; the address
+     * that follows is untrusted, and 10.0.0.0/8 above still stands. */
+    {
+        const char* bad[] = { "192.0.2.0/abc", "192.0.2.0/", "192.0.2.0/-1", "192.0.2.0/1x",
+                              "192.0.2.0/0008", "192.0.2.0/33", "2001:db8::/129", "0.0.0.0/0x" };
+        for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+            orbit_admission_add_trusted_proxy(bad[i]);
+        }
+        assert(!orbit_admission_is_trusted_proxy("203.0.113.50"));
+        assert(!orbit_admission_is_trusted_proxy("192.0.2.7"));
+        assert(orbit_admission_is_trusted_proxy("10.1.2.3"));
+        /* Controls: /0 written as a number is still the operator's choice. */
+        orbit_admission_add_trusted_proxy("192.0.2.0/24");
+        assert(orbit_admission_is_trusted_proxy("192.0.2.7"));
+        assert(!orbit_admission_is_trusted_proxy("192.0.3.7"));
+    }
+    /* IPv6 trusted network. */
+    orbit_admission_add_trusted_proxy("2001:db8::/32");
+    assert(orbit_admission_is_trusted_proxy("2001:db8:aaaa::1"));
+    assert(!orbit_admission_is_trusted_proxy("2001:db9::1"));
+
+    /* Response extra headers (Retry-After wire shape). */
+    OrbitArena* arena = orbit_arena_create(64 * 1024);
+    assert(arena != NULL);
+    OrbitResponse* res = orbit_response_create(arena, 429, "text/plain", "slow down");
+    assert(res != NULL && res->extra_headers == NULL);
+    orbit_response_add_header(arena, res, "Retry-After", "2");
+    assert(res->extra_headers != NULL);
+    assert(strcmp(res->extra_headers, "Retry-After: 2\r\n") == 0);
+    assert(res->extra_headers_len == strlen(res->extra_headers));
+    orbit_response_add_header(arena, res, "X-Test", "1");
+    assert(strcmp(res->extra_headers, "Retry-After: 2\r\nX-Test: 1\r\n") == 0);
+    orbit_arena_destroy(arena);
+    printf("T9 trusted XFF + Retry-After header: PASSED\n");
+    g_passed++;
+}
+
+/* T10: per-route rate limit — annotated route has its own bucket; a
+ * second route is unaffected; unannotated traffic uses only the global
+ * bucket; route deny never raises suspicion (zero-false-ban). */
+static void test_route_limit(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000, 1000, 1000, 200, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/api/heavy", 2, 1000, 2);
+    orbit_admission_register_route_limit("GET", "/api/other/:id", 100, 1000, 100);
+
+    const char* ip = "10.9.9.9";
+    assert(orbit_admission_check_route(ip, "GET", "/api/heavy") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/api/heavy") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/api/heavy") == false);
+    int ra = orbit_admission_last_retry_ms();
+    assert(ra > 0 && ra <= 1000);
+    assert(orbit_admission_get_suspicion(ip) == 0); /* no score from route deny */
+
+    /* Different route: unaffected. */
+    assert(orbit_admission_check_route(ip, "GET", "/api/other/42") == true);
+    /* Path param pattern matches. */
+    assert(orbit_admission_check_route(ip, "GET", "/api/other/99") == true);
+
+    /* Unannotated path falls through to global (huge → allow). */
+    assert(orbit_admission_check_route(ip, "GET", "/plain") == true);
+
+    /* Global still works independently. */
+    assert(orbit_admission_check(ip) == true);
+
+    /* After refill window, heavy admits again. */
+    step_ms(600);
+    assert(orbit_admission_check_route(ip, "GET", "/api/heavy") == true);
+    printf("T10 per-route limit + zero false ban: PASSED\n");
+    g_passed++;
+}
+
+/* T10b: a route bucket caps at burst, not at its refill rate. The bucket
+ * is created at burst and the refill clamped tokens to rate, so a route
+ * declaring rate=2/s burst=10 lost its capacity on the first refill. */
+static void test_route_burst_capacity(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/api/burst", 2, 1000, 10);
+
+    const char* ip = "10.9.9.10";
+    /* The declared burst of 10 is available immediately. */
+    for (int i = 0; i < 10; i++) {
+        assert(orbit_admission_check_route(ip, "GET", "/api/burst") == true);
+    }
+    assert(orbit_admission_check_route(ip, "GET", "/api/burst") == false);
+
+    /* Three idle seconds at 2/s add 6 tokens. The bucket holds all 6; a cap
+     * of rate would hold 2 and deny the third request below. */
+    step_ms(3000);
+    for (int i = 0; i < 6; i++) {
+        assert(orbit_admission_check_route(ip, "GET", "/api/burst") == true);
+    }
+    assert(orbit_admission_check_route(ip, "GET", "/api/burst") == false);
+    printf("T10b per-route bucket caps at burst: PASSED\n");
+    g_passed++;
+}
+
+/* T10c: a static route wins over a parametric one regardless of declaration
+ * order. The router runs every exact path comparison before the pattern
+ * passes (c_backend.orb), and admission used a single first-match scan, so a
+ * parametric route declared first charged its bucket to a static path. */
+static void test_route_static_beats_param(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/users/:id", 1, 1000, 1);
+    orbit_admission_register_route_limit("GET", "/users/me", 100, 1000, 100);
+
+    const char* ip = "10.9.9.11";
+    /* /users/me is served by the static handler; its 100/s policy applies,
+     * not the 1/s policy of the parametric route declared first. */
+    for (int i = 0; i < 5; i++) {
+        assert(orbit_admission_check_route(ip, "GET", "/users/me") == true);
+    }
+    /* Two distinct ids share the parametric bucket and its 1/s. */
+    assert(orbit_admission_check_route(ip, "GET", "/users/42") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/users/43") == false);
+    printf("T10c static route beats parametric: PASSED\n");
+    g_passed++;
+}
+
+/* T10d: `:name...` captures the remaining segments, so a limit declared on
+ * it applies to a multi-segment path. Treated as one segment it matched
+ * nothing, the request fell to the global gate, and the limit never ran. */
+static void test_route_multi_capture_limit(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/files/:path...", 1, 1000, 1);
+
+    const char* ip = "10.9.9.12";
+    assert(orbit_admission_check_route(ip, "GET", "/files/a/b") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/files/a/b") == false);
+    printf("T10d multi-segment capture applies its limit: PASSED\n");
+    g_passed++;
+}
+
+/* T10e: one trailing slash shares the route's bucket. The router ignores it
+ * (http.c:785-786); when admission did not, `/ingest/` fell to the global
+ * gate while `/ingest` was served by the annotated handler. */
+static void test_route_trailing_slash(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/ingest", 1, 1000, 1);
+
+    const char* ip = "10.9.9.13";
+    assert(orbit_admission_check_route(ip, "GET", "/ingest") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/ingest/") == false);
+    printf("T10e a trailing slash shares the bucket: PASSED\n");
+    g_passed++;
+}
+
+/* T10f: a trailing `*` matches one segment, as the router's wildcard does
+ * (http.c:859). Matching across slashes charged `/files/*` to `/files/a/b`,
+ * which the router served from a different route. */
+static void test_route_wildcard_is_one_segment(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/files/*", 1, 1000, 1);
+
+    const char* ip = "10.9.9.14";
+    assert(orbit_admission_check_route(ip, "GET", "/files/a") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/files/a") == false);
+    /* Two segments is another route for the router, so this limit does not
+     * apply and only the global gate answers. */
+    assert(orbit_admission_check_route(ip, "GET", "/files/a/b") == true);
+    printf("T10f a trailing star matches one segment: PASSED\n");
+    g_passed++;
+}
+
+/* T10g: an empty segment does not evade the route's bucket. The parser keeps
+ * `//` in req->path and the router skips empty segments (http.c:783-784), so
+ * it serves `GET /a//x` from `/a/:x`. Admission compared the empty segment
+ * literally, found no route, and answered from the global gate alone. */
+static void test_route_empty_segment(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1)); /* global huge */
+    orbit_admission_register_route_limit("GET", "/a/:x", 1, 1000, 1);
+
+    const char* ip = "10.9.9.15";
+    assert(orbit_admission_check_route(ip, "GET", "/a/x") == true);
+    assert(orbit_admission_check_route(ip, "GET", "/a/x") == false);
+    /* Same route, same bucket, one token already spent. */
+    assert(orbit_admission_check_route(ip, "GET", "/a//x") == false);
+    /* The refusal is the bucket, not a blanket rejection: one token refills. */
+    step_ms(1000);
+    assert(orbit_admission_check_route(ip, "GET", "/a//x") == true);
+    printf("T10g an empty segment does not evade the route's bucket: PASSED\n");
+    g_passed++;
+}
+
+/* T11: the lease carries an energy baseline at creation and an attributed
+ * ESTIMATE at destroy. This box has no RAPL sensor, so joules must read
+ * exactly 0 (cpu-proxy: cycles are a proxy, never converted to joules). */
+static void test_lease_energy(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000, 1000, 1000, 200, 10, 1));
+    assert(orbit_energy_has_sensor() == 0);
+    assert(strcmp(orbit_energy_source(), "cpu-proxy") == 0);
+    OrbitArena* arena = orbit_arena_create(64 * 1024);
+    assert(arena != NULL);
+    OrbitAdmissionLease* lease = orbit_admission_lease_create_for_route("/heavy", "GET", arena);
+    assert(lease != NULL);
+    assert(lease->joules == 0.0);
+    assert(orbit_admission_lease_joules(lease) == 0.0);
+    orbit_admission_lease_destroy(lease);
+    assert(lease->joules == 0.0);
+    assert(orbit_admission_lease_joules(lease) == 0.0);
+    assert(orbit_admission_lease_joules(NULL) == 0.0);
+    assert(orbit_admission_lease_cycles(NULL) == 0);
+    orbit_arena_destroy(arena);
+    printf("T11 lease energy attribution (cpu-proxy reads 0): PASSED\n");
+    g_passed++;
+}
+
+/* T12: admission tiers are fractions of pool_size (SHAPED pool/16,
+ * GUARDED pool/4, SIEGE pool; release at 3/4). pool=64 walks every tier
+ * by live lease count; pool=0 keeps the legacy absolute scale. */
+static void test_pool_fraction_states(void) {
+    orbit_admission_reset();
+    OrbitAdmissionConfig c = make_cfg(1000000, 1000, 1000000, 1000000, 10, 1);
+    c.pool_size = 64;
+    orbit_admission_init(c);
+    OrbitArena* arena = orbit_arena_create(64 * 1024);
+    assert(arena != NULL);
+    OrbitAdmissionLease* held[80];
+    int n = 0;
+    /* 1 active: STABLE, full 500 ms budget. */
+    held[n++] = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    assert((held[0]->flags & 1) == 0);
+    assert(held[0]->deadline_ns == orbit_admission_test_now_ns + 500ULL * 1000000ULL);
+    /* 6 active > 4: SHAPED, 250 ms. */
+    for (int i = 0; i < 4; i++) held[n++] = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    held[n++] = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    assert(held[n - 1]->deadline_ns == orbit_admission_test_now_ns + 250ULL * 1000000ULL);
+    /* 18 active > 16: GUARDED, 100 ms. */
+    for (int i = 0; i < 11; i++) held[n++] = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    held[n++] = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    assert(held[n - 1]->deadline_ns == orbit_admission_test_now_ns + 100ULL * 1000000ULL);
+    /* 65 active > 64: SIEGE, non-critical rejected. The rejected lease is
+     * destroyed at once, mirroring the server's 503 path: a rejected lease
+     * carries a zero arena budget and must never stay current, or later
+     * allocations on any arena would fail. */
+    for (int i = 0; i < 46; i++) held[n++] = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    OrbitAdmissionLease* rej = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    assert(rej != NULL);
+    assert(rej->flags & 1);
+    assert(orbit_admission_is_siege_mode() == true);
+    orbit_admission_lease_destroy(rej);
+    OrbitAdmissionLease* crit = orbit_admission_lease_create_for_route("/health", "GET", arena);
+    assert(crit != NULL);
+    assert((crit->flags & 1) == 0);
+    orbit_admission_lease_destroy(crit);
+    /* Drain everything: hysteresis cascades back to STABLE. */
+    for (int i = 0; i < n; i++) orbit_admission_lease_destroy(held[i]);
+    assert(orbit_admission_is_siege_mode() == false);
+    OrbitAdmissionLease* calm = orbit_admission_lease_create_for_route("/x", "GET", arena);
+    assert(calm->deadline_ns == orbit_admission_test_now_ns + 500ULL * 1000000ULL);
+    orbit_admission_lease_destroy(calm);
+    orbit_arena_destroy(arena);
+    /* pool_size 0 keeps the historical absolute scale (SHAPED above 32). */
+    orbit_admission_reset();
+    OrbitAdmissionConfig c0 = make_cfg(1000000, 1000, 1000000, 1000000, 10, 1);
+    c0.pool_size = 0;
+    orbit_admission_init(c0);
+    OrbitArena* arena0 = orbit_arena_create(64 * 1024);
+    assert(arena0 != NULL);
+    OrbitAdmissionLease* h0[40];
+    for (int i = 0; i < 34; i++) h0[i] = orbit_admission_lease_create_for_route("/x", "GET", arena0);
+    assert(h0[31]->deadline_ns == orbit_admission_test_now_ns + 500ULL * 1000000ULL);
+    assert(h0[33]->deadline_ns == orbit_admission_test_now_ns + 250ULL * 1000000ULL);
+    for (int i = 0; i < 34; i++) orbit_admission_lease_destroy(h0[i]);
+    orbit_arena_destroy(arena0);
+    printf("T12 pool-fraction admission states: PASSED\n");
+    g_passed++;
+}
+
+/* T13: ban_duration_s overrides the 300 s default. With a 60 s ban the
+ * IP stays banned at 59 s and recovers past 60 s with a halved score
+ * (decayed once more by the admitting check). */
+static void test_custom_ban_duration(void) {
+    orbit_admission_reset();
+    OrbitAdmissionConfig c = make_cfg(1, 1000, 1, 10, 10, 1);
+    c.ban_duration_s = 60;
+    orbit_admission_init(c);
+    const char* ip = "10.0.0.13";
+    assert(orbit_admission_check(ip) == true);
+    assert(orbit_admission_check(ip) == false); /* +10 >= 10 -> ban */
+    assert(orbit_admission_get_suspicion(ip) == 10);
+    step_ms(59000);
+    assert(orbit_admission_check(ip) == false); /* still banned at 59 s */
+    step_ms(2000); /* 61 s total: past the ban */
+    assert(orbit_admission_check(ip) == true);
+    assert(orbit_admission_get_suspicion(ip) == 4); /* 10/2=5, then -1 decay */
+    printf("T13 custom ban duration honored: PASSED\n");
+    g_passed++;
+}
+
+/* T14: registering past the 32-limit table drops exactly the overflow and
+ * counts it in admission_route_limit_drops; the first 32 stay enforced and the
+ * dropped one falls back to the global gate. */
+static void test_route_limit_overflow_counted(void) {
+    orbit_admission_reset();
+    orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1));
+    static char t14_paths[33][32];
+    uint64_t base = orbit_perf_stats.admission_route_limit_drops;
+    for (int i = 0; i < 33; i++) {
+        snprintf(t14_paths[i], sizeof(t14_paths[i]), "/overflow/%d", i);
+        orbit_admission_register_route_limit("GET", t14_paths[i], 1, 1000, 1);
+    }
+    assert(orbit_perf_stats.admission_route_limit_drops - base == 1);
+    /* First registration still enforced: 1-token bucket. */
+    assert(orbit_admission_check_route("10.7.7.7", "GET", "/overflow/0") == true);
+    assert(orbit_admission_check_route("10.7.7.7", "GET", "/overflow/0") == false);
+    /* The dropped 33rd falls back to the global (huge) gate. */
+    assert(orbit_admission_check_route("10.7.7.7", "GET", "/overflow/32") == true);
+    assert(orbit_admission_check_route("10.7.7.7", "GET", "/overflow/32") == true);
+    printf("T14 route-limit overflow counted: PASSED\n");
+    g_passed++;
+}
+
+/* T15: a request that asks for more than its lease allows is refused back to
+ * the request boundary, not fatal. Before the boundary existed the refusal
+ * reached the default OOM handler, which printed the arena line and exited --
+ * exit code 3, measured against this same fixture. The boundary takes the
+ * caller's jmp_buf, so a refusal lands in the caller's frame and the process
+ * keeps serving (ENGINEERING.md section 7, admission-lease-abort). */
+static void test_lease_refusal_returns_to_boundary(void) {
+    OrbitArena* arena = orbit_arena_create(64 * 1024 * 1024);
+    assert(arena != NULL);
+    orbit_request_oom_install();
+
+    OrbitAdmissionLease* lease = orbit_admission_lease_create_for_route("/grow", "GET", arena);
+    assert(lease != NULL);
+    assert(lease->arena_limit == 16 * 1024 * 1024);
+
+    assert(orbit_alloc(arena, 8 * 1024 * 1024) != NULL);
+
+    jmp_buf jb;
+    orbit_request_oom_arm(&jb);
+    if (setjmp(jb) == 0) {
+        /* 8 MB in use, 16 MB + 1 asked: more than the lease allows. */
+        orbit_alloc(arena, 16 * 1024 * 1024 + 1);
+        assert(!"the refusal did not reach the boundary");
+    }
+
+    /* Reaching here at all is the assertion: the process is alive. The
+     * message names the refusal, and abandoning the lease frees room for the
+     * 503 that answers it. */
+    assert(orbit_request_oom_message()[0] != '\0');
+    orbit_request_oom_disarm();
+    orbit_admission_lease_abandon();
+    assert(current_lease == NULL);
+
+    OrbitResponse* res = orbit_response_create(arena, 503, "text/plain",
+                                               orbit_request_oom_message());
+    assert(res != NULL);
+    assert(res->status == 503);
+    assert(res->body_len > 0);
+
+    orbit_arena_destroy(arena);
+    orbit_set_oom_handler(NULL); /* restore the aborting default */
+    printf("T15 lease refusal returns to the boundary: PASSED\n");
+    g_passed++;
+}
+
+/* T16: a dotted-quad tail is four bytes, and the head may already have
+ * written fourteen or sixteen. The parser must refuse instead of writing
+ * past the sixteen-byte array; a string assertion cannot see that write,
+ * so the guard bytes after the array are checked directly. */
+static void test_v6_span_never_overruns(void) {
+    uint8_t buf[16 + 8];
+    int i;
+
+    memset(buf, 0xA5, sizeof(buf));
+    assert(admission_parse_ipv6("1:2:3:4:5:6:1.2.3.4", buf));
+    for (i = 16; i < (int)sizeof(buf); i++) assert(buf[i] == 0xA5);
+
+    memset(buf, 0xA5, sizeof(buf));
+    assert(!admission_parse_ipv6("1:2:3:4:5:6:7:1.2.3.4", buf));
+    for (i = 16; i < (int)sizeof(buf); i++) assert(buf[i] == 0xA5);
+
+    memset(buf, 0xA5, sizeof(buf));
+    assert(!admission_parse_ipv6("1:2:3:4:5:6:7:8:1.2.3.4", buf));
+    for (i = 16; i < (int)sizeof(buf); i++) assert(buf[i] == 0xA5);
+
+    printf("T16 v6 parser stays inside 16 bytes: PASSED\n");
+    g_passed++;
+}
+
+int main(void) {
+    test_legit_client_never_denied();
+    test_burst_capacity_and_retry();
+    test_burst_is_one_violation_then_decays();
+    test_sustained_abuse_bans_and_recovers();
+    test_memory_bounded();
+    test_ipv6_identity();
+    test_retry_monotone();
+    test_disabled_fails_open();
+    test_effective_ip_and_header();
+    test_route_limit();
+    test_route_burst_capacity();
+    test_route_static_beats_param();
+    test_route_multi_capture_limit();
+    test_route_trailing_slash();
+    test_route_wildcard_is_one_segment();
+    test_route_empty_segment();
+    test_lease_energy();
+    test_pool_fraction_states();
+    test_custom_ban_duration();
+    test_route_limit_overflow_counted();
+    test_lease_refusal_returns_to_boundary();
+    test_v6_span_never_overruns();
+    printf("admission property tests: %d/22 PASSED\n", g_passed);
+    return g_passed == 22 ? 0 : 1;
+}

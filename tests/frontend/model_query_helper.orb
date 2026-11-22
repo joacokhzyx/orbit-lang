@@ -1,0 +1,18 @@
+// `Item.all()` puts a model name in receiver position, and the model has no field
+// called `all`: the build calls `orbit_db_query_all` with the table and reads
+// nothing off `Item` (`compiler/ir/builder.orb:4710` through `:4718`). Measured with
+// `orbit build --emit-ir`, all four helpers -- `all`, `where`, `find`, `first` --
+// return a register typed `string`, the JSON payload.
+//
+// Before this rule the pass lowered the qualified name as a member read, reported
+// E2004 for a field that does not exist, and then reported E2005 for the call that
+// followed it: 4 reads and 4 calls over the corpus, in
+// `tests/suite/peephole_no_fold_side_effects.orb` and
+// `tests/suite/arena_sink_scope.orb`. The name the source wrote travels on the call,
+// and no `member` instruction appears.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Item { id: int }  fn everything() -> string { return Item.all() }  fn filtered(p: string) -> string { return Item.where(p, p) }"
+    print(compileFrontendSource("fixture", source))
+}

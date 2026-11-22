@@ -53,7 +53,7 @@ Two notes on scope before you run it:
   `req.bearer_token()` and `req.has_role()` resolve against a
   `sessions` row, as `examples/sqlite_notes.orb` shows - but a
   shared key keeps this tutorial to one idea. Details:
-  [Known Limitations](../KNOWN_LIMITATIONS.md).
+  [Known Limitations](../internals/LIMITATIONS_LOG.md).
 
 ## Build and run
 

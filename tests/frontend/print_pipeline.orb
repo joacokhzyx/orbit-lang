@@ -1,0 +1,6 @@
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn main() -> int { print(\"hi\") return 0 }"
+    print(compileFrontendSource("fixture", source))
+}

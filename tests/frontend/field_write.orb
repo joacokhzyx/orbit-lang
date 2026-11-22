@@ -1,0 +1,15 @@
+// `d.x = 2` is a write through a place, and the frontend lowers it to
+// `store_field`. It used to be a give-up: the assignment reached the expression
+// reader, which has no write rule at all, so nothing was emitted for the write
+// and the file printed no canonical TIR.
+//
+// The model is a parameter, not a literal: an object literal is still a give-up
+// for this pass, and its diagnostic would bury the line this golden exists to
+// pin. `Dot` is never resolved here -- the frontend has no model table -- which
+// is exactly what the instruction's `unit` type says about the check.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn set(d: Dot) { d.x = 2 }"
+    print(compileFrontendSource("fixture", source))
+}

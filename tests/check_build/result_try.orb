@@ -1,0 +1,24 @@
+// A result produced by one function and bound by `try ... catch` in another.
+fn make_success() -> result {
+    val value: result = ok(41)
+    return value
+}
+
+fn make_failure() -> result {
+    val value: result = err("invalid input", 7)
+    return value
+}
+
+fn main() -> int {
+    val success: result = make_success()
+    val failure: result = make_failure()
+    val value: int = try success catch {
+        return 1
+    }
+    if value != 41 { return 2 }
+    val recovered: int = try failure catch {
+        return 0
+    }
+    if recovered != 0 { return 3 }
+    return 0
+}

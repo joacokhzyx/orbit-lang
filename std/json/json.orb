@@ -46,7 +46,7 @@ fn jsonQuote(s: string) -> string {
 // Duplicate keys keep the last value. Arrays travel indexed (there is
 // no untyped list read that could decode them); a null field reads as
 // the quiet default of whatever getter is used.
-fn parseJson(text: string) -> result {
+fn parseJson(text: string) -> result < object > {
     return orbit_json_parse(text)
 }
 

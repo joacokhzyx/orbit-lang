@@ -9,7 +9,7 @@
 // says nothing, so the payload was never evaluated.
 enum Shape { Circle(int), Square(int) }
 
-fn f(xs: list, s: Shape) -> int {
+fn f(xs: list<int>, s: Shape) -> int {
     var idx = 9
     idx = idx - 1
     match s {

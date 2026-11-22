@@ -27,7 +27,7 @@
 //
 //      fn takesInt(x: int) called as takesInt("a string")  -> E1005
 //      fn takesStr(s: string) called as takesStr(1)       -> E1005
-//      fn takesList(l: list) called as takesList("x")     -> E1005
+//      fn takesList(l: list<int>) called as takesList("x")     -> E1005
 //
 // An int where a float is declared is still fine: the C backend widens it, so
 // rejecting that would be a check with no bug behind it.

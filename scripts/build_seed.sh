@@ -22,7 +22,7 @@ if [ ! -f "$SEED_SRC" ]; then
     exit 1
   fi
   PY=python3; command -v python3 >/dev/null 2>&1 || PY=python
-  "$PY" "$ROOT/scripts/amalgamate.py"
+  "$PY" "$ROOT/scripts/trust.py" amalgamate
 fi
 
 CC=""

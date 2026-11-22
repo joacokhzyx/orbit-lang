@@ -1,0 +1,17 @@
+// `[1, 2]` is a value the frontend lowers to a `list` instruction, and a name
+// bound to one loads back as `list`. Both halves are pinned here on purpose:
+// the reader of types and the lowerer must give the same answer, because a
+// binding seeded with a type the reader does not know turns every later use of
+// the name into an `unknown` load -- and an `unknown` anywhere suppresses the
+// canonical text this golden is made of.
+//
+// The element kind comes from the elements, the way the build IR takes it
+// (`listLiteralKindName` in `compiler/ir/builder.orb`): `[1, 2]` answers
+// `list<int>` and `[true, false]` answers `list<bool>`. A literal with no
+// elements answers bare `list`, because there is no element to read a kind off.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn main() -> int { val xs = [1, 2] val es = [] val bs = [true, false] val n = xs return 0 }"
+    print(compileFrontendSource("fixture", source))
+}

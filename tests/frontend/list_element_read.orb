@@ -1,0 +1,15 @@
+// `xs.get(0)` on a `list<int>` answers `int`. The receiver's declared type text
+// carries the element kind, so reading one element is typable from what the
+// source wrote, and `get`, `at` and `slice` stop answering with a type read off
+// a string rule.
+//
+// A list declared without an element kind still answers nothing: `list` alone is
+// a container the source never said the inside of, and an invented element type
+// is the lie the `unknown` count exists to make visible. Strings keep the answer
+// they had.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn first(xs: list<int>) -> int { return xs.get(0) }"
+    print(compileFrontendSource("fixture", source))
+}

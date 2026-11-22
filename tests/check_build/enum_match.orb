@@ -1,0 +1,18 @@
+// Enum values compared, passed and matched.
+enum Level { Low, Mid, High }
+
+fn rank(l: Level) -> int {
+    match l {
+        Level.Low => { return 1 }
+        Level.Mid => { return 2 }
+        Level.High => { return 3 }
+    }
+}
+
+fn main() -> int {
+    val l = Level.Mid
+    if rank(l) != 2 { return 1 }
+    if l == Level.High { return 2 }
+    if rank(Level.Low) != 1 { return 3 }
+    return 0
+}

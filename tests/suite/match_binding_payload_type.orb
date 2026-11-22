@@ -1,0 +1,59 @@
+// A `match` binding keeps the payload type its variant declares. The checker
+// used to declare every binding `unknown`, because it read the payload from a
+// registry keyed on the variant name alone and had no owner to ask; the arm body
+// then carried no type, and `shout(n)` with `n` an int was not an error because
+// nothing knew what `n` was.
+//
+// Three payload kinds, because they are read differently: a number, a string
+// (whose members are the string's own), and a model (whose fields the checker
+// resolves through the model). The exit code is the assertion.
+model Dot {
+    x: int
+}
+
+union Packet {
+    Count(int)
+    Text(string)
+    At(Dot)
+    Empty
+}
+
+fn useCount(p: Packet) -> int {
+    match p {
+        Packet.Count(n) => { return n * 3 }
+        _ => { return -1 }
+    }
+}
+
+fn useText(p: Packet) -> int {
+    match p {
+        Packet.Text(s) => { return s.len() }
+        _ => { return -1 }
+    }
+}
+
+fn useAt(p: Packet) -> int {
+    match p {
+        Packet.At(d) => { return d.x + 1 }
+        _ => { return -1 }
+    }
+}
+
+fn useAny(p: Packet) -> int {
+    match p {
+        Packet.Count(n) => { return n }
+        Packet.Text(s) => { return s.len() }
+        Packet.At(d) => { return d.x }
+        Packet.Empty => { return 0 }
+    }
+}
+
+fn main() -> int {
+    if useCount(Packet.Count(7)) != 21 { return 90 }
+    if useText(Packet.Text("abcd")) != 4 { return 91 }
+    val d = Dot { x: 9 }
+    if useAt(Packet.At(d)) != 10 { return 92 }
+    if useAny(Packet.Empty) != 0 { return 93 }
+    if useCount(Packet.Empty) != -1 { return 94 }
+    return 0
+}

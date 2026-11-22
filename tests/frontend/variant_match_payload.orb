@@ -1,0 +1,17 @@
+// The payload arm lowers: `data <payload> <scrutinee>` reads the variant's data
+// word, `bind` names it, and the body reads the binding. The golden pins the
+// text, and the binding carries the type the variant declares (`int` here).
+//
+// Before 2026-11-06 this fixture pinned the opposite: the pass printed no
+// instruction for the data word and said so (E3001). It is the control for
+// `tests/frontend/variant_match_bindless.orb`, which pins the arm that binds a
+// variant declaring no payload.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "union Shape { Circle(int) }  fn area(s: Shape) -> int { match s { Shape.Circle(r) => { return r } } return 0 }"
+    val output = compileFrontendSource("fixture", source)
+    if output == "" {
+        print("the payload arm lowered no TIR")
+    }
+}

@@ -1,0 +1,13 @@
+// A generic function used at two element types in one program.
+fn first_of[T](xs: list < T >, fallback: T) -> T {
+    if xs.len() == 0 { return fallback }
+    return xs.get(0)
+}
+
+fn main() -> int {
+    val empty: list < int > = []
+    if first_of(empty, 77) != 77 { return 1 }
+    val words = ["alpha", "beta"]
+    if first_of(words, "none") != "alpha" { return 2 }
+    return 0
+}

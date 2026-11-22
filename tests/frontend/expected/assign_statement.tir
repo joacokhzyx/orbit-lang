@@ -1,0 +1,27 @@
+orbit-tir 1
+module fixture
+function 0 take int
+param 0 0 n int
+block 0 0
+instr 0 0 0 load int n
+instr 0 0 1 const int 2
+instr 0 0 2 * int v0 v1
+instr 0 0 3 return unit v2
+end-function 0
+function 1 main int
+block 1 0
+instr 1 0 0 const int 1
+instr 1 0 1 bind unit x v0
+instr 1 0 2 load int take
+instr 1 0 3 load int x
+instr 1 0 4 const int 20
+instr 1 0 5 + int v3 v4
+instr 1 0 6 call int v2 v5
+instr 1 0 7 bind unit x v6
+instr 1 0 8 load int x
+instr 1 0 9 const int 1
+instr 1 0 10 + int v8 v9
+instr 1 0 11 bind unit x v10
+instr 1 0 12 load int x
+instr 1 0 13 return unit v12
+end-function 1

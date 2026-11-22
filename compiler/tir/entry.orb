@@ -4,6 +4,8 @@
 // call parser or semantic helpers directly.
 
 import "../front/parser.orb"
+import "../front/resolver.orb"
+import "../host/extern.orb"
 import "./lower.orb"
 import "./format.orb"
 
@@ -17,9 +19,77 @@ fn appendParserDiagnostics(module: TirModule, diagnostics: list < ParserDiagnost
 }
 
 fn compileFrontendModule(moduleName: string, source: string) -> TirModule {
+    return compileFrontendModuleAt(moduleName, source, "")
+}
+
+// The programs of the files this one imports, at any depth, parsed and never
+// lowered. An import that cannot be read is not a failure of this command: the
+// build path refuses it in `compiler/host/pipeline.orb`, and here the name
+// simply keeps the answer it had before, so widening the table cannot turn a
+// file that printed TIR into one that prints nothing.
+// The bodies of an imported program are deliberately not walked: this walk reads the
+// `import` lines and stops, because the TIR this command prints belongs to the file
+// named on the command line, and every node below lives inside another file's body.
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, VarDeclNode, WhileNode
+fn collectImportedPrograms(resolver: ModuleResolver, path: string, acc: list < ASTNode >, notes: list < string >, fromImport: bool) {
+    val source = orbit_file_read_selfhost(path)
+    if source == "" {
+        // A build refuses this outright (`compiler/host/pipeline.orb`). Here the
+        // name simply stays unanswered, but the reason is said: without the note
+        // the file that asks for the name is blamed for it.
+        if fromImport { notes.push("imported file " + path + " could not be read") }
+        return
+    }
+    resolver.visited.push(path)
     val parser = initParser(source)
     val root = parseProgram(parser)
-    val module = lowerProgramToTir(moduleName, root)
+    if parser.diagnostics.len() > 0 {
+        if fromImport {
+            val first: ParserDiagnostic = parser.diagnostics.get(0)
+            notes.push("imported file " + path + ":"
+            + orbit_int_to_string_selfhost(first.line) + ": " + first.message)
+        }
+        return
+    }
+    acc.push(root)
+    match root {
+        ASTNode.Program(program) => {
+            var i = 0
+            while i < program.decls.len() {
+                val node: ASTNode = program.decls.get(i)
+                match node {
+                    ASTNode.ImportStmt(imp) => {
+                        val target = normalizePath(resolveFilePath(getDir(path), stripQuotes(imp.path)))
+                        if isVisited(resolver, target) == false {
+                            collectImportedPrograms(resolver, target, acc, notes, true)
+                        }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+}
+
+fn importsOf(inputPath: string, notes: list < string >) -> list < ASTNode > {
+    val programs = []
+    if inputPath == "" { return programs }
+    val resolver = initModuleResolver()
+    collectImportedPrograms(resolver, inputPath, programs, notes, false)
+    return programs
+}
+
+// The same module, with the path of the file that was read. The path is what
+// makes an `import` line resolvable: each one is read from the directory of the
+// file that wrote it, the way a build reads it.
+fn compileFrontendModuleAt(moduleName: string, source: string, inputPath: string) -> TirModule {
+    val parser = initParser(source)
+    val root = parseProgram(parser)
+    val notes = []
+    val imported = importsOf(inputPath, notes)
+    val module = lowerProgramWithImportsToTir(moduleName, root, imported, notes)
     appendParserDiagnostics(module, parser.diagnostics)
     return module
 }
@@ -27,4 +97,28 @@ fn compileFrontendModule(moduleName: string, source: string) -> TirModule {
 fn compileFrontendSource(moduleName: string, source: string) -> string {
     val module = compileFrontendModule(moduleName, source)
     return tirCanonical(module)
+}
+
+fn compileFrontendSourceAt(moduleName: string, source: string, inputPath: string) -> string {
+    return tirCanonical(compileFrontendModuleAt(moduleName, source, inputPath))
+}
+
+// Why compileFrontendSource answered "". An error the user has to fix and a
+// type this pass could not infer are different answers, and `orbit frontend`
+// reported neither: it said the diagnostics contained errors and printed none.
+fn frontendRefusal(moduleName: string, source: string) -> string {
+    return frontendRefusalAt(moduleName, source, "")
+}
+
+fn frontendRefusalAt(moduleName: string, source: string, inputPath: string) -> string {
+    val module = compileFrontendModuleAt(moduleName, source, inputPath)
+    val firstError = tirFirstError(module)
+    if firstError != "" {
+        return "the frontend reported an error: " + firstError
+    }
+    val firstUnknown = tirFirstUnknown(module)
+    if firstUnknown != "" {
+        return "no TIR emitted: " + firstUnknown + "; an unknown type is never part of the TIR contract"
+    }
+    return "the frontend produced no TIR and named no reason"
 }

@@ -1,0 +1,17 @@
+// A field the model declares as a type parameter still has a type at the read,
+// because the instance writes it: `fn takeInt(b: Box<int>)` reads `b.v` as
+// `int`, and `Bag<int>` reads `items` as `list<int>`. The table used to hold the
+// model's name and its fields only, so the text beside the field's name was `T`
+// -- no type the pass could state -- and the read came back `unknown` (E2004),
+// which suppresses the canonical text of the whole file.
+//
+// A named literal writes its argument too: `val b = Box { v: 3 }` is a
+// `Box<int>` and `b.v` answers `int` (`generic_literal_field_read.orb`). What the
+// pass still will not do is guess: a literal that leaves the field out keeps the
+// bare name.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Box[T] { v: T }  fn takeInt(b: Box<int>) -> int { return b.v }  model Bag[T] { items: list<T> }  fn firstOf(g: Bag<int>) -> int { return g.items.get(0) }"
+    print(compileFrontendSource("fixture", source))
+}

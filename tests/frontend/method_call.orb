@@ -1,0 +1,17 @@
+// `xs.indexOf(2)` is a call with a receiver. The pass lowered its callee as a
+// member read of `indexOf` on the list, and no table types that read, so one
+// source expression entered the census twice: an unknown `member` instruction
+// (E2004) and the unknown `call` that follows it (E2005). 1,445 of the member
+// reads were this shape -- `.get` 738, `.push` 374, `.at` 183, `.slice` 150.
+//
+// The method name now travels on the call, the way `print` already does
+// (`call void print v0`), and the receiver is the first operand. What the method
+// answers is what the pass already answers for a read of the same name: `int`
+// for `len`, `length` and `indexOf`. `get` and `at` stay `unknown`, because the
+// element kind is the table this pass still keeps no entry for.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn f() {  val xs = [1, 2]  val found = xs.indexOf(2)  }"
+    print(compileFrontendSource("fixture", source))
+}

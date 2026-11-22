@@ -1,0 +1,20 @@
+// `{ x: n, y: 2 }` is a model construction with no type name written beside it.
+// The builder infers the model from the position it is bound or passed to; this
+// pass reads no inference, so it reports the value under the one name the build
+// IR gives it -- `object` -- and prints the fields in the order the source
+// wrote them: `construct object 2 x v0 y v1`.
+//
+// The reader of types answers the same string, which is the half that removes
+// the loads: a `val` bound to a literal this reader calls `unknown` loads back
+// `unknown` at every later use of the name, and `tirCanonical` prints nothing
+// while any instruction is `unknown`. Twelve object literals gave up over the
+// corpus, each named `ObjectLiteral` by the fallback.
+//
+// The named form is the same construct and shares the emission:
+// tests/frontend/model_literal.orb pins `construct Point 2 x v0 y v1`.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn make(n: int) {  val o = { x: n, y: 2 }  }"
+    print(compileFrontendSource("fixture", source))
+}

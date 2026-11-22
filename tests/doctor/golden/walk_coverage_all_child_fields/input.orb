@@ -50,10 +50,10 @@
 
 model Box { v: int }
 
-extern fn sink(v: int)
+extern fn sink(v: string)
 extern fn makeOk(n: int) -> result
 
-fn walk_coverage(xs: list<int>, words: list, strArg: string, intArg: int) -> int {
+fn walk_coverage(xs: list<int>, words: list<string>, strArg: string, intArg: int) -> int {
     // One write per probe, never reassigned, so the verdict depends only on
     // whether the read below is visible.
     var mut pVarDecl = 1
@@ -87,64 +87,64 @@ fn walk_coverage(xs: list<int>, words: list, strArg: string, intArg: int) -> int
     var mut pInterp = intArg
 
     // VarDeclNode.value
-    sink(pVarDecl)
+    sink("${pVarDecl}")
 
     // ConstDeclNode.value
     const c = pConstDecl
-    sink(c)
+    sink("${c}")
 
     // ExpressionStmtNode.expr
-    sink(pExprStmt)
+    sink("${pExprStmt}")
 
     // AssignmentNode.value, then .target reached through its index
-    sink(pAssignValue)
+    sink("${pAssignValue}")
     xs[pAssignIndex] = 1
 
     // IfNode.condition, .thenBody, .elseBody. The two bodies are BlockNodes, so
     // these also cover traversal of a nested block.
     if pIfCond > 0 {
-        sink(pIfThen)
+        sink("${pIfThen}")
     } else {
-        sink(pIfElse)
+        sink("${pIfElse}")
     }
 
     // WhileNode.condition, then .body. The read in the body is not a write, so
     // the probe's own write stays outside the loop and is not suppressed.
     var mut guard = 0
     while pWhileCond < 0 && guard < 1 {
-        sink(pWhileBody)
+        sink("${pWhileBody}")
         guard = guard + 1
     }
 
     // ForNode.iterable, then .body
     for e in words {
         if pForIterable < 1 {
-            sink(pForBody)
+            sink("${pForBody}")
         }
     }
 
     // MatchNode.expr, MatchCaseNode.pattern, MatchCaseNode.body. A bare-name
     // pattern is a comparison, so reading pMatchPattern there is a real read.
     match pMatchExpr {
-        pMatchPattern => { sink(pMatchBody) }
-        _ => { sink(0) }
+        pMatchPattern => { sink("${pMatchBody}") }
+        _ => { sink("${0}") }
     }
 
     // TryNode.expr, then .catchBody
     val t = try makeOk(pTryExpr) catch {
-        sink(pTryCatch)
+        sink("${pTryCatch}")
         return 0
     }
-    sink(t.len())
+    sink("${t.len()}")
 
     // BinaryOpNode.lhs, .rhs
-    sink(pBinLhs + pBinary)
-    sink(pBinRhs * 2)
+    sink("${pBinLhs + pBinary}")
+    sink("${pBinRhs * 2}")
 
     // CallNode.args, and CallNode.callee. `pCallCallee` sits in the receiver of
     // a method call, which is the subtree under `callee` -- the field the walk
     // that started this file failed to descend into.
-    sink(pCallArg)
+    sink("${pCallArg}")
     val c2 = pCallCallee.at(0)
 
     // MemberAccessNode.object
@@ -167,7 +167,7 @@ fn walk_coverage(xs: list<int>, words: list, strArg: string, intArg: int) -> int
 
     val interp = "v=${pInterp}"
 
-    sink(c2 + ms + io + ix + lst.len() + obj.v + obj2.v + obj3.v)
+    sink("${c2 + ms + io + ix + lst.len() + obj.v + obj2.v + obj3.v}")
     return 1
 }
 

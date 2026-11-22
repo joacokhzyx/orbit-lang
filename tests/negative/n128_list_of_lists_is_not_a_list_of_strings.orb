@@ -1,0 +1,21 @@
+// case: list-of-lists-is-not-a-list-of-strings
+// what: `containsStr(outer, "x")` where `outer` is `list<list<string>>`. The
+//      call was accepted while the receiver was a bare `list`; giving the
+//      element type makes the arguments disagree, which is the read the F-0009
+//      fix was for.
+// expect-error: Parameter 1 of containsStr is declared list<string> but the argument is list<list<string>>
+import "std/collections/lists.orb"
+
+fn list_of_lists() -> list<list<string>> {
+    var inner = []
+    inner.push("x")
+    var outer = []
+    outer.push(inner)
+    return outer
+}
+
+fn main() -> int {
+    val outer = list_of_lists()
+    if containsStr(outer, "x") == false { return 2 }
+    return 0
+}

@@ -8,7 +8,7 @@
 #include "os.h"
 #include "selfhost.h"
 #include "energy.h"
-#include "kynx.h"
+#include "admission.h"
 #ifdef __TINYC__
 #ifndef ORBIT_TINYC_SHIM
 #ifndef __ATOMIC_RELAXED
@@ -100,8 +100,16 @@ static int orbit_ledger_lat_bucket(uint64_t cycles) {
     return b;
 }
 
-/* Percentile of one route as the upper boundary of the bucket holding it,
- * in microseconds on the 2.5 GHz basis. per_mille is 500/950/990. */
+/* Percentile of one route, estimated inside the bucket that holds the rank, in
+ * microseconds on the 2.5 GHz basis. per_mille is 500/950/990.
+ *
+ * Bucket i spans 2^i to 2^(i+1) cycles, and its two edges say only that the
+ * value lies between them -- the answer used to be the top edge, so a route's
+ * p99 was a power of two, never a measurement. The bucket also sums the cycles
+ * it received, so the estimate anchors on that mean and spreads by rank, the
+ * same rule `orbit_perf_percentile_us` uses for the whole server: mean plus
+ * width times (rank minus half) over the count, clamped to the bucket. One
+ * request in a bucket answers that request. */
 static uint64_t orbit_ledger_percentile_us(const OrbitLedgerEntry* e, uint64_t per_mille) {
     if (e->count == 0) return 0;
     if (per_mille > 1000) per_mille = 1000;
@@ -109,11 +117,29 @@ static uint64_t orbit_ledger_percentile_us(const OrbitLedgerEntry* e, uint64_t p
     uint64_t seen = 0;
     int i = 0;
     while (i < ORBIT_LEDGER_LAT_BUCKETS) {
-        seen += e->lat[i];
+        uint64_t in_bucket = e->lat[i];
+        seen += in_bucket;
         if (seen >= target) {
-            /* Boundary of bucket i is 2^(i+1) cycles. */
-            uint64_t edge = (i + 1) >= 64 ? UINT64_MAX : (1ULL << (i + 1));
-            return edge / 2500ULL;
+            if (in_bucket == 0) return 0;
+            uint64_t mean = e->lat_sum[i] / in_bucket;
+            /* The last bucket is the clamp: it has no upper edge of its own,
+             * because 2^64 cycles is not a number this table can hold, and its
+             * mean is a measurement all the same. */
+            if (i == ORBIT_LEDGER_LAT_BUCKETS - 1) return mean / 2500ULL;
+            uint64_t lo = 1ULL << i;
+            uint64_t hi = 1ULL << (i + 1);
+            uint64_t rank = target - (seen - in_bucket);
+            /* |num| <= in_bucket, so dividing the width by the count first keeps
+             * the product under the width itself: no overflow at any request
+             * count, at the cost of under one cycle per rank step. */
+            int64_t num = (int64_t)(2 * rank - 1) - (int64_t)in_bucket;
+            uint64_t step = (hi - lo) / in_bucket;
+            int64_t est = (int64_t)mean;
+            if (num >= 0) est += (int64_t)(step * (uint64_t)num);
+            else est -= (int64_t)(step * (uint64_t)(-num));
+            if (est < (int64_t)lo) return lo / 2500ULL;
+            if ((uint64_t)est > hi) return hi / 2500ULL;
+            return (uint64_t)est / 2500ULL;
         }
         i++;
     }
@@ -131,7 +157,11 @@ void orbit_ledger_exit(int idx, uint64_t cycles, const OrbitArena* arena) {
     if (idx >= 0 && idx < ORBIT_LEDGER_MAX) {
         orbit_perf_atomic_inc64(&orbit_ledger_table[idx].count);
         orbit_perf_atomic_add64(&orbit_ledger_table[idx].total_cycles, cycles);
-        orbit_perf_atomic_add64(&orbit_ledger_table[idx].lat[orbit_ledger_lat_bucket(cycles)], 1);
+        int lat_bucket = orbit_ledger_lat_bucket(cycles);
+        orbit_perf_atomic_add64(&orbit_ledger_table[idx].lat[lat_bucket], 1);
+        /* The cycles this bucket received, so a percentile inside it has a
+         * measurement to sit on rather than only an edge above it. */
+        orbit_perf_atomic_add64(&orbit_ledger_table[idx].lat_sum[lat_bucket], cycles);
         /* Memory of the request this row just closed, read from the arena the
          * request ran in: max_bytes is the footprint when the handler
          * returned, and a second segment means it overflowed. Both are
@@ -265,7 +295,7 @@ orbit_string orbit_ledger_json(OrbitArena* arena) {
                 (unsigned long long)avg_c,
                 (unsigned long long)p50, (unsigned long long)p95, (unsigned long long)p99,
                 (unsigned long long)overflow, (unsigned long long)max_bytes,
-                "log2-bucket boundaries, 2.5 GHz basis",
+                "log2-bucket estimates, 2.5 GHz basis",
                 src);
             first = 0;
         }
@@ -339,8 +369,8 @@ orbit_string orbit_ledger_html(OrbitArena* arena) {
     }
     snprintf(buf + off, 32768 - off,
         "</table>"
-        "<p><small>Per-route percentiles are log2-bucket boundaries on the 2.5 GHz "
-        "basis, not measurements of single requests. %s "
+        "<p><small>Per-route percentiles are log2-bucket estimates on the 2.5 GHz "
+        "basis, estimated inside each bucket from its own mean. %s "
         "Metered: RAPL package joules sampled at 1 Hz minus idle baseline. "
         "Estimated: per-route split by cycle share. Proxy: cycle counters where no sensor exists; "
         "never converted to joules.</small></p>"

@@ -1,0 +1,10 @@
+orbit-tir 1
+module fixture
+function 0 first int
+param 0 0 xs list<int>
+block 0 0
+instr 0 0 0 load list<int> xs
+instr 0 0 1 const int 0
+instr 0 0 2 call int get v0 v1
+instr 0 0 3 return unit v2
+end-function 0

@@ -1,0 +1,13 @@
+// `err("nope", 1)` is a result constructor the checker knows by name. No corpus
+// file declares `err` or `ok`, so lowering the callee as an expression loaded a
+// name no binding holds: 37 `err` loads and 13 `ok` loads, each followed by a
+// call whose result nothing could type. Two other modules already answer the
+// question -- `compiler/ir/builder.orb:389` and
+// `compiler/emit/c_backend.orb:4622` both answer `result` -- so this pass reads
+// that answer instead of inventing one, and the name travels on the call.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn fail() -> result<string> { return err(\"nope\", 1) }"
+    print(compileFrontendSource("fixture", source))
+}

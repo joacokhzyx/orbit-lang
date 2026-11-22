@@ -1,0 +1,14 @@
+// An `if` used as a value answers the type of a branch that declares a local.
+//
+// `val v = if n > 10 { val doubled = n * 2  doubled + 1 } else { ... }` asked
+// the type of the last expression of each branch, and `doubled` was declared by
+// the branch itself, so the question was about a name no binding held. The
+// reader binds the block's own `val`s first now, in source order, the way the
+// statement reader does; both arms then bind the same join and the block after
+// them reads it as `int`.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn pick(n: int) -> int { val v = if n > 10 { val doubled = n * 2 doubled + 1 } else { val tripled = n * 3 tripled } return v }"
+    print(compileFrontendSource("fixture", source))
+}

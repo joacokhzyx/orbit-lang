@@ -1,0 +1,21 @@
+// case: generic-union-empty-construction-needs-a-written-type
+// what: `Option.Some(21)` decides the instantiation from the value it hands
+//      to the payload. `Option.Some()` is a construction against the template
+//      with an empty argument list, so the construction decides nothing and
+//      no position writes a type: `val x` has no annotation. The read site
+//      of `n118` stays silent here, because `Some` declares a payload and
+//      the guard `unionVariantCarriesNoPayload` at
+//      `compiler/front/sema.orb:4663` answers false. The refusal therefore
+//      comes from the construction site `unionInstanceForConstruction` at
+//      `compiler/front/sema.orb:688`, and it prints "nothing in the
+//      construction" where `n118` measured "nothing in this expression".
+// expect-error: carries no payload, so nothing in the construction says which instantiation
+union Option[T] {
+    Some(T)
+    None
+}
+
+fn main() -> int {
+    val x = Option.Some()
+    return 0
+}

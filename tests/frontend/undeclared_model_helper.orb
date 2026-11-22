@@ -1,0 +1,18 @@
+// The second control for the query-helper rule. The build decides it is a helper by
+// the member name plus the shape of the receiver, and a receiver whose name is not a
+// model declared in this program gets nothing: `Ghost` binds to nothing and the pass
+// reports E2001 for it. A rule copied from the build's uppercase test would answer
+// `string` here and put a type on a call no declaration supports -- which is the
+// failure `docs/KNOWN_LIMITATIONS.md` records for an invented type.
+//
+// This fixture therefore requires silence. If the rule ever fires for an undeclared
+// receiver, the file prints text and the gate fails.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn grab() -> string { return Ghost.all() }"
+    val output = compileFrontendSource("fixture", source)
+    if output == "" {
+        print("an undeclared receiver keeps its E2001")
+    }
+}

@@ -79,6 +79,8 @@ def prog(name: str, *, vendor: bool = False, defines=(), warnings=False,
 # CI ran them in, so a failure names the same neighbour it always did.
 PROGRAMS = [
     prog("arena"),
+    prog("stdin"),
+    prog("stdout", warnings=True),
     prog("file"),
     prog("oom", posix_only=True),
     prog("http_parse", vendor=True),
@@ -87,7 +89,10 @@ PROGRAMS = [
     prog("params_decode", vendor=True),
     prog("latency_percentiles", vendor=True),
     prog("ledger_percentiles", vendor=True),
-    prog("kynx", vendor=True, defines=["-DORBIT_KYNX_TEST"]),
+    prog("admission", vendor=True, defines=["-DORBIT_ADMISSION_TEST"]),
+    # The route table a backend with no C emitter registers into. Dispatch
+    # order and captures only; the serve loop is exercised by a live run.
+    prog("router", vendor=True),
     prog("json"),
     prog("crypto"),
     prog("float_format", warnings=True),
@@ -103,6 +108,17 @@ PROGRAMS = [
     prog("auth", vendor=True, db=True, defines=["-DORBIT_WITH_DB"],
          src="tests/auth/auth_harness.c"),
     prog("result_float", warnings=True),
+    # Windows: a spawned background child must not inherit the caller's
+    # stdout, or a pipeline never sees end of file while the nodes run.
+    prog("spawn"),
+    # The sleep the CLI's stop escalations wait on. Its own lower bound only:
+    # an upper bound is a race with the rest of the machine, and a red test that
+    # means "the runner was busy" is worse than no test.
+    prog("sleep", warnings=True),
+    # The cross-process stop channel `cluster down` and a `dev restart` ask on
+    # Windows. warnings=True because the channel is a named kernel object, and a
+    # wrong signature there is a leaked handle, not a wrong number.
+    prog("stop_channel", warnings=True),
     prog("random", warnings=True),
     prog("exec", warnings=True, defines=["-DORBIT_WITH_EXEC"]),
     prog("http_client", warnings=True),
@@ -128,7 +144,10 @@ def compile_argv(cc: str, p: dict, out: pathlib.Path) -> list:
     argv += NET + p["defines"]
     argv += [p["src"], "-o", str(out)]
     if windows():
-        argv.append("-lws2_32")
+        # advapi32 carries SystemFunction036 (RtlGenRandom), which
+        # runtime/os.c calls. mingw links it by default; an MSVC-style linker
+        # does not, so the library is named here rather than assumed.
+        argv += ["-lws2_32", "-ladvapi32"]
         if p["db"]:
             argv.append("runtime/vendor/win-x64/sqlite3.lib")
     elif p["db"]:
@@ -139,7 +158,7 @@ def compile_argv(cc: str, p: dict, out: pathlib.Path) -> list:
 def stage_sqlite(workdir: pathlib.Path) -> None:
     """Put sqlite3.dll beside the binaries on Windows.
 
-    The auth step and the Kynx step both did this; the runtime step linked
+    The auth step and the admission step both did this; the runtime step linked
     sqlite3.lib and did not, so the loader had to find it from whatever the
     runner's environment happened to offer. Copying it makes the step depend on
     the repository and not on PATH.

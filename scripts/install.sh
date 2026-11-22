@@ -34,11 +34,11 @@ if [ -z "$SOURCE_EXE" ]; then
     fi
     PY="$(command -v python3 || command -v python)"
     if [ -z "$PY" ]; then
-        echo "[ERROR] Python is required to run the bootstrap (scripts/build_selfhost.py)." >&2
+        echo "[ERROR] Python is required to run the bootstrap (scripts/trust.py build)." >&2
         exit 1
     fi
     echo "[*] Building self-hosted fixed-point compiler..."
-    BUILD_ARGS=("$ROOT_DIR/scripts/build_selfhost.py" --out "$INSTALL_DIR/orbit")
+    BUILD_ARGS=("$ROOT_DIR/scripts/trust.py" build --out "$INSTALL_DIR/orbit")
     if [ -n "$ORBIT_CC" ]; then
         BUILD_ARGS+=(--cc "$ORBIT_CC")
     fi
@@ -49,8 +49,11 @@ fi
 
 if [ "$SOURCE_EXE" != "$INSTALL_DIR/orbit" ]; then
     cp "$SOURCE_EXE" "$INSTALL_DIR/orbit"
-    chmod +x "$INSTALL_DIR/orbit"
 fi
+# Unconditional: the bootstrap writes the binary without the exec bit, and the
+# copy branch used to be the only place that added it, so a first install from
+# source left a binary that answered "Permission denied".
+chmod +x "$INSTALL_DIR/orbit"
 echo "[+] Installed Orbit binary to $INSTALL_DIR/orbit"
 
 # Update PATH in shell config files

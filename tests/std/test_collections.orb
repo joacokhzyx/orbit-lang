@@ -63,7 +63,7 @@ fn main() -> int {
     return 0
 }
 
-fn split_words() -> list {
+fn split_words() -> list < string > {
     var words = []
     words.push("a")
     words.push("b")
@@ -71,7 +71,7 @@ fn split_words() -> list {
     return words
 }
 
-fn nums_list() -> list {
+fn nums_list() -> list < int > {
     var nums = []
     nums.push(10)
     nums.push(20)

@@ -1,0 +1,14 @@
+// The control for `model_query_helper.orb`, from the other side. A model that
+// declares a field called `all` is not a query helper: `r.all` reads the field and
+// answers the type written beside it, because the read path consults the declared
+// fields before any helper name is considered.
+//
+// Widening the helper rule to every member read -- or reading a field through the
+// helper table -- would turn this `member int` into `call string Rec.all`, which is
+// a type the program never wrote, and the golden would fail.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Rec { all: int }  fn reads(r: Rec) -> int { return r.all }"
+    print(compileFrontendSource("fixture", source))
+}

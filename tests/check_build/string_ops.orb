@@ -1,0 +1,14 @@
+// String concatenation, length, comparison and interpolation.
+fn greet(name: string) -> string {
+    return "hello, " + name
+}
+
+fn main() -> int {
+    val a = "foo" + "bar"
+    if a.len() != 6 { return 1 }
+    if greet("orbit") != "hello, orbit" { return 2 }
+    if a != "foobar" { return 3 }
+    val n = 7
+    if "n=${n}" != "n=7" { return 4 }
+    return 0
+}

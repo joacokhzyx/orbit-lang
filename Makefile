@@ -13,7 +13,7 @@ PY ?= python3
 DEV = $(PY) scripts/dev.py
 CC ?= gcc
 
-.PHONY: dev check all fp fp-path promote promote-diff report list fmt doctor suite parity werror negative help
+.PHONY: dev check static all fp fp-path promote promote-diff report list fmt doctor suite parity werror negative help
 
 ## dev:     gates proportionate to what the working tree touched (T0+T1 default)
 dev:
@@ -22,6 +22,10 @@ dev:
 ## check:   the language and static-analysis gates, unconditionally (T0..T2)
 check:
 	$(DEV) check
+
+## static:  fmt plus the five static gates; the tier a docs or scripts change needs
+static:
+	$(DEV) static
 
 ## all:     everything this script drives, including the root of trust (T0..T3)
 all:
@@ -57,20 +61,27 @@ fmt:
 
 # Single gates, for when one thing is broken and the rest is noise.
 #
+# Each asks dev.py for the gate by label instead of rebuilding its command
+# line. Five of them used to spell the argv out again and call fp-path once per
+# recipe -- a Python subprocess per target just to print a path the runner
+# already knows. A filter that equals a label selects that one gate, which is
+# why this says doctor_gate and not doctor: `doctor` would also match
+# doctor_scope.
+#
 # The compiler path is quoted: it is built by `$(shell ...)`, and unquoted, sh
 # eats the backslash in a Windows path (`C:\Temp\x.exe` becomes `C:Tempx.exe`,
 # which Windows then resolves against the current directory). Double quotes
 # preserve it, and they cover a temp directory with spaces on any platform.
 doctor:
-	$(PY) scripts/doctor_gate.py --compiler "$(shell $(DEV) fp-path)"
+	$(DEV) all --filter doctor_gate
 suite:
-	$(PY) scripts/test_suite.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
+	$(DEV) all --filter suite
 parity:
-	$(PY) scripts/parity_selfhost.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
+	$(DEV) all --filter parity
 werror:
-	$(PY) scripts/werror_gate.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
+	$(DEV) all --filter werror
 negative:
-	$(PY) scripts/negative_gate.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
+	$(DEV) all --filter negative
 
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /'

@@ -5,11 +5,11 @@ tcc is the quick toolchain, never the reference one: it compiles a
 translation unit in a fraction of gcc's time and is therefore useful for
 single-file probes and edit-compile-run loops, but its codegen is
 unoptimised and its Windows import libraries are incomplete, so a tcc
-binary must never produce a quoted number (docs/TOOLCHAIN.md makes that
+binary must never produce a quoted number (docs/SUPPORTED.md#toolchain makes that
 a rule). This script owns the "is tcc here, and is it the right one"
 question in one place, so CI and developers do not each answer it.
 
-Platform policy (see docs/TOOLCHAIN.md for the matrix):
+Platform policy (see docs/SUPPORTED.md#toolchain for the matrix):
 
   Windows x64  portable zip from the official Savannah release, pinned by
                SHA-256 and size, unpacked into a user directory (no admin).
@@ -243,7 +243,7 @@ def linux_hint() -> int:
 def macos_hint() -> int:
     out.say("Finished tcc-setup: SKIP tcc %s has no ARM64 backend and no "
             "stable macOS support (the mob branch is unpinned); the "
-            "documented fallback is gcc/clang (docs/TOOLCHAIN.md)"
+            "documented fallback is gcc/clang (docs/SUPPORTED.md#toolchain)"
             % TCC_VERSION)
     return RC_SKIP
 

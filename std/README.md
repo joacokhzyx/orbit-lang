@@ -16,6 +16,7 @@ the same extern twice fails check with "Duplicate symbol".
 |---|---|---|
 | bytes | `std/bytes/bytes.orb` | `Buffer` byte buffer: `newBuffer`, `appendByte`/`appendSlice`, `writeFrame`/`readFrame`, `readAt`, `sliceBuf`, `availableRead`, `consume`, `clear` |
 | lists | `std/collections/lists.orb` | string/int list helpers: `getOr`, `firstOr`, `lastOr`, `containsStr`/`containsInt`, `indexOfStr`/`indexOfInt`, `reverse` |
+| option | `std/option/option.orb` | `union Option[T] { Some(T)  None }`: one tag set per written type, so `Option<int>` and `Option<string>` are two instances |
 | convert | `std/convert/convert.orb` | number/text bindings: `intToString`, `charFromCode`; owns `orbit_int_to_string`, `orbit_string_to_int`, `orbit_string_from_char_selfhost` |
 | codec | `std/convert/codec.orb` | binary/text codecs: `base64Encode`/`base64Decode` (RFC 4648, padded), `hexEncode`/`hexDecode` |
 | file | `std/fs/file.orb` | path-based file API: `readAll`, `writeAll`, `append`, `exists`, `removeFile`, `listDir` |
@@ -57,5 +58,6 @@ than pure Orbit logic: `bytes/bitwise`, `crypto/jwt`, `http/client`,
 Specified-but-unimplementable modules live in
 [`quarantine/`](quarantine/README.md) as `.orb.quarantined` files
 (the parser cannot read them, so they must not carry `.orb`). Nothing
-imports them. See `quarantine/README.md` for the rules and the current
-contents (`option`).
+imports them. See `quarantine/README.md` for the rules and for the two
+modules that left it (`bitwise` 2026-10-18, `option` 2026-11-02); the
+directory is empty today.

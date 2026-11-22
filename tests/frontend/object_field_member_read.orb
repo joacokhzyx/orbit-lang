@@ -1,0 +1,11 @@
+// `{ count: 3 }.count` answers `object`. The literal is an `object` and the
+// build allocates an `object` register for a field read off one
+// (`compiler/ir/builder.orb`), so the answer the pass gives is the answer the
+// emitter already carries. Which key the runtime finds is a different question,
+// and the pass claims nothing about it.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn one() -> object { val o = { count: 3 }  return o.count }"
+    print(compileFrontendSource("fixture", source))
+}

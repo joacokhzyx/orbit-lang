@@ -141,11 +141,24 @@ unsigned short __stdcall htons(unsigned short hostshort);
 unsigned long __stdcall ntohl(unsigned long netlong);
 unsigned short __stdcall ntohs(unsigned short netshort);
 
-/* -- timeval: `long` is 32-bit on Windows x64, matching the SDK ----------- */
+/* -- timeval: `long` is 32-bit on Windows x64, matching the SDK -----------
+ *
+ * Guarded with _TIMEVAL_DEFINED because tcc 0.9.27's own <time.h> defines the
+ * same struct under that name ("also in winsock[2].h", says its comment), and
+ * both headers are reachable from one translation unit: runtime/builtins.h
+ * includes <time.h>, and runtime/socket_compat.h includes <winsock2.h>. This
+ * file is included first (the shim sits before tcc's include dir), so without
+ * the guard tcc reads the second definition as a redefinition and refuses the
+ * program with "struct/union/enum already defined" at its time.h:255. The
+ * layouts agree field for field, so whichever header wins, the ABI is the same.
+ */
+#ifndef _TIMEVAL_DEFINED
+#define _TIMEVAL_DEFINED
 struct timeval {
     long tv_sec;
     long tv_usec;
 };
+#endif
 
 /* -- socket address structures (natural layout == SDK layout) ------------ */
 struct sockaddr {

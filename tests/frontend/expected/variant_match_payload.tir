@@ -1,0 +1,21 @@
+orbit-tir 1
+module fixture
+function 0 area int
+param 0 0 s Shape
+block 0 0
+instr 0 0 0 load Shape s
+instr 0 0 1 tag int v0
+instr 0 0 2 const int 0
+instr 0 0 3 == bool v1 v2
+instr 0 0 4 branch unit v3 b2 b3
+block 0 2
+instr 0 2 5 data int v0
+instr 0 2 6 bind unit r v5
+instr 0 2 7 load int r
+instr 0 2 8 return unit v7
+block 0 3
+instr 0 3 9 jump unit b1
+block 0 1
+instr 0 1 10 const int 0
+instr 0 1 11 return unit v10
+end-function 0

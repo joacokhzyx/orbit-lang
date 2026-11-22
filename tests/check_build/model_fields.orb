@@ -1,0 +1,18 @@
+// Model construction by positional call and by literal, then field reads.
+model Rect {
+    width: int
+    height: int
+}
+
+fn area(r: Rect) -> int {
+    return r.width * r.height
+}
+
+fn main() -> int {
+    val r = Rect(3, 4)
+    if r.width != 3 { return 1 }
+    if area(r) != 12 { return 2 }
+    val q = Rect { width: 5, height: 6 }
+    if area(q) != 30 { return 3 }
+    return 0
+}

@@ -113,14 +113,17 @@ fn clusterEnsureDir(path: string) {
     }
 }
 
+// Sleep whole seconds on this thread. This used to spawn `timeout /T 1` on
+// Windows and `sleep 1` elsewhere, and the Windows half is the reason a stop
+// looked instant: `timeout` refuses to run when its input is redirected, so
+// each "second" returned at once, the 3-second escalation in `orbit stop` and
+// `cluster down` finished in under 200 ms, and the service was terminated
+// before its accept loop could notice anything. A spawned sleeper can fail for
+// reasons that have nothing to do with time; a blocked thread cannot.
 fn clusterSleepSec(sec: int) {
     var s = 0
     while s < sec {
-        if clusterIsWindows() {
-            val ignoredSl = orbit_os_exec_selfhost("timeout /T 1 /NOBREAK > NUL 2>&1")
-        } else {
-            val ignoredSl2 = orbit_os_exec_selfhost("sleep 1")
-        }
+        orbit_sleep_ms_selfhost(1000)
         s = s + 1
     }
 }

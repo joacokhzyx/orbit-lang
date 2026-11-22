@@ -1,0 +1,9 @@
+orbit-tir 1
+module fixture
+function 0 set void
+param 0 0 d Dot
+block 0 0
+instr 0 0 0 const int 2
+instr 0 0 1 load Dot d
+instr 0 0 2 store_field unit v1 x v0
+end-function 0

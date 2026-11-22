@@ -9,6 +9,7 @@
 ORBIT_XLINK size_t orbit_oom_put(char* buf, size_t cap, size_t n, const char* s);
 ORBIT_XLINK size_t orbit_oom_put_u(char* buf, size_t cap, size_t n, unsigned long long v);
 ORBIT_XLINK size_t orbit_oom_put_holds(char* buf, size_t cap, size_t n, OrbitArena* arena);
+ORBIT_XLINK size_t orbit_oom_put_ceiling(char* buf, size_t cap, size_t n, OrbitArena* arena, size_t bytes);
 ORBIT_XLINK void orbit_oom_abort_default(OrbitArena* arena, size_t bytes);
 #ifdef ORBIT_RUNTIME_MODULE
 extern OrbitOomHandler orbit_oom_handler;

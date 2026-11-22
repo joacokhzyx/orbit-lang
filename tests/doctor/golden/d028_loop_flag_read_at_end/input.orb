@@ -1,6 +1,6 @@
 extern fn sink(v: int)
 
-fn f(xs: list) -> bool {
+fn f(xs: list<int>) -> bool {
     var found = false
     for e in xs {
         sink(e)

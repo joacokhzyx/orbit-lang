@@ -5,7 +5,7 @@ is the assertion (same convention as `tests/suite/`, optional first
 line `// expect-exit <N>`, default 0). Run it with:
 
 ```sh
-python scripts/test_suite.py --cc <gcc-or-clang> --compiler <orbit> --dir tests/std
+python scripts/corpus_gates.py suite --cc <gcc-or-clang> --compiler <orbit> --dir tests/std
 ```
 
 Each std module earns its place with an example, tests here, and a

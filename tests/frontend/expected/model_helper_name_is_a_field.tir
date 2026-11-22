@@ -1,0 +1,9 @@
+orbit-tir 1
+module fixture
+function 0 reads int
+param 0 0 r Rec
+block 0 0
+instr 0 0 0 load Rec r
+instr 0 0 1 member int v0 all
+instr 0 0 2 return unit v1
+end-function 0

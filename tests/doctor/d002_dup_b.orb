@@ -1,3 +1,9 @@
+import "d002_dup_a.orb"
+
 route GET "/dup" {
     return ok 200 "d"
+}
+
+fn main() -> int {
+    return 0
 }

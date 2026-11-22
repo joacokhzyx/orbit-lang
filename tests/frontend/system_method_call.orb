@@ -1,0 +1,13 @@
+// `system.uptime()` reads the telemetry receiver the checker resolves by name.
+// No corpus file declares `system`, so the pass loaded the name, reported E2001
+// for the load and E2005 for the call that used it. `compiler/front/sema.orb`
+// answers `system` for the identifier and `int` for each of its ten methods, so
+// this pass reads that answer: the receiver is `load system system` and the call
+// carries `int`. A local named `system` is read before the builtin, the way the
+// checker reads it.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn up() -> int { return system.uptime() }"
+    print(compileFrontendSource("fixture", source))
+}

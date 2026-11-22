@@ -9,9 +9,12 @@
 // given. So a program that used the parser without the builder -- which is
 // exactly what `orbit frontend` is -- could not be built at all (F-0004).
 //
-// A leaf module both callers can reach is the fix. This one imports nothing,
-// so builder.orb and parser.orb can both depend on it and the graph stays a
-// DAG.
+// A leaf module both callers can reach is the fix. This one imports
+// `compiler/host/extern.orb` and nothing else -- a list of declarations with no
+// body, which itself imports nothing -- so builder.orb and parser.orb can both
+// depend on it and the graph stays a DAG.
+
+import "../host/extern.orb"
 
 fn parseIntSelfhost(s: string) -> int {
     var result = 0
@@ -160,6 +163,33 @@ fn mangleTypeArg(s: string) -> string {
         if orbit_string_slice(out, n2 - 1, n2) == "_" { out = orbit_string_slice(out, 0, n2 - 1) }
     }
     return out
+}
+
+// The instance name a base and its argument list make: `Box` with `int` is
+// `Box_int`. A model, a generic fn and a union spell the instance the same way
+// because the question is one -- which struct does this instantiation name in
+// the emitted C -- so the join lives here, not in one loop per caller. The
+// arguments arrive whole: a caller holding binding rows takes the tail before
+// calling, because the row format belongs to the caller and not to the name.
+fn instanceName(base: string, args: list < string >) -> string {
+    var out = base
+    var i = 0
+    while i < args.len() {
+        out = out + "_" + mangleTypeArg(args.get(i))
+        i = i + 1
+    }
+    return out
+}
+
+// The instance name one argument list makes for a union: `Option` with `int`
+// is `Option_int`. The tag constants the emitter writes are named from it
+// (`Option_int_TAG_None`), so the checker that resolves a pattern and the
+// builder that declares the tag set must not compute the string twice -- two
+// copies disagree the way `listPeelDepth`'s did, and the program passes
+// `orbit check` and then dispatches on a tag of a type it never wrote. The
+// models and the generic fns call the same `instanceName` this calls.
+fn unionInstanceName(base: string, args: list < string >) -> string {
+    return instanceName(base, args)
 }
 
 // ── Generic list-element peeling ──────────────────────────────────────────

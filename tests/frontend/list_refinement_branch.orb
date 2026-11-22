@@ -1,0 +1,15 @@
+// A `push` inside an `if` branch types the local after the branch.
+//
+// `val xs = []` writes no element, so every read through it had nothing to
+// answer. A push in a `while` body already came back out; an `if` branch and a
+// `match` arm are the same shape -- a body that lowers with a copy of the
+// bindings -- so all three carry the refinement out. The first push in source
+// order wins, which is the rule `recordListKind`
+// (`compiler/ir/builder.orb:1857`) applies: a name that already has a kind keeps
+// it.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn take(c: bool) -> int { val xs = [] if c { xs.push(1) } return xs.get(0) }"
+    print(compileFrontendSource("fixture", source))
+}

@@ -6,7 +6,7 @@
 #include "types.h"
 #include "arena.h"
 #include "performance.h"
-#include "kynx.h"
+#include "admission.h"
 #include "arena_pool.h"
 #include <stdio.h>
 #include <inttypes.h>
@@ -35,7 +35,7 @@ orbit_string orbit_pulse_get_stats_json(OrbitArena* arena) {
         (uint64_t)stats.min_cycles, (uint64_t)stats.max_cycles,
         (uint64_t)stats.arena_reuse_count, (double)stats.total_alloc_bytes / (1024.0 * 1024.0),
         (uint32_t)stats.active_arenas,
-        (uint64_t)stats.kynx_blocks, (uint32_t)stats.kynx_tracked_ips,
+        (uint64_t)stats.admission_blocks, (uint32_t)stats.admission_tracked_ips,
         (uint64_t)stats.db_queries, (uint64_t)stats.db_total_cycles,
         (uint64_t)stats.string_intern_hits
     );
@@ -185,7 +185,7 @@ const char* ORBIT_PULSE_DASHBOARD_HTML =
 "            <div class='card-sub' id='mem-arenas'>0 active arenas</div>"
 "        </div>"
 "        <div class='card'>"
-"            <div class='card-label'>Orbit Kynx</div>"
+"            <div class='card-label'>Orbit admission</div>"
 "            <div class='card-value' id='sec-blocks' style='color:#ff3e3e'>0</div>"
 "            <div class='card-sub' id='sec-ips'>0 blocked requests</div>"
 "        </div>"

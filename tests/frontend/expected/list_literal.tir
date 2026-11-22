@@ -1,0 +1,19 @@
+orbit-tir 1
+module fixture
+function 0 main int
+block 0 0
+instr 0 0 0 const int 1
+instr 0 0 1 const int 2
+instr 0 0 2 list list<int> 2 v0 v1
+instr 0 0 3 bind unit xs v2
+instr 0 0 4 list list 0
+instr 0 0 5 bind unit es v4
+instr 0 0 6 const bool true
+instr 0 0 7 const bool false
+instr 0 0 8 list list<bool> 2 v6 v7
+instr 0 0 9 bind unit bs v8
+instr 0 0 10 load list<int> xs
+instr 0 0 11 bind unit n v10
+instr 0 0 12 const int 0
+instr 0 0 13 return unit v12
+end-function 0

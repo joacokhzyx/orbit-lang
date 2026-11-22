@@ -1,0 +1,13 @@
+orbit-tir 1
+module fixture
+function 0 f void
+block 0 0
+instr 0 0 0 const int 1
+instr 0 0 1 const int 2
+instr 0 0 2 list list<int> 2 v0 v1
+instr 0 0 3 bind unit xs v2
+instr 0 0 4 load list<int> xs
+instr 0 0 5 const int 2
+instr 0 0 6 call int indexOf v4 v5
+instr 0 0 7 bind unit found v6
+end-function 0

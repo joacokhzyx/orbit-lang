@@ -79,6 +79,9 @@ fn main() -> int {
     bad = false
     try parseJson("{\"a\":9223372036854775808}") catch { bad = true }
     if bad == false { return 47 }
+    bad = false
+    try parseJson("{\"a\":\"\\u0000\"}") catch { bad = true }
+    if bad == false { return 51 }
     var deep = ""
     var d = 0
     while d < 70 {

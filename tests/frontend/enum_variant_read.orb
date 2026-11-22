@@ -1,0 +1,17 @@
+// `Color.RED` names a variant of a declared type. It is not a field read on a
+// value and there is no value to load: the source writes a constant whose type
+// is the enum's own name. The pass had no rule for the shape, so it emitted a
+// load of `Color`, E2001 answered that no binding types that name, and because
+// `tirCanonical` prints nothing while an error-severity diagnostic exists, the
+// file lost its whole text. 582 loads of `TokType` alone, plus `IROpcode`,
+// `ASTNode` and `Token`, were this one shape.
+//
+// The type has to be a declared type of the program -- the table the file and
+// its imports fill -- so a plain identifier followed by a dot keeps reporting
+// E2001, and `tests/frontend/undeclared_callee.orb` still pins that.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "enum Color { RED, GREEN }  fn first() {  val c = Color.RED  }"
+    print(compileFrontendSource("fixture", source))
+}

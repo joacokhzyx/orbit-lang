@@ -1,0 +1,12 @@
+// A union variant that carries no payload is the same thing as an enum variant:
+// `Shape.Square` names a value whose type is the union's own name, and nothing
+// has to be built. The payload-carrying sibling is not answered by a read --
+// `Shape.Circle` names a construction that needs its argument, and a constant
+// would claim a value this pass cannot build. In call position it is answered,
+// and `tests/frontend/union_variant_construct.orb` pins that text.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "union Shape { Circle(int), Square }  fn tag() {  val s = Shape.Square  }"
+    print(compileFrontendSource("fixture", source))
+}
