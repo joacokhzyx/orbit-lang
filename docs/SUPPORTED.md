@@ -99,8 +99,8 @@ MAJOR.MINOR.PATCH[-pre-release]
 
 Examples:
 
+- `0.1.0-rc.1` is the first release candidate for `0.1.0`.
 - `0.1.0` is the first versioned development release.
-- `0.1.0-rc.2` is the second release candidate for `0.1.0`.
 - `1.0.0` marks the first release under the stable compatibility policy.
 
 Pre-release identifiers are ordered after the base version. A release candidate is not a promise that every planned feature is complete. It means the contents of that candidate are being evaluated for the named release.

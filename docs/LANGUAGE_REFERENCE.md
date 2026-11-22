@@ -1,6 +1,6 @@
 # Orbit language reference
 
-Orbit source files use the `.orb` extension. This reference covers what the `0.1.0` compiler accepts today. The language is pre-1.0, so pin a specific release and verify edge behavior before relying on it.
+Orbit source files use the `.orb` extension. This reference covers what the `0.1.0-rc.1` compiler accepts today. The language is pre-1.0, so pin a specific release and verify edge behavior before relying on it.
 
 ## Program structure and functions
 

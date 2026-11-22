@@ -1,11 +1,11 @@
-# Known Limitations (0.1.0)
+# Known Limitations (0.1.0-rc.1)
 
 This is the measured list. It sits next to the docs that use these features, so
 a limit is found before midnight. Each entry says what happens today, how to
 work around it, and what would change it. Nothing here is a roadmap promise
 with a date. It is what was measured on this build.
 
-Verified on: `orbit 0.1.0` (fixed-point build; gcc 16.2.0 on Windows x86-64
+Verified on: `orbit 0.1.0-rc.1` (fixed-point build; gcc 16.2.0 on Windows x86-64
 and gcc 15.2.0 on Linux x86-64), November 2026. Both hosts ran the full gate
 sequence. Linux paths are marked UNTESTED below where the run was not
 performed.

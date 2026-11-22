@@ -6,33 +6,66 @@ is reconstructed from memory. (`git log --oneline` tells the
 full story; this page tells the short one.)
 
 Versioning rules: [Versioning and Compatibility](SUPPORTED.md#versions-and-compatibility).
-Current: `0.1.0` (`orbit --version` prints `orbit 0.1.0`, and the
-startup banner says `Orbit 0.1.0`).
+Current: `0.1.0-rc.1` (`orbit --version` prints `orbit 0.1.0-rc.1`, and the
+startup banner says `Orbit 0.1.0-rc.1`).
 
-## 0.1.0-rc.5 (2026-11-08)
+## 0.1.0-rc.1 (2026-11-21)
 
-Documentation cut, condensed from the tag message. The README is rewritten
+The first candidate this repository cuts. The cuts that used to be
+headed `rc.2` through `rc.5` and `0.1.0` are folded in below, each under the
+date it was written, because their contents are what this candidate
+contains. Windows builds with clang, Linux with gcc, and the native backend
+needs R6, which CI does not set. Known limitations: [Known Limitations]
+(internals/LIMITATIONS_LOG.md).
+
+### Fixed in this candidate
+
+- `alive_check` no longer hangs on a shell that never returns. It parsed
+  each script with `bash -n` and no timeout, so a Windows checkout whose
+  first `bash` is the WSL stub stopped `make all` after thirty green gates
+  and never returned: 20 minutes on `bash -n scripts\install.sh` at 0.0s
+  CPU. The wait is now the advisory a nonzero exit already produced on
+  Windows, and `scripts/dev.py all --filter alive_check` answers in 148s.
+
+### Verified
+
+Run [44971291572](https://github.com/joacokhzyx/orbit-lang/actions/runs/44971291572)
+is green on `ec5447f` from a clean clone: 19 of 19 jobs. `Gates` passes all 28
+gates in 84s wall on ubuntu-latest and 162s on windows-latest, with suite
+129/129, `tests/std` 24/24 and parity 33/33 on both. `Bootstrap and root of
+trust` converges to the committed canonical on both platforms. The Windows dual
+judge passes 150/150 under clang and tcc, with 3 excluded: `suite/arena_sink_scope`,
+`suite/migrations_down` and `suite/peephole_no_fold_side_effects`.
+
+The native backend is not covered by this run. CI does not set `ORBIT_R6`, so
+`suite_native`, `suite_std_native` and `runtime_module_native` are skipped on
+every CI run, and a claim about that backend needs a local full gate with R6
+present.
+
+### rc.5 cut (2026-11-08)
+
+Documentation cut. The README is rewritten
 around what Orbit is for, and its links follow the pages that moved.
 `docs/IR_SPEC.md` V-03 stops counting the runtime opcodes and names the
 section instead: the table defines eleven, and both lines still said four.
 No compiler, runtime or std source changed.
 
-## 0.1.0-rc.4 (2026-11-08)
+### rc.4 cut (2026-11-08)
 
-Runtime-module cut, condensed from the tag message. `runtime/database.c`
+Runtime-module cut. `runtime/database.c`
 called `orbit_os_mkdir_p` without including `os.h`, which `--db` hits because
 it compiles `database` and `auth` alone. `mklib_runtime.py --self-test` now
 compiles every DB module on its own, so the recipe that asks for them proves
 they build. No compiler source changed.
 
-## 0.1.0-rc.3 (2026-11-08)
+### rc.3 cut (2026-11-08)
 
-First stability cut, condensed from the tag message. A match in value position
+First stability cut. A match in value position
 joins its arms, a push in any branch types the list after it, a generic
 union's payload answers its instance, and a value keeps the block it comes
 from. IRv1 gains eleven runtime-module opcodes and ir-protocol 3.
 
-## 0.1.0 (2026-11-01)
+### 0.1.0 cut (2026-11-01)
 
 Language server:
 
@@ -776,7 +809,7 @@ Known limitations:
 
 - **A `try` binding annotation is not checked, and the probe says so.** `compiler/front/sema.orb:4799` answers `unknown` for a `try`, and `:1146` and `:2012` accept `unknown` against anything, so `val n: int = try decode("x") catch { return 7 }` checks clean when `decode` carries a `string`. `internals/LIMITATIONS_LOG.md` records the probe, the three lines, and the count of bare `-> result` declarations -- 51 in 31 files -- which is the same spelling the frontend's 51 `try` give-ups are reading for. Closing it is a checker decision, not a rule this pass can take alone.
 
-## 0.1.0-rc.2 cycle (September 2026)
+### September 2026 cut (the rc.2 cycle)
 
 Developer commands and runtime hardening:
 
@@ -828,8 +861,8 @@ Developer commands and runtime hardening:
 
 ## Tags
 
-- `v0.1.0-rc.5`, `v0.1.0-rc.4`, `v0.1.0-rc.3` (2026-11-08) - release
-  candidates, listed above.
-- `v0.1.0-rc.2`, `v0.1.0-rc.1` - earlier release candidates.
-- `legacy-zig-seed` - the retired alternate seed lineage,
-  historical only.
+- `v0.1.0-rc.1` (2026-11-21) - the first candidate, described above, and the
+  version string `orbit --version` answers to. Nothing below it was ever
+  tagged.
+- `legacy-zig-seed` - the retired alternate seed lineage, historical
+  only. Not a release: no compiler was published from it.
