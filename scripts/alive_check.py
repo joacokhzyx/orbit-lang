@@ -728,9 +728,21 @@ def shell_checks(name):
     if not name.endswith(BAT):
         try:
             p = subprocess.run(["bash", "-n", path], cwd=ROOT,
-                               capture_output=True, text=True, errors="replace")
+                               capture_output=True, text=True, errors="replace",
+                               timeout=60)
         except OSError:
             p = None
+        except subprocess.TimeoutExpired:
+            # A shell that never returns produced no parse result, and without
+            # a timeout it stops the whole gate without naming a defect. The
+            # first `bash` on a Windows PATH can be the WSL stub, which waits
+            # for a distribution that is not installed.
+            p = None
+            if os.name == "nt":
+                problems.append("advisory: bash -n did not return within 60s "
+                                "(the bash first on PATH may be the WSL stub)")
+            else:
+                problems.append("bash -n did not return within 60s")
         if p is not None and p.returncode != 0:
             detail = (p.stderr or "").strip()[:200]
             if os.name == "nt":
