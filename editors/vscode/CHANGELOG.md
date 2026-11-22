@@ -1,6 +1,12 @@
 # Changelog (VS Code extension)
 
-## [0.1.0]
+The extension reports the release it ships beside: the `vscode-ext` job
+fails when this file has no `## [<package.json version>]` heading
+(`.github/workflows/vscode-ext.yml:31`). The two cuts that used to head
+this file were never tagged, so they are folded in below `0.1.0-rc.1`,
+oldest last.
+
+## [0.1.0-rc.1]
 
 - Highlight: bitwise and shift operators (`& | ^ << >> ~`), now that the lexer
   produces them as real operators.
@@ -17,7 +23,7 @@
   snippets) run by `npm test`; CI job `vscode-ext` runs tests, a
   version-sync check, and `vsce package`.
 
-## [0.1.0-rc.2]
+### rc.2 cut
 
 - Shippable package: `package.json` (`onLanguage:orbit`, languages/grammars/snippets/commands/configuration), `.vscodeignore`, marketplace README. Packaged with `npx @vscode/vsce package`.
 - `orbit check` diagnostics on save + `Orbit: Check File`; `Orbit: Build and Run File` runs `orbit run` in a terminal. No language server (`orbit` has no `lsp` subcommand).

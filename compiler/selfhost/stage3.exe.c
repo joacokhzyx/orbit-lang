@@ -90633,7 +90633,7 @@ orbit_string o_routePreambleText(OrbitArena* arena, orbit_bool hasRoutes, orbit_
     r_42 = orbit_string_concat(arena, r_41, "    if (orbit_color_enabled() == 0) {\n");
     out = (void*)(r_42);
     r_43 = (void*)(out);
-    r_44 = orbit_string_concat(arena, r_43, "        printf(\"\\n  Orbit 0.1.0\\n\\n\");\n");
+    r_44 = orbit_string_concat(arena, r_43, "        printf(\"\\n  Orbit 0.1.0-rc.1\\n\\n\");\n");
     out = (void*)(r_44);
     r_45 = (void*)(out);
     r_46 = orbit_string_concat(arena, r_45, "        printf(\"   - Local: http://localhost:%d\\n\", port);\n");
@@ -90666,7 +90666,7 @@ orbit_string o_routePreambleText(OrbitArena* arena, orbit_bool hasRoutes, orbit_
     r_64 = orbit_string_concat(arena, r_63, "    }\n");
     out = (void*)(r_64);
     r_65 = (void*)(out);
-    r_66 = orbit_string_concat(arena, r_65, "    printf(\"\\n  Orbit 0.1.0\");\n");
+    r_66 = orbit_string_concat(arena, r_65, "    printf(\"\\n  Orbit 0.1.0-rc.1\");\n");
     out = (void*)(r_66);
     r_67 = (void*)(out);
     r_68 = orbit_string_concat(arena, r_67, "    printf(\"\\n\\n\");\n");
@@ -140303,7 +140303,7 @@ label_12066:;
 
 orbit_string o_orbitVersion(OrbitArena* arena) {
     orbit_string r_0 = 0;
-    r_0 = (orbit_string)("0.1.0");
+    r_0 = (orbit_string)("0.1.0-rc.1");
     return (orbit_string)(r_0);
     return "";
 }

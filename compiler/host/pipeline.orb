@@ -439,7 +439,7 @@ fn runtimeLibToLink(rtDir: string, hasDb: bool, verbose: bool) -> string {
 }
 
 fn orbitVersion() -> string {
-    return "0.1.0"
+    return "0.1.0-rc.1"
 }
 
 fn appLeadingDigits(s: string) -> string {

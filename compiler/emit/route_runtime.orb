@@ -30,7 +30,7 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
     if hasRoutes {
         out = out + "void orbit_render_server_banner(int port, int num_workers, int admission_enabled, double ready_ms) {\n"
         out = out + "    if (orbit_color_enabled() == 0) {\n"
-        out = out + "        printf(\"\\n  Orbit 0.1.0\\n\\n\");\n"
+        out = out + "        printf(\"\\n  Orbit 0.1.0-rc.1\\n\\n\");\n"
         out = out + "        printf(\"   - Local: http://localhost:%d\\n\", port);\n"
         out = out + "        printf(\"   - Workers: %d\\n\", num_workers);\n"
         out = out + "        if (admission_enabled) {\n"
@@ -41,7 +41,7 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
         out = out + "        fflush(stdout);\n"
         out = out + "        return;\n"
         out = out + "    }\n"
-        out = out + "    printf(\"\\n  Orbit 0.1.0\");\n"
+        out = out + "    printf(\"\\n  Orbit 0.1.0-rc.1\");\n"
         out = out + "    printf(\"\\n\\n\");\n"
         out = out + "\n"
         out = out + "    printf(\"   \\x1b[90m-\\x1b[0m \\x1b[37mLocal:\\x1b[0m \\x1b[1;37mhttp://localhost:%d\\x1b[0m\\n\", port);\n"

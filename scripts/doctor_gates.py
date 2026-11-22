@@ -848,7 +848,7 @@ CASES = [
     ("lsp-clean", ["lsp"], 0, "out", '"diagnostics":[]', "", None,
      lsp_session("fn main() -> int {\n    return 0\n}\n")),
     ("help-short", ["-h"], 0, "out", "Usage:", ""),
-    ("version", ["--version"], 0, "out", "orbit 0.1.0", ""),
+    ("version", ["--version"], 0, "out", "orbit 0.1.0-rc.1", ""),
     ("unknown-cmd", ["frobnicate"], 2, "err", "Usage:", ""),
     ("unknown-flag", ["--badflag"], 2, "err", "Usage:", ""),
     ("build-noarg", ["build"], 2, "err", "Usage:", ""),

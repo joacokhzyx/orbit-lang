@@ -89,7 +89,7 @@ On Windows:
 .\health_service.exe 8080
 ```
 
-The first argument is the port; with none, the service uses 3000 (or the `port` its file declares). Open <http://localhost:8080/health> and the service answers `{"status":"UP","version":"0.1.0","uptime_seconds":N}`. `0` asks the system for a free port, and the banner prints the one it got.
+The first argument is the port; with none, the service uses 3000 (or the `port` its file declares). Open <http://localhost:8080/health> and the service answers `{"status":"UP","version":"0.1.0-rc.1","uptime_seconds":N}`. `0` asks the system for a free port, and the banner prints the one it got.
 
 Measured on 2026-11-07 from a clean clone at `0c1c3bc`: the bootstrap converged
 on its first iteration against the committed canonical, `hello` exited 0, and
@@ -251,7 +251,7 @@ way on either platform.
 Expected (from a real run of `examples/health_service.orb`):
 
 ```text
-{"status":"UP","version":"0.1.0","uptime_seconds":0}
+{"status":"UP","version":"0.1.0-rc.1","uptime_seconds":0}
 ```
 
 Stop it with Ctrl-C on either platform. On Windows, keep `sqlite3.dll` out of the

@@ -49,7 +49,7 @@ hit exactly that during testing. Non-DB services like
 ```
 
 ```text
-Orbit 0.1.0
+Orbit 0.1.0-rc.1
 
 - Local: http://localhost:8080
 - Workers: 8
@@ -66,7 +66,7 @@ curl http://127.0.0.1:8080/health
 ```
 
 ```text
-{"status":"UP","version":"0.1.0","uptime_seconds":0}
+{"status":"UP","version":"0.1.0-rc.1","uptime_seconds":0}
 ```
 
 The port comes from the first argument, which overrides the file's

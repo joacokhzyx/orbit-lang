@@ -68,7 +68,7 @@ curl http://127.0.0.1:8080/health
 ```
 
 ```text
-{"status":"UP","version":"0.1.0","uptime_seconds":0}
+{"status":"UP","version":"0.1.0-rc.1","uptime_seconds":0}
 ```
 
 On Windows use `.\orbit.exe` and `.\health_service.exe 8080`. Details are in [Getting Started](docs/GETTING_STARTED.md).
