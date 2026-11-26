@@ -367,7 +367,8 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 ### 2.4 `IRModule`, models, types, globals, migrations
 
 - `IRModule` (`compiler/ir/ir.orb:265-282`): `functions`, `globals`, `models`, `types`,
-  `migrations` (all lists), and `sourceName` (string, §1.5).
+  `migrations` (all lists), `sourceName` (string, §1.5), and optional
+  `routePort` (the serialized `configPort` for a service).
 - `IRGlobal` (`compiler/ir/ir.orb:284-288`): `name`, `value` (`IRValue`), `typeName`.
   Observed constructors: `ir_string` value (`compiler/ir/builder.orb:2804,2837`)
   or `ir_register` value (`compiler/ir/builder.orb:2852`). Top-level `var`/`const` is error
@@ -533,7 +534,8 @@ JSON form, and R6 reads it.
 - Root object fields, in order: `irVersion` (must be the string `"1"`),
   `module` (an `IRModule` object, §2.4).
 - Key names mirror the model field names exactly: `functions`, `globals`,
-  `models`, `types`, `migrations`, `sourceName`; function keys `name`, `params`,
+  `models`, `types`, `migrations`, `sourceName`, and optional `routePort`;
+  function keys `name`, `params`,
   `paramTypes`, `instructions`, `registerCount`, `registerTypes`,
   `returnType`, `isExtern`, `routeMethod`, `routePath`, `routeHasLimit`,
   `routeLimitRate`, `routeLimitWindowMs`, `routeLimitBurst`; instruction keys
@@ -564,7 +566,7 @@ EBNF over JSON values (`(* … *)` are comments, and terminals are JSON literals
 ```ebnf
 document    = object, "irVersion", ":1", "module";
 module      = "{", functions, globals, models, types, migrations,
-              sourceName, "}";
+              sourceName, [ routePort ], "}";
 functions   = "[", { function }, "]";
 function    = "{", name, params, paramTypes, instructions, registerCount,
               registerTypes, returnType, isExtern, routeMethod, routePath,
@@ -575,6 +577,7 @@ instruction = "{", opcode, dest, operand1, operand2, operand3, elemKind,
               [ line ], "}";
 line        = '"line":', uint;      (* positive; only on div and mod *)
 sourceName  = '"sourceName":', jsonString;
+routePort   = '"routePort":', uint; (* 1..65535; declared port of a service *)
 opcode      = '"', opname, '"';      (* one of the 66 names in §1, or a §7 name in a runtime module *)
 dest        = "-1" | uint;
 operand1    = value;                 (* operand2, operand3: same *)
@@ -667,6 +670,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 | V-18 | `isExtern == true` functions resolve their symbol outside; their body, if present, is ignored, never emitted (E-09, U-16). |
 | V-19 | `db_get`/`db_set`/`db_all`/`db_where` are rejected under the DB exclusion (E-12, §4). |
 | V-20 | `line`, when present, is a positive integer on a `div` or `mod`; on any other opcode it is rejected. `sourceName` is a string. |
+| V-21 | `routePort`, when present, is an integer in 1..65535 in an executable module with a route. Omission uses port 3000. The executable's port argument takes precedence and may be 0 to request an available port. |
 
 ### 5.5 Designated corpus
 

@@ -713,6 +713,23 @@ def start_and_wait(srv: pathlib.Path, argv: list, port: int,
     return proc, log
 
 
+def check_emitted_route_port(path, *, expected=None):
+    try:
+        module = json.loads(path.read_text(encoding="utf-8"))["module"]
+    except (OSError, ValueError, KeyError) as error:
+        print(f"Failed to read emitted IR in {path.name}: {error}", file=sys.stderr)
+        return False
+    port = module.get("routePort")
+    if expected is None:
+        valid = "routePort" not in module
+    else:
+        valid = type(port) is int and port == expected
+    if not valid:
+        print(f"Failed: {path.name} routePort is {port!r}, expected "
+              f"{expected if expected is not None else 'omission'}.", file=sys.stderr)
+    return valid
+
+
 def live_main(args):
     compiler = args.compiler
     if not compiler:
@@ -730,16 +747,21 @@ def live_main(args):
     stage_sqlite(work)
     suffix = ".exe" if os.name == "nt" else ""
     srv = work / ("gate_srv" + suffix)
+    srv_ir = work / "gate_srv.ir"
+    srv_ir.unlink(missing_ok=True)
 
     env = dict(os.environ)
     env["ORBIT_CC"] = args.cc
     build = subprocess.run(
-        [compiler, "build", "examples/blog_api.orb", "-o", str(srv)],
+        [compiler, "build", "examples/blog_api.orb", "-o", str(srv),
+         "--emit-ir", str(srv_ir)],
         cwd=str(ROOT), env=env, capture_output=True, text=True)
     sys.stdout.write(build.stdout)
     sys.stderr.write(build.stderr)
     if build.returncode != 0 or not srv.exists():
         print("Failed: blog_api.orb did not build.", file=sys.stderr)
+        return 1
+    if not check_emitted_route_port(srv_ir):
         return 1
 
     # The server's output goes to a file, never to a pipe nobody reads. This
@@ -819,6 +841,8 @@ def live_main(args):
     override = args.port + 2
     decl_src = work / "port_declared.orb"
     decl_srv = work / ("port_declared" + suffix)
+    decl_ir = work / "port_declared.ir"
+    decl_ir.unlink(missing_ok=True)
     decl_src.write_text(
         "// Written by kynx_gate live: the declaration is the default the\n"
         "// server binds with no argv; an argv port still overrides it.\n"
@@ -828,13 +852,28 @@ def live_main(args):
         "}\n",
         encoding="utf-8")
     build = subprocess.run(
-        [compiler, "build", str(decl_src), "-o", str(decl_srv)],
+        [compiler, "build", str(decl_src), "-o", str(decl_srv),
+         "--emit-ir", str(decl_ir)],
         cwd=str(ROOT), env=env, capture_output=True, text=True)
     sys.stdout.write(build.stdout)
     sys.stderr.write(build.stderr)
     if build.returncode != 0 or not decl_srv.exists():
         print("Failed: the port_declared fixture did not build.", file=sys.stderr)
         return 1
+    if not check_emitted_route_port(decl_ir, expected=declared):
+        return 1
+    plain_ir = work / "plain_port.ir"
+    plain_ir.unlink(missing_ok=True)
+    plain = subprocess.run(
+        [compiler, "build", "tests/suite/port_declaration.orb",
+         "-o", str(work / ("plain_port" + suffix)), "--emit-ir", str(plain_ir)],
+        cwd=str(ROOT), env=env, capture_output=True, text=True)
+    if plain.returncode != 0:
+        print(plain.stderr or plain.stdout, file=sys.stderr)
+        return 1
+    if not check_emitted_route_port(plain_ir):
+        return 1
+    print(f"IR routePort: {declared} in the declared service, omitted in both controls.")
 
     started = start_and_wait(decl_srv, [], declared,
                              work / "port_declared.log")

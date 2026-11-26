@@ -425,9 +425,11 @@ fn emitIRv1(module: IRModule) -> string {
     }
     orbit_cbuf_append_selfhost(buf, "\"functions\":[")
     var fi = 0
+    var hasRoute = false
     while fi < module.functions.len() {
         if fi > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val f: IRFunction = module.functions.get(fi)
+        if f.routeMethod != "" { hasRoute = true }
         irAppendFunctionText(buf, f)
         fi = fi + 1
     }
@@ -465,6 +467,10 @@ fn emitIRv1(module: IRModule) -> string {
     }
     orbit_cbuf_append_selfhost(buf, "],\"migrations\":")
     irAppendStringList(buf, module.migrations)
-    orbit_cbuf_append_selfhost(buf, ",\"sourceName\":\"" + irJsonEscape(module.sourceName) + "\"}}\n")
+    orbit_cbuf_append_selfhost(buf, ",\"sourceName\":\"" + irJsonEscape(module.sourceName) + "\"")
+    if hasRoute && module.configPort > 0 && module.runtimeModule == false {
+        orbit_cbuf_append_selfhost(buf, ",\"routePort\":" + orbit_int_to_string_selfhost(module.configPort))
+    }
+    orbit_cbuf_append_selfhost(buf, "}}\n")
     return orbit_cbuf_build_selfhost(buf)
 }
