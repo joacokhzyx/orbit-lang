@@ -380,6 +380,11 @@ int main(void) {
     orbit_arena_destroy(arena);
     free(buf);
 
+    const char close[] = "POST / HTTP/1.1\r\ncOnNeCtIoN: upgrade, CloSe \t\r\n\r\n";
+    const char keep[] = "POST / HTTP/1.1\r\nX-Connection: close\r\n"
+                        "Connection: closed\r\n\r\nConnection: close\r\n";
+    assert(orbit_http_wants_close(close, sizeof(close) - 1));
+    assert(!orbit_http_wants_close(keep, sizeof(keep) - 1));
     test_http_limits();
     printf("http limits tests: PASSED\n");
     printf("http parse pipelined tests: PASSED\n");

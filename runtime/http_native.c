@@ -132,7 +132,7 @@ static int native_request(orbit_socket_t client, const char* raw, size_t size,
     }
     if (!request) return 1;
 
-    int keep = !strstr(raw, "Connection: close") && !strstr(raw, "connection: close");
+    int keep = 1;
     OrbitResponse* response = NULL;
     OrbitAdmissionLease* lease = NULL;
     const char* log_method = request->method;

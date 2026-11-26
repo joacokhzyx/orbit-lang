@@ -193,11 +193,18 @@ static void* orbit_worker_loop(void* arg) {
                             keep_alive = 0;
                             break;
                         }
-                        int keep = worker->config->request(client_sock, buffers[i] + parsed, buffered[i] - parsed, thread_arena, &consumed, peers[i]);
+                        const char* request = buffers[i] + parsed;
+                        size_t available = buffered[i] - parsed;
+                        bool close_requested = orbit_http_wants_close(request, available);
+                        int keep = worker->config->request(client_sock, request, available, thread_arena, &consumed, peers[i]);
                         orbit_request_oom_disarm();
                         if (!keep) keep_alive = 0;
                         if (consumed == 0) break;
                         parsed += consumed;
+                        if (close_requested) {
+                            keep_alive = 0;
+                            break;
+                        }
                     }
 
                     if (parsed > 0) {

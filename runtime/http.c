@@ -105,6 +105,40 @@ static const char* orbit_http_find_head_end(const char* raw, size_t raw_len) {
     return NULL;
 }
 
+/* The router mutates the request line when it parses the request. Read the
+ * header before dispatch, and look only at fields in this request's head. */
+bool orbit_http_wants_close(const char* raw, size_t len) {
+    const char* end = raw + len;
+    const char* line = memchr(raw, '\n', len);
+    if (!line) return false;
+    line++;
+    while (line < end) {
+        const char* next = memchr(line, '\n', (size_t)(end - line));
+        if (!next || next == line || (next == line + 1 && *line == '\r')) return false;
+        static const char field[] = "connection:";
+        const size_t field_len = sizeof(field) - 1;
+        if ((size_t)(next - line) >= field_len &&
+            ORBIT_STRNCASECMP(line, field, field_len) == 0) {
+            const char* value = line + field_len;
+            const char* stop = next;
+            if (stop[-1] == '\r') stop--;
+            while (value < stop) {
+                while (value < stop && (*value == ' ' || *value == '\t')) value++;
+                const char* comma = value;
+                while (comma < stop && *comma != ',') comma++;
+                const char* token_end = comma;
+                while (token_end > value && (token_end[-1] == ' ' || token_end[-1] == '\t'))
+                    token_end--;
+                if (token_end - value == 5 && ORBIT_STRNCASECMP(value, "close", 5) == 0)
+                    return true;
+                value = comma < stop ? comma + 1 : stop;
+            }
+        }
+        line = next + 1;
+    }
+    return false;
+}
+
 /** @brief The response for a parse error code from orbit_http_parse_request_ex. */
 OrbitResponse* orbit_http_parse_error_response(OrbitArena* arena, int code) {
     switch (code) {
