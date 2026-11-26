@@ -36,6 +36,34 @@ static const char* route_text(const OrbitNativeService* service,
     return (const char*)service->routes + route_word(entry, field);
 }
 
+static size_t native_find_route(const OrbitNativeService* service,
+                                OrbitArena* arena, OrbitRequest* request) {
+    for (size_t index = 0; index < service->count; index++) {
+        const unsigned char* entry = route_entry(service, index);
+        const char* method = route_text(service, entry, ORBIT_NATIVE_ROUTE_METHOD);
+        const char* path = route_text(service, entry, ORBIT_NATIVE_ROUTE_PATH);
+        if (strcmp(request->method, method) != 0) continue;
+        bool matches = route_word(entry, ORBIT_NATIVE_ROUTE_KIND) == 0
+            ? strcmp(request->path, path) == 0
+            : orbit_route_match(arena, request, method, path);
+        if (matches) return index;
+    }
+    return SIZE_MAX;
+}
+
+static void native_register_limits(const OrbitNativeService* service) {
+    if (!service->admission) return;
+    for (size_t i = 0; i < service->count; i++) {
+        const unsigned char* entry = route_entry(service, i);
+        int rate = (int)route_word(entry, ORBIT_NATIVE_ROUTE_RATE);
+        if (rate > 0) orbit_admission_register_route_limit(
+            route_text(service, entry, ORBIT_NATIVE_ROUTE_METHOD),
+            route_text(service, entry, ORBIT_NATIVE_ROUTE_PATH), rate,
+            (int)route_word(entry, ORBIT_NATIVE_ROUTE_WINDOW),
+            (int)route_word(entry, ORBIT_NATIVE_ROUTE_BURST));
+    }
+}
+
 static OrbitResponse* native_dispatch(const OrbitNativeService* service,
                                        orbit_socket_t client, OrbitArena* arena,
                                        OrbitRequest* request) {
@@ -58,23 +86,13 @@ static OrbitResponse* native_dispatch(const OrbitNativeService* service,
         return response;
     }
 
-    for (size_t index = 0; index < service->count; index++) {
-        const unsigned char* entry = route_entry(service, index);
-        const char* method = route_text(service, entry, ORBIT_NATIVE_ROUTE_METHOD);
-        const char* path = route_text(service, entry, ORBIT_NATIVE_ROUTE_PATH);
-        if (strcmp(request->method, method) != 0) continue;
-        bool matches = route_word(entry, ORBIT_NATIVE_ROUTE_KIND) == 0
-            ? strcmp(request->path, path) == 0
-            : orbit_route_match(arena, request, method, path);
-        if (!matches) continue;
-
-        uint64_t entered = orbit_rdtsc();
-        int ledger = orbit_ledger_enter(request->method, request->path);
-        OrbitResponse* response = service->dispatch(index, arena, request);
-        orbit_ledger_exit(ledger, orbit_rdtsc() - entered, arena);
-        return response;
-    }
-    return orbit_response_error(arena, 404, "Not Found");
+    size_t index = native_find_route(service, arena, request);
+    if (index == SIZE_MAX) return orbit_response_error(arena, 404, "Not Found");
+    uint64_t entered = orbit_rdtsc();
+    int ledger = orbit_ledger_enter(request->method, request->path);
+    OrbitResponse* response = service->dispatch(index, arena, request);
+    orbit_ledger_exit(ledger, orbit_rdtsc() - entered, arena);
+    return response;
 }
 
 static OrbitResponse* admission_refusal(OrbitArena* arena, OrbitRequest* request,
@@ -185,17 +203,7 @@ int orbit_http_run_native(int argc, char** argv, int default_port,
     orbit_ledger_enable_file_dump();
     orbit_arena_pool_init(16, 131072);
     orbit_admission_init(admission);
-    if (service.admission) {
-        for (size_t i = 0; i < count; i++) {
-            const unsigned char* entry = route_entry(&service, i);
-            int rate = (int)route_word(entry, ORBIT_NATIVE_ROUTE_RATE);
-            if (rate > 0) orbit_admission_register_route_limit(
-                route_text(&service, entry, ORBIT_NATIVE_ROUTE_METHOD),
-                route_text(&service, entry, ORBIT_NATIVE_ROUTE_PATH), rate,
-                (int)route_word(entry, ORBIT_NATIVE_ROUTE_WINDOW),
-                (int)route_word(entry, ORBIT_NATIVE_ROUTE_BURST));
-        }
-    }
+    native_register_limits(&service);
     native_arena = orbit_arena_pool_acquire();
     int exit_code = main_fn ? main_fn(native_arena) : 0;
     orbit_arena_pool_release(native_arena);

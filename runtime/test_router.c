@@ -1,13 +1,4 @@
-/**
- * @file  test_router.c
- * @brief Route table a backend with no C emitter registers into.
- *
- * Pins the dispatch order the emitted chain uses: every exact path before
- * any pattern, the shared matcher for patterns, the captures that matcher
- * fills, and NULL when nothing owns the path. A backend that emits no C
- * cannot call the emitted chain, so this table is the only thing between its
- * handlers and a 404; the order it picks has to be the same one.
- */
+/* Exercises the immutable route image consumed by the native server. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +8,7 @@
 #include <stdint.h>
 
 #include "runtime.h"
+#include "http_native.c"
 
 #define RUN_TEST(name) \
     do { \
@@ -59,76 +51,82 @@ static OrbitRequest* parse(OrbitArena* arena, const char* method, const char* pa
     return r;
 }
 
-static OrbitResponse* answer(OrbitArena* arena, const char* body) {
-    return orbit_response_create(arena, 200, "text/plain", body);
+typedef struct {
+    const char* path;
+    unsigned kind;
+    unsigned rate;
+} TestRoute;
+
+static void put_route_word(unsigned char* entry, unsigned field, uint32_t value) {
+    for (unsigned i = 0; i < 4; i++) entry[field * 4 + i] = (unsigned char)(value >> (8 * i));
 }
 
-static OrbitResponse* handle_exact(OrbitArena* arena, OrbitRequest* req) {
-    (void)req;
-    return answer(arena, "exact");
+static OrbitNativeService build_service(unsigned char* image, size_t capacity,
+                                        const TestRoute* routes, size_t count) {
+    size_t offset = count * ORBIT_NATIVE_ROUTE_WORDS * 4;
+    size_t method = offset;
+    assert(offset + sizeof("GET") <= capacity);
+    memcpy(image + offset, "GET", sizeof("GET"));
+    offset += sizeof("GET");
+    for (size_t i = 0; i < count; i++) {
+        unsigned char* entry = image + i * ORBIT_NATIVE_ROUTE_WORDS * 4;
+        size_t length = strlen(routes[i].path) + 1;
+        assert(offset + length <= capacity);
+        put_route_word(entry, ORBIT_NATIVE_ROUTE_METHOD, (uint32_t)method);
+        put_route_word(entry, ORBIT_NATIVE_ROUTE_PATH, (uint32_t)offset);
+        put_route_word(entry, ORBIT_NATIVE_ROUTE_RATE, routes[i].rate);
+        put_route_word(entry, ORBIT_NATIVE_ROUTE_BURST, routes[i].rate);
+        put_route_word(entry, ORBIT_NATIVE_ROUTE_WINDOW, routes[i].rate ? 1000 : 0);
+        put_route_word(entry, ORBIT_NATIVE_ROUTE_KIND, routes[i].kind);
+        memcpy(image + offset, routes[i].path, length);
+        offset += length;
+    }
+    return (OrbitNativeService){.routes = image, .count = count, .admission = true};
 }
 
-static OrbitResponse* handle_param(OrbitArena* arena, OrbitRequest* req) {
-    return answer(arena, orbit_http_param_get(arena, req, "id"));
-}
-
-static OrbitResponse* handle_wild(OrbitArena* arena, OrbitRequest* req) {
-    (void)req;
-    return answer(arena, "wild");
-}
-
-static void check_body(OrbitArena* arena, OrbitRequest* req, const char* want) {
-    OrbitResponse* res = orbit_router_dispatch(arena, req);
-    assert(res != NULL);
-    assert(strcmp(res->body, want) == 0);
-}
-
-/* Registration order must not decide the owner: the pattern goes in first
- * and the exact path still answers for itself. */
 static void test_exact_beats_pattern(void) {
-    orbit_router_reset();
-    orbit_router_register("GET", "/users/:id", 0, 0, 0, handle_param);
-    orbit_router_register("GET", "/users/me", 0, 0, 0, handle_exact);
-    assert(orbit_router_count() == 2);
-
+    const TestRoute routes[] = {{"/users/me", 0, 0}, {"/users/:id", 1, 0}};
+    unsigned char image[256];
+    OrbitNativeService service = build_service(image, sizeof image, routes, 2);
     OrbitArena* arena = orbit_arena_create(65536);
-    check_body(arena, parse(arena, "GET", "/users/me"), "exact");
-    check_body(arena, parse(arena, "GET", "/users/42"), "42");
+    assert(native_find_route(&service, arena, parse(arena, "GET", "/users/me")) == 0);
+    OrbitRequest* request = parse(arena, "GET", "/users/42");
+    assert(native_find_route(&service, arena, request) == 1);
+    assert(strcmp(orbit_http_param_get(arena, request, "id"), "42") == 0);
     orbit_arena_destroy(arena);
 }
 
-/* The method is part of the key: a POST to a GET route belongs to nobody. */
 static void test_method_is_part_of_the_key(void) {
-    orbit_router_reset();
-    orbit_router_register("GET", "/thing", 0, 0, 0, handle_exact);
+    const TestRoute routes[] = {{"/thing", 0, 0}};
+    unsigned char image[128];
+    OrbitNativeService service = build_service(image, sizeof image, routes, 1);
     OrbitArena* arena = orbit_arena_create(65536);
-    assert(orbit_router_dispatch(arena, parse(arena, "POST", "/thing")) == NULL);
-    assert(orbit_router_dispatch(arena, parse(arena, "GET", "/other")) == NULL);
+    assert(native_find_route(&service, arena, parse(arena, "POST", "/thing")) == SIZE_MAX);
+    assert(native_find_route(&service, arena, parse(arena, "GET", "/other")) == SIZE_MAX);
     orbit_arena_destroy(arena);
 }
 
-/* A wildcard is one segment here too, because the matcher is the router's. */
 static void test_wildcard_is_one_segment(void) {
-    orbit_router_reset();
-    orbit_router_register("GET", "/files/*", 0, 0, 0, handle_wild);
+    const TestRoute routes[] = {{"/files/*", 1, 0}};
+    unsigned char image[128];
+    OrbitNativeService service = build_service(image, sizeof image, routes, 1);
     OrbitArena* arena = orbit_arena_create(65536);
-    check_body(arena, parse(arena, "GET", "/files/a"), "wild");
-    assert(orbit_router_dispatch(arena, parse(arena, "GET", "/files/a/b")) == NULL);
+    assert(native_find_route(&service, arena, parse(arena, "GET", "/files/a")) == 0);
+    assert(native_find_route(&service, arena, parse(arena, "GET", "/files/a/b")) == SIZE_MAX);
     orbit_arena_destroy(arena);
 }
 
-/* A limit declaration reaches the shared admission table under the path the
- * program wrote; it is not a field only this table keeps. */
 static void test_limit_reaches_admission(void) {
-    orbit_router_reset();
+    const TestRoute routes[] = {{"/limited", 0, 1}};
+    unsigned char image[128];
+    OrbitNativeService service = build_service(image, sizeof image, routes, 1);
     orbit_admission_reset();
     orbit_admission_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1));
-    orbit_router_register("GET", "/limited", 1, 1000, 1, handle_exact);
+    native_register_limits(&service);
     const char* ip = "10.9.9.20";
     assert(orbit_admission_check_route(ip, "GET", "/limited") == true);
     assert(orbit_admission_check_route(ip, "GET", "/limited") == false);
-    orbit_router_reset();
-    assert(orbit_router_count() == 0);
+    orbit_admission_cleanup();
 }
 
 int main(void) {

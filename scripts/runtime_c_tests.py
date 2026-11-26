@@ -90,8 +90,7 @@ PROGRAMS = [
     prog("latency_percentiles", vendor=True),
     prog("ledger_percentiles", vendor=True),
     prog("admission", vendor=True, defines=["-DORBIT_ADMISSION_TEST"]),
-    # The route table a backend with no C emitter registers into. Dispatch
-    # order and captures only; the serve loop is exercised by a live run.
+    # The native route image, its captures and rate-limit registration.
     prog("router", vendor=True),
     prog("json"),
     prog("crypto"),
