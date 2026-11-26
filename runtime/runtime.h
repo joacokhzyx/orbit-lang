@@ -113,7 +113,11 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
 #include "http.c"
 #include "admission.c"
 #include "pulse.c"
+/* TinyCC's single-thread judge can build HTTP clients. The worker pool
+ * requires the atomics and thread-local storage of the server toolchain. */
+#ifndef __TINYC__
 #include "http_server.c"
+#endif
 #endif
 
 /* ── Convenience ────────────────────────────────────────────────────── */
