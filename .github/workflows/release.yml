@@ -14,11 +14,11 @@ permissions:
   contents: read
 
 env:
-  # The R6 commit the Windows release ships as bin/r6.exe (orbit-r6 is MIT,
+  # The R6 commit shipped as bin/r6.exe or bin/r6 (orbit-r6 is MIT,
   # https://github.com/joacokhzyx/orbit-r6). Bump it deliberately: it is the
-  # native backend every Windows user runs, and it has to read the IR of this
+  # native backend and it has to read the IR of this
   # tag's compiler (docs/IR_SPEC.md).
-  R6_COMMIT: "a03daa5ad1bd4746e1f3e5f228ebc43d3d02a3e8"
+  R6_COMMIT: "9bce14dee9b4af7561366b509963027f4c143f8d"
 
   # R6 links with the ld.exe and crt2.o of a w64devkit root, and
   # windows-latest ships none. This is the archive and hash orbit-r6's CI
@@ -176,16 +176,29 @@ jobs:
           Remove-Item -Force hello.exe, hello-c.exe
           Write-Output "[Release] native build, no --backend, printed: $got"
 
-      - name: Build Linux bundle (binary + std/ + runtime/ + lib/)
+      - name: Build R6 for the Linux bundle
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/joacokhzyx/orbit-r6.git r6-src
+          git -C r6-src checkout "$R6_COMMIT"
+          bash r6-src/scripts/build-r6.sh
+          ./r6-src/.r6-build/r6 --version | grep -q 'ir-protocol 3$'
+          python3 scripts/mklib_runtime.py --cc gcc --db --out dist/lib/libruntime_net_db.a
+
+      - name: Build Linux bundle (binaries + std/ + runtime/ + lib/)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           set -euo pipefail
           STAGE="dist/bundle/orbit"
           rm -rf dist/bundle "dist/${{ matrix.asset }}.tar.gz"
-          mkdir -p "$STAGE"
+          mkdir -p "$STAGE/bin"
           cp "dist/${{ matrix.asset }}" "$STAGE/orbit"
           chmod +x "$STAGE/orbit"
+          install -m 755 r6-src/.r6-build/r6 "$STAGE/bin/r6"
+          cp r6-src/LICENSE "$STAGE/bin/LICENSE-r6.txt"
           cp -r std "$STAGE/std"
           cp -r runtime "$STAGE/runtime"
           rm -f "$STAGE"/runtime/test_*.c
@@ -206,7 +219,10 @@ jobs:
           cd "$CHECK"
           ./orbit/orbit build hello.orb -o hello --verbose | tee build.log
           grep -q 'libruntime_net.a' build.log
-          ./hello
+          ./orbit/orbit build hello.orb --backend=native -o hello-native
+          ./hello > c.txt
+          ./hello-native > native.txt
+          cmp c.txt native.txt
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
