@@ -499,11 +499,10 @@ share.
 ## A Windows stop drains through a named channel
 
 Draining works on Windows. The worker loop that finishes adopted and
-queued connections before exiting is not platform-guarded
-(`runtime/http_server.c:73`), and a Windows server registers a
-console handler that requests the stop on `CTRL_C_EVENT` and
-`CTRL_BREAK_EVENT` (`runtime/http_server.c:253-260`, registered at
-`:351`). Ctrl-C on a console `orbit run` therefore drains there as it does
+queued connections before exiting lives in `orbit_worker_loop`, in
+`runtime/http_server.c`. On Windows, `orbit_http_serve` registers
+`orbit_ctrl_handler` to request a stop on `CTRL_C_EVENT` and
+`CTRL_BREAK_EVENT`. Ctrl-C on a console `orbit run` therefore drains there as it does
 elsewhere.
 
 The gap was the ask from another process. `orbit_os_kill` took a mode and
@@ -513,10 +512,8 @@ no console for `GenerateConsoleCtrlEvent` to deliver an event into. The ask is a
 named event now, and the name is the pid, because the pid is all the stopper
 knows:
 
-- the server opens its own channel at start
-  (`runtime/http_server.c:356`);
-- the worker loop polls it after every `select`
-  (`runtime/http_server.c:89`), so a stop is seen within the loop's
+- the server opens its own channel at start in `orbit_http_serve`;
+- `orbit_worker_loop` polls it after every `select`, so a stop is seen within the loop's
   1 s timeout, and the request is the same `orbit_request_stop()` the console
   handler raises;
 - `orbit_os_kill(pid, 1)` asks the child through `orbit_stop_channel_ask`
@@ -532,7 +529,7 @@ Measured through the CLI in three steps: **193 ms** before the wait below was
 fixed, and the service was terminated; **1074 ms** with the wait fixed and no
 channel, and the service was still terminated; **1108 ms** with the channel, and
 the service's own output ends with `Server stopped.` -- the printf that runs only
-after the workers join (`runtime/http_server.c:422`). `cluster down`
+after the workers join in `orbit_http_serve`. `cluster down`
 on one node measures 5.1 s and its `node-0.log` ends with that line too: the
 wait loop steps in whole seconds, so a drain that is over in 1.1 s is noticed on
 the next tick.
