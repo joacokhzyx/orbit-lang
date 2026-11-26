@@ -14,6 +14,38 @@ typedef struct {
     const OrbitHttpServerConfig* config;
 } OrbitHttpWorker;
 
+enum {
+    ORBIT_HTTP_WORKER_CLIENTS = 512,
+    ORBIT_HTTP_INITIAL_BUFFER = 1024,
+    ORBIT_HTTP_MAX_BUFFER = 16384
+};
+
+typedef struct {
+    orbit_socket_t socket;
+    char* buffer;
+    size_t length;
+    size_t capacity;
+    char peer[64];
+} OrbitHttpConnection;
+
+static bool orbit_http_grow_buffer(OrbitHttpConnection* conn) {
+    if (conn->capacity && conn->length + 1 < conn->capacity) return true;
+    size_t capacity = conn->capacity ? conn->capacity * 2 : ORBIT_HTTP_INITIAL_BUFFER;
+    if (capacity > ORBIT_HTTP_MAX_BUFFER) return false;
+    char* grown = realloc(conn->buffer, capacity);
+    if (!grown) return false;
+    conn->buffer = grown;
+    conn->capacity = capacity;
+    return true;
+}
+
+static void orbit_http_remove_connection(OrbitHttpConnection* clients, int* count, int index) {
+    orbit_socket_close(clients[index].socket);
+    free(clients[index].buffer);
+    (*count)--;
+    if (index != *count) clients[index] = clients[*count];
+}
+
 void orbit_admission_peer_ip_string(orbit_socket_t socket, char* out, size_t size) {
     struct sockaddr_storage address;
     socklen_t length = sizeof(address);
@@ -40,34 +72,8 @@ static void* orbit_worker_loop(void* arg) {
      * installed for this worker's lifetime (orbit_request_oom_arm). */
     orbit_request_oom_install();
 
-    orbit_socket_t clients[512];
-    size_t buffered[512];
-    char* buffers[512];
-    /* Per-connection peer IP string, resolved once at adoption: a
-     * connection's peer cannot change, so admission never re-resolves it. */
-    char* peers[512];
+    OrbitHttpConnection clients[ORBIT_HTTP_WORKER_CLIENTS];
     int num_clients = 0;
-
-    /* Thread-local pre-allocated buffer pool to eliminate malloc/free overhead */
-    char* buffer_pool = (char*)malloc(512 * 16384);
-    char* free_buffers[512];
-    for (int j = 0; j < 512; j++) {
-        free_buffers[j] = buffer_pool + j * 16384;
-    }
-    int free_buffers_count = 512;
-    /* A peer string is owned by exactly one live slot or by this
-     * free stack, never both -- the same discipline free_buffers
-     * keeps for buffers[]. Without it, swap-remove copies a
-     * pointer and the next adoption overwrites the peer string of
-     * a connection that is still live. */
-    char* peer_pool = (char*)malloc(512 * 64);
-    char* free_peers[512];
-    for (int j = 0; j < 512; j++) {
-        peers[j] = peer_pool + j * 64;
-        peers[j][0] = '\0';
-        free_peers[j] = peers[j];
-    }
-    int free_peers_count = 512;
     /* Drain: after a stop is requested, finish adopted and queued
      * connections, then exit. New idle connections are dropped. */
     while (!orbit_stop_requested() || num_clients > 0 || !orbit_accept_q_empty(&ctx->q)) {
@@ -78,8 +84,8 @@ static void* orbit_worker_loop(void* arg) {
         if (ctx->wake_recv > max_fd) max_fd = ctx->wake_recv;
 
         for (int i = 0; i < num_clients; i++) {
-            FD_SET(clients[i], &readfds);
-            if (clients[i] > max_fd) max_fd = clients[i];
+            FD_SET(clients[i].socket, &readfds);
+            if (clients[i].socket > max_fd) max_fd = clients[i].socket;
         }
 
         /* Select timeout is bounded to 1s so an idle worker re-checks
@@ -95,15 +101,8 @@ static void* orbit_worker_loop(void* arg) {
                 for (int i = 0; i < num_clients; ) {
                     int optval;
                     int optlen = sizeof(optval);
-                    if (getsockopt(clients[i], SOL_SOCKET, SO_TYPE, (char*)&optval, &optlen) == SOCKET_ERROR) {
-                        orbit_socket_close(clients[i]);
-                        free_buffers[free_buffers_count++] = buffers[i];
-                        clients[i] = clients[num_clients - 1];
-                        buffered[i] = buffered[num_clients - 1];
-                        buffers[i] = buffers[num_clients - 1];
-                        free_peers[free_peers_count++] = peers[i];
-                        peers[i] = peers[num_clients - 1];
-                        num_clients--;
+                    if (getsockopt(clients[i].socket, SOL_SOCKET, SO_TYPE, (char*)&optval, &optlen) == SOCKET_ERROR) {
+                        orbit_http_remove_connection(clients, &num_clients, i);
                     } else {
                         i++;
                     }
@@ -112,15 +111,8 @@ static void* orbit_worker_loop(void* arg) {
 #else
             if (errno == EBADF || errno == ENOTSOCK) {
                 for (int i = 0; i < num_clients; ) {
-                    if (fcntl(clients[i], F_GETFD) == -1) {
-                        orbit_socket_close(clients[i]);
-                        free_buffers[free_buffers_count++] = buffers[i];
-                        clients[i] = clients[num_clients - 1];
-                        buffered[i] = buffered[num_clients - 1];
-                        buffers[i] = buffers[num_clients - 1];
-                        free_peers[free_peers_count++] = peers[i];
-                        peers[i] = peers[num_clients - 1];
-                        num_clients--;
+                    if (fcntl(clients[i].socket, F_GETFD) == -1) {
+                        orbit_http_remove_connection(clients, &num_clients, i);
                     } else {
                         i++;
                     }
@@ -137,29 +129,32 @@ static void* orbit_worker_loop(void* arg) {
         /* Adopt sockets pushed by the acceptor thread (lock-free SPSC). */
         orbit_socket_t new_sock;
         while (orbit_accept_q_pop(&ctx->q, &new_sock)) {
-            if (num_clients < 512 && free_buffers_count > 0) {
-                clients[num_clients] = new_sock;
-                buffered[num_clients] = 0;
-                buffers[num_clients] = free_buffers[--free_buffers_count];
-                peers[num_clients] = free_peers[--free_peers_count];
+            if (num_clients < ORBIT_HTTP_WORKER_CLIENTS) {
+                OrbitHttpConnection* conn = &clients[num_clients++];
+                *conn = (OrbitHttpConnection){ .socket = new_sock };
                 if (worker->config->admission) {
-                    orbit_admission_peer_ip_string(new_sock, peers[num_clients], 64);
+                    orbit_admission_peer_ip_string(new_sock, conn->peer, sizeof(conn->peer));
                 }
-                num_clients++;
             } else {
                 orbit_socket_close(new_sock);
             }
         }
 
         for (int i = 0; i < num_clients; ) {
-            orbit_socket_t client_sock = clients[i];
+            OrbitHttpConnection* conn = &clients[i];
+            orbit_socket_t client_sock = conn->socket;
             int drop = 0;
             /* While draining, drop idle connections: only
              * in-flight requests (buffered bytes) run to completion. */
-            if (orbit_stop_requested() && buffered[i] == 0) drop = 1;
+            if (orbit_stop_requested() && conn->length == 0) drop = 1;
 
             if (FD_ISSET(client_sock, &readfds)) {
-                int received = recv(client_sock, buffers[i] + buffered[i], 16384 - 1 - buffered[i], 0);
+                if (!orbit_http_grow_buffer(conn)) {
+                    orbit_http_remove_connection(clients, &num_clients, i);
+                    continue;
+                }
+                int received = recv(client_sock, conn->buffer + conn->length,
+                                    (int)(conn->capacity - 1 - conn->length), 0);
                 if (received == 0) {
                     drop = 1;
                 } else if (received < 0) {
@@ -170,12 +165,12 @@ static void* orbit_worker_loop(void* arg) {
                     if (errno != EAGAIN && errno != EWOULDBLOCK) drop = 1;
 #endif
                 } else {
-                    buffered[i] += received;
-                    buffers[i][buffered[i]] = 0;
+                    conn->length += received;
+                    conn->buffer[conn->length] = 0;
 
                     int keep_alive = 1;
                     size_t parsed = 0;
-                    while (parsed < buffered[i]) {
+                    while (parsed < conn->length) {
                         size_t consumed = 0;
                         /* The boundary is this frame's: a refusal inside the request below
                          * returns here instead of ending the process, and is answered 503
@@ -193,10 +188,10 @@ static void* orbit_worker_loop(void* arg) {
                             keep_alive = 0;
                             break;
                         }
-                        const char* request = buffers[i] + parsed;
-                        size_t available = buffered[i] - parsed;
+                        const char* request = conn->buffer + parsed;
+                        size_t available = conn->length - parsed;
                         bool close_requested = orbit_http_wants_close(request, available);
-                        int keep = worker->config->request(client_sock, request, available, thread_arena, &consumed, peers[i]);
+                        int keep = worker->config->request(client_sock, request, available, thread_arena, &consumed, conn->peer);
                         orbit_request_oom_disarm();
                         if (!keep) keep_alive = 0;
                         if (consumed == 0) break;
@@ -208,15 +203,15 @@ static void* orbit_worker_loop(void* arg) {
                     }
 
                     if (parsed > 0) {
-                        memmove(buffers[i], buffers[i] + parsed, buffered[i] - parsed);
-                        buffered[i] -= parsed;
+                        memmove(conn->buffer, conn->buffer + parsed, conn->length - parsed);
+                        conn->length -= parsed;
                     }
 
-                    if (buffered[i] == 16384 - 1) {
+                    if (conn->length == ORBIT_HTTP_MAX_BUFFER - 1) {
                         /* The receive buffer is full and no request completed in it:
                          * answer 431 or 413 instead of closing without a word. */
                         orbit_arena_reset(thread_arena);
-                        OrbitResponse* full = orbit_response_or_500(thread_arena, orbit_http_buffer_full_response(thread_arena, buffers[i], buffered[i]));
+                        OrbitResponse* full = orbit_response_or_500(thread_arena, orbit_http_buffer_full_response(thread_arena, conn->buffer, conn->length));
                         orbit_send_response(client_sock, full);
                         drop = 1;
                     }
@@ -227,15 +222,15 @@ static void* orbit_worker_loop(void* arg) {
             }
 
             if (drop) {
-                orbit_socket_close(client_sock);
-                free_buffers[free_buffers_count++] = buffers[i];
-                clients[i] = clients[num_clients - 1];
-                buffered[i] = buffered[num_clients - 1];
-                buffers[i] = buffers[num_clients - 1];
-                free_peers[free_peers_count++] = peers[i];
-                peers[i] = peers[num_clients - 1];
-                num_clients--;
+                orbit_http_remove_connection(clients, &num_clients, i);
             } else {
+                /* Request views have expired when the callback returns.
+                 * Leave idle connections without a receive allocation. */
+                if (conn->buffer && conn->length == 0) {
+                    free(conn->buffer);
+                    conn->buffer = NULL;
+                    conn->capacity = 0;
+                }
                 i++;
             }
         }
@@ -244,8 +239,6 @@ static void* orbit_worker_loop(void* arg) {
             fflush(stdout);
         }
     }
-    free(buffer_pool);
-    free(peer_pool);
     orbit_arena_destroy(thread_arena);
 #ifdef _WIN32
     return 0;

@@ -129,7 +129,7 @@ typedef struct {
 
 The generated server initializes the pool and immediately acquires one arena for startup scratch work (`compiler/emit/route_runtime.orb:376`, `:394-396`). After that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:420`).
 
-Each worker calls `orbit_arena_create` for a private 128 KB arena when it starts (`runtime/http_server.c:38`). It resets the arena before every request (`:186`) and destroys it when the loop ends (`:242`). A per-thread arena needs no lock to acquire, and the thread that handled the request performs the reset.
+Each worker calls `orbit_arena_create` for a private 128 KB arena when it starts in `orbit_worker_loop` in `runtime/http_server.c`. It resets the arena before every request and destroys it when the loop ends. A per-thread arena needs no lock to acquire, and the thread that handled the request performs the reset.
 
 The mechanism that serves requests is `orbit_arena_create` + `orbit_arena_reset` on the worker's own arena, not the pool. Treat the pool as available infrastructure (hand-written C can acquire from it), in the same spirit as `orbit_arena_checkpoint`/`rewind`: real, usable, and outside the generated server's request path.
 
@@ -145,8 +145,8 @@ One arena is process-wide rather than per thread: the fallback `orbit_arena_get_
 by bump pointer. The word "allocator" is correct for the arena.
 
 **The request boundary is a whole-arena reset, not a checkpoint.** The
-connection loop resets the thread arena at
-`runtime/http_server.c:186`, then handles the request at `:196`.
+`orbit_worker_loop` in `runtime/http_server.c` resets the thread
+arena before dispatching each request.
 `orbit_arena_checkpoint` and `orbit_arena_rewind` are the two functions in
 `runtime/arena_checkpoint.c`. A rewind is an $O(1)$ bump-pointer restore, but
 nothing in the tree calls either one outside that file and

@@ -436,9 +436,8 @@ demand. Allocation is a monotonically growing bump pointer. There is no
 per-object free.
 
 **Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
-connection loop calls `orbit_arena_reset(thread_arena)` at
-`runtime/http_server.c:186`, and handles the request at `:196`, so each
-request starts from a reset arena. `orbit_arena_reset` is not O(1) and not a
+`orbit_worker_loop` in `runtime/http_server.c` calls
+`orbit_arena_reset(thread_arena)` before dispatching each request. `orbit_arena_reset` is not O(1) and not a
 rewind: it releases the chained overflow segments and decommits every page past
 the hot retention watermark `ORBIT_ARENA_HOT_RETENTION_LIMIT`
 (`runtime/arena_reset.c:48`), where the
@@ -453,9 +452,9 @@ the counter fields in `runtime/performance.h`. So `arena_checkpoint_count` and
 available to hand-written C. The HTTP path uses whole-arena reset.
 
 The request path does not use the pool. Each worker creates one 128 KB arena
-when its thread starts (`runtime/http_server.c:38`).
-It resets the arena before every request (`:186`) and destroys it when the loop
-ends (`:242`).
+when its thread starts in `orbit_worker_loop`.
+The worker resets the arena before every request and destroys it when the
+loop ends.
 `runtime/arena_pool.c` is initialized for process-startup scratch work only
 (`compiler/emit/route_runtime.orb:376`, `:394-396`) and has no caller on the
 request path.
