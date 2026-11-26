@@ -498,12 +498,12 @@ share.
 
 ## A Windows stop drains through a named channel
 
-Draining works on Windows. The emitted loop that finishes adopted and
+Draining works on Windows. The worker loop that finishes adopted and
 queued connections before exiting is not platform-guarded
-(`compiler/emit/route_runtime.orb:442`), and a Windows server registers a
+(`runtime/http_server.c:73`), and a Windows server registers a
 console handler that requests the stop on `CTRL_C_EVENT` and
-`CTRL_BREAK_EVENT` (`compiler/emit/route_runtime.orb:607-614`, registered at
-`:758`). Ctrl-C on a console `orbit run` therefore drains there as it does
+`CTRL_BREAK_EVENT` (`runtime/http_server.c:253-260`, registered at
+`:351`). Ctrl-C on a console `orbit run` therefore drains there as it does
 elsewhere.
 
 The gap was the ask from another process. `orbit_os_kill` took a mode and
@@ -514,16 +514,16 @@ named event now, and the name is the pid, because the pid is all the stopper
 knows:
 
 - the server opens its own channel at start
-  (`compiler/emit/route_runtime.orb:767`);
+  (`runtime/http_server.c:356`);
 - the worker loop polls it after every `select`
-  (`compiler/emit/route_runtime.orb:460`), so a stop is seen within the loop's
+  (`runtime/http_server.c:89`), so a stop is seen within the loop's
   1 s timeout, and the request is the same `orbit_request_stop()` the console
   handler raises;
 - `orbit_os_kill(pid, 1)` asks the child through `orbit_stop_channel_ask`
   (`runtime/os.c:511`), and when no channel carries that pid it falls back to
   `TerminateProcess` (`runtime/os.c:514`).
 
-POSIX answers 0 from all three calls and keeps SIGTERM, so one emitted code path
+POSIX answers 0 from all three calls and keeps SIGTERM, so one runtime code path
 runs on both hosts with one graceful-stop mechanism each.
 `runtime/test_stop_channel.c` pins the open, the ask, the poll and the
 manual-reset repeat on Windows, and the no-op answers on POSIX.
@@ -532,7 +532,7 @@ Measured through the CLI in three steps: **193 ms** before the wait below was
 fixed, and the service was terminated; **1074 ms** with the wait fixed and no
 channel, and the service was still terminated; **1108 ms** with the channel, and
 the service's own output ends with `Server stopped.` -- the printf that runs only
-after the workers join (`compiler/emit/route_runtime.orb:815`). `cluster down`
+after the workers join (`runtime/http_server.c:422`). `cluster down`
 on one node measures 5.1 s and its `node-0.log` ends with that line too: the
 wait loop steps in whole seconds, so a drain that is over in 1.1 s is noticed on
 the next tick.

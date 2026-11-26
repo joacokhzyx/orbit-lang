@@ -436,8 +436,8 @@ demand. Allocation is a monotonically growing bump pointer. There is no
 per-object free.
 
 **Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
-generated connection loop calls `orbit_arena_reset(thread_arena)` at
-`compiler/emit/route_runtime.orb:538`, and handles the request at `:568`, so each
+connection loop calls `orbit_arena_reset(thread_arena)` at
+`runtime/http_server.c:186`, and handles the request at `:196`, so each
 request starts from a reset arena. `orbit_arena_reset` is not O(1) and not a
 rewind: it releases the chained overflow segments and decommits every page past
 the hot retention watermark `ORBIT_ARENA_HOT_RETENTION_LIMIT`
@@ -453,12 +453,12 @@ the counter fields in `runtime/performance.h`. So `arena_checkpoint_count` and
 available to hand-written C. The HTTP path uses whole-arena reset.
 
 The request path does not use the pool. Each worker creates one 128 KB arena
-when its thread starts (at `compiler/emit/route_runtime.orb:406-407`, where the
-emitted comment is "Each thread owns its private arena - zero pool contention").
-It resets the arena before every request (`:558`) and destroys it when the loop
-ends (`:615`).
+when its thread starts (`runtime/http_server.c:38`).
+It resets the arena before every request (`:186`) and destroys it when the loop
+ends (`:242`).
 `runtime/arena_pool.c` is initialized for process-startup scratch work only
-(`:661`, `:679-681`) and has no caller on the request path.
+(`compiler/emit/route_runtime.orb:376`, `:394-396`) and has no caller on the
+request path.
 
 `runtime/oracle.c` used to implement the *Orbit Arena Oracle*, a per-route
 prediction of how many bytes a route needs. It used EMA with a cold-start sample

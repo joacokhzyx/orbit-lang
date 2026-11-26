@@ -51,7 +51,7 @@ CORE_MODULES = ("perf", "console", "crash",
                 "arena_child", "arena_stats", "arena_global", "arena_pool",
                 "collections", "json", "file", "os", "builtins", "crypto",
                 "selfhost", "energy", "ledger")
-NET_MODULES = ("http", "admission", "pulse")
+NET_MODULES = ("http", "admission", "pulse", "http_server")
 DB_MODULES = ("database", "auth")
 
 # Modules compiled with -DORBIT_WITH_NET (their sources branch on it).

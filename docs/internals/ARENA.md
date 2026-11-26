@@ -127,9 +127,9 @@ typedef struct {
 
 ### The pool is not the request path
 
-The pool serves process **startup** work, not requests. The generated server initializes it and immediately acquires one arena for startup scratch work (`compiler/emit/route_runtime.orb:661`, `:679-681`). After that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:820`). Nothing else in the tree acquires from it, and that is the whole caller list.
+The generated server initializes the pool and immediately acquires one arena for startup scratch work (`compiler/emit/route_runtime.orb:376`, `:394-396`). After that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:420`).
 
-The request path is one private arena per worker thread instead. `orbit_worker_loop` creates a 128 KB arena when the thread starts (the emitted comment is "Each thread owns its private arena - zero pool contention", `:406-407`). It resets the arena before every request (`:558`) and destroys it when the loop ends (`:615`). That is deliberate: a per-thread arena needs no lock to acquire, and the reset cost lands on the thread that caused it.
+Each worker calls `orbit_arena_create` for a private 128 KB arena when it starts (`runtime/http_server.c:38`). It resets the arena before every request (`:186`) and destroys it when the loop ends (`:242`). A per-thread arena needs no lock to acquire, and the thread that handled the request performs the reset.
 
 The mechanism that serves requests is `orbit_arena_create` + `orbit_arena_reset` on the worker's own arena, not the pool. Treat the pool as available infrastructure (hand-written C can acquire from it), in the same spirit as `orbit_arena_checkpoint`/`rewind`: real, usable, and outside the generated server's request path.
 
@@ -145,8 +145,8 @@ One arena is process-wide rather than per thread: the fallback `orbit_arena_get_
 by bump pointer. The word "allocator" is correct for the arena.
 
 **The request boundary is a whole-arena reset, not a checkpoint.** The
-generated connection loop resets the thread arena at
-`compiler/emit/route_runtime.orb:558`, then handles the request at `:568`.
+connection loop resets the thread arena at
+`runtime/http_server.c:186`, then handles the request at `:196`.
 `orbit_arena_checkpoint` and `orbit_arena_rewind` are the two functions in
 `runtime/arena_checkpoint.c`. A rewind is an $O(1)$ bump-pointer restore, but
 nothing in the tree calls either one outside that file and

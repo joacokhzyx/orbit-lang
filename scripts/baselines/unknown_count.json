@@ -4,10 +4,10 @@
   "totals": {
     "unknown_per_mille": 0,
     "silent_per_mille": 0,
-    "instructions": 149684
+    "instructions": 148582
   },
-  "files": 215,
-  "instructions": 149684,
+  "files": 217,
+  "instructions": 148582,
   "context": {
     "unknown_instructions": 3,
     "unknown_without_diagnostic": 0
@@ -194,6 +194,8 @@
     "tests/suite/result_chain.orb": 0,
     "tests/suite/result_in_loop.orb": 0,
     "tests/suite/result_message.orb": 0,
+    "tests/suite/result_parameter.orb": 0,
+    "tests/suite/result_payload_composition.orb": 0,
     "tests/suite/result_payload_int.orb": 0,
     "tests/suite/result_payload_written.orb": 0,
     "tests/suite/result_stage2.orb": 0,

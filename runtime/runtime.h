@@ -113,6 +113,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
 #include "http.c"
 #include "admission.c"
 #include "pulse.c"
+#include "http_server.c"
 #endif
 
 /* ── Convenience ────────────────────────────────────────────────────── */
