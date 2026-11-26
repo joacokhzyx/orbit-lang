@@ -53,11 +53,15 @@ typedef struct {
     char** param_values;
     int param_count;
     int param_capacity;
+    const char* body_view;
 } OrbitRequest;
 
 /** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
 size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error);
+/* Header and body views are valid until the server callback returns. */
+size_t orbit_http_parse_request_view(OrbitArena* arena, const char* raw, size_t raw_len,
+                                     OrbitRequest** out_req, int* out_parse_error);
 /** @brief Match req path against a route pattern (":name", "{name}", ":name..." and "*" segments). Fills path params; false leaves none. */
 bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern);
 

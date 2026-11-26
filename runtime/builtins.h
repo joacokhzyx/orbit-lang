@@ -40,6 +40,7 @@ orbit_string orbit_http_query_get(OrbitArena* arena, OrbitRequest* req, orbit_st
 OrbitList* orbit_http_query_get_all(OrbitArena* arena, OrbitRequest* req, orbit_string key);
 orbit_string orbit_http_param_get(OrbitArena* arena, OrbitRequest* req, orbit_string param_name);
 orbit_string orbit_http_body_get(OrbitArena* arena, OrbitRequest* req);
+orbit_int orbit_http_body_view_len(OrbitArena* arena, OrbitRequest* req);
 orbit_string orbit_json_field(OrbitArena* arena, orbit_string json, orbit_string key);
 
 /* orbit_http_client_fetch lives in runtime/http.c: a real blocking

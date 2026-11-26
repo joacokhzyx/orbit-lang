@@ -124,7 +124,7 @@ static int native_request(orbit_socket_t client, const char* raw, size_t size,
     orbit_perf_start_request();
     OrbitRequest* request = NULL;
     int error = 0;
-    *consumed = orbit_http_parse_request_ex(arena, raw, size, &request, &error);
+    *consumed = orbit_http_parse_request_view(arena, raw, size, &request, &error);
     if (error) {
         orbit_send_response(client, orbit_response_or_500(arena, orbit_http_parse_error_response(arena, error)));
         orbit_perf_end_request(start);

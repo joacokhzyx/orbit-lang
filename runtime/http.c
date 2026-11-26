@@ -168,7 +168,8 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     return orbit_http_parse_request_ex(arena, raw, raw_len, out_req, NULL);
 }
 
-size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error) {
+static size_t orbit_http_parse_request_mode(OrbitArena* arena, const char* raw, size_t raw_len,
+                                            OrbitRequest** out_req, int* out_parse_error, bool borrow) {
     if (out_req) *out_req = NULL;
     
     if (out_parse_error) *out_parse_error = 0;
@@ -306,26 +307,28 @@ size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t ra
     if (!req) return 0;
     memset(req, 0, sizeof(OrbitRequest));
 
-    /* Header block copy for req->headers (auth/header builtins). Arena copy:
-     * the raw buffer is mutated in place below (method/path NULs) and reused
-     * across pipelined requests, so a slice would alias garbage. Stays NULL
-     * when the request carries no header lines. */
+    char* mutable_raw = (char*)raw;
+    /* The first CR of the header delimiter belongs to this request. The
+     * following body and any pipelined requests remain untouched. */
     {
         const char* line1 = memchr(raw, '\n', raw_len);
         if (line1 && line1 + 1 < headers_end) {
             size_t hlen = (size_t)(headers_end - (line1 + 1));
-            char* hcopy = (char*)orbit_alloc(arena, hlen + 1);
-            if (hcopy) {
-                memcpy(hcopy, line1 + 1, hlen);
-                hcopy[hlen] = '\0';
-                req->headers = hcopy;
+            if (borrow) {
+                mutable_raw[headers_end - raw] = '\0';
+                req->headers = mutable_raw + (line1 + 1 - raw);
                 req->headers_len = hlen;
+            } else {
+                char* hcopy = (char*)orbit_alloc(arena, hlen + 1);
+                if (hcopy) {
+                    memcpy(hcopy, line1 + 1, hlen);
+                    hcopy[hlen] = '\0';
+                    req->headers = hcopy;
+                    req->headers_len = hlen;
+                }
             }
         }
     }
-
-    // Zero-Copy Slice Parsing: modify mutable byte stream in-place when safe
-    char* mutable_raw = (char*)raw;
 
     /* Method (until first space) */
     const char* space = memchr(raw, ' ', raw_len);
@@ -358,7 +361,11 @@ size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t ra
 
     /* Body (after \r\n\r\n) */
     req->body_len = content_length;
-    if (req->body_len > 0) {
+    if (borrow && req->body_len > 0) {
+        /* The terminator belongs to the next request when it was pipelined.
+         * Retain the length and let the string API supply its own storage. */
+        req->body_view = body_start;
+    } else if (req->body_len > 0) {
         // Copy the body into the arena with a null terminator instead of
         // writing the terminator into the shared read buffer. With pipelined
         // requests that byte is the first byte of the next request, which the
@@ -380,6 +387,16 @@ size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t ra
 
     if (out_req) *out_req = req;
     return consumed;
+}
+
+size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len,
+                                   OrbitRequest** out_req, int* out_parse_error) {
+    return orbit_http_parse_request_mode(arena, raw, raw_len, out_req, out_parse_error, false);
+}
+
+size_t orbit_http_parse_request_view(OrbitArena* arena, const char* raw, size_t raw_len,
+                                     OrbitRequest** out_req, int* out_parse_error) {
+    return orbit_http_parse_request_mode(arena, raw, raw_len, out_req, out_parse_error, true);
 }
 
 /* â”€â”€ Response builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */

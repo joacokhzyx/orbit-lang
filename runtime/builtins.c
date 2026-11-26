@@ -279,9 +279,24 @@ orbit_string orbit_http_param_get(OrbitArena* arena, OrbitRequest* req, orbit_st
 }
 
 orbit_string orbit_http_body_get(OrbitArena* arena, OrbitRequest* req) {
+    if (!req) return "{}";
+    if (!req->body && req->body_view) {
+        char* text = orbit_alloc(arena, req->body_len + 1);
+        if (!text) return "{}";
+        memcpy(text, req->body_view, req->body_len);
+        text[req->body_len] = '\0';
+        req->body = text;
+    }
+    return req->body ? req->body : "{}";
+}
+
+orbit_int orbit_http_body_view_len(OrbitArena* arena, OrbitRequest* req) {
     (void)arena;
-    if (!req || !req->body) return "{}";
-    return req->body;
+    if (!req) return 2;
+    if (req->body) return (orbit_int)strlen(req->body);
+    if (!req->body_view) return 2;
+    const char* nul = memchr(req->body_view, '\0', req->body_len);
+    return nul ? (orbit_int)(nul - req->body_view) : (orbit_int)req->body_len;
 }
 
 /**
@@ -392,7 +407,9 @@ static const char* orbit_ci_strstr(const char* hay, size_t haylen, const char* n
  * the body is written as length-delimited bytes and the returned path is the
  * contract -- callers can treat the file as saved bytes, not typed data. */
 orbit_string orbit_file_upload_save(OrbitArena* arena, OrbitRequest* req, orbit_string field_name, orbit_string dest_dir) {
-    if (!arena || !req || !req->headers || !req->body) return "";
+    if (!arena || !req || !req->headers) return "";
+    const char* body = req->body_view ? req->body_view : req->body;
+    if (!body) return "";
 
     const char* ct = orbit_ci_strstr(req->headers, req->headers_len, "content-type:");
     if (!ct) return "";
@@ -412,8 +429,8 @@ orbit_string orbit_file_upload_save(OrbitArena* arena, OrbitRequest* req, orbit_
     memcpy(boundary_full + 2, bpos, blen);
     boundary_full[2 + blen] = '\0';
 
-    const char* cur = req->body;
-    const char* body_end = req->body + req->body_len;
+    const char* cur = body;
+    const char* body_end = body + req->body_len;
     while (cur && cur < body_end) {
         /* find the next boundary marker at or after cur */
         const char* m = cur;

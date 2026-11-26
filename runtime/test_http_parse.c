@@ -195,6 +195,39 @@ static void test_http_limits(void) {
         assert(parse_copy(arena, b11, strlen(b11), &rq, &perr) == 0);
         assert(perr == 0);
     }
+    /* A body view ends at the next request, whose first byte stays intact.
+     * The string getter owns a terminated copy for code that stores it. */
+    {
+        char wire[] = "POST /view?q=old HTTP/1.1\r\nHost: orbit\r\n"
+                      "Content-Length: 4\r\n\r\npart"
+                      "GET /next HTTP/1.1\r\nHost: orbit\r\n\r\n";
+        size_t sent = sizeof(wire) - 1;
+        OrbitRequest* viewed = NULL;
+        int error = 0;
+        size_t first = orbit_http_parse_request_view(arena, wire, sent, &viewed, &error);
+        assert(error == 0 && viewed && first > 4 && first < sent);
+        assert(viewed->method == wire && strcmp(viewed->path, "/view") == 0);
+        assert(strcmp(viewed->query, "q=old") == 0);
+        assert(viewed->headers == wire + sizeof("POST /view?q=old HTTP/1.1\r\n") - 1);
+        assert(strcmp(orbit_http_header_get(arena, viewed, "Host"), "orbit") == 0);
+        assert(viewed->body == NULL && viewed->body_len == 4);
+        assert(viewed->body_view == wire + first - 4 && wire[first] == 'G');
+        assert(orbit_http_body_view_len(arena, viewed) == 4 && viewed->body == NULL);
+        wire[first - 2] = '\0';
+        assert(orbit_http_body_view_len(arena, viewed) == 2 && viewed->body == NULL);
+        wire[first - 2] = 'r';
+        const char* text = orbit_http_body_get(arena, viewed);
+        assert(text != viewed->body_view && strcmp(text, "part") == 0);
+        assert(text == orbit_http_body_get(arena, viewed));
+        wire[first - 4] = 'X';
+        assert(strcmp(text, "part") == 0);
+        assert(orbit_http_parse_request_view(arena, wire + first, sent - first,
+                                             &viewed, &error) == sent - first);
+        assert(error == 0 && viewed && strcmp(viewed->path, "/next") == 0);
+        assert(orbit_http_body_view_len(arena, viewed) == 2);
+        assert(strcmp(orbit_http_body_get(arena, viewed), "{}") == 0);
+    }
+
     orbit_arena_destroy(arena);
 }
 
